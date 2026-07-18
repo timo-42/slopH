@@ -62,13 +62,26 @@ class NativeBuildTests(unittest.TestCase):
             script = package / "build.sh"
             script.write_text(f"#!/bin/sh\n: > '{marker}'\n", encoding="ascii")
             script.chmod(0o755)
+            project = root / "project"
+            (project / "src").mkdir(parents=True)
+            (project / "sloph.toml").write_text(
+                'format=0\npackage="demo"\nsource-root="src"\n'
+                'entry="demo::main::main"\ndependencies=["os"]\n',
+                encoding="ascii",
+            )
+            (project / "src" / "main.sloph").write_text(
+                "module demo::main;\n"
+                "import os::process::{Exit};\n"
+                "public fn main() -> Exit { Exit::Success() }\n",
+                encoding="ascii",
+            )
             output = root / "program"
             with patch(
                 "sloph.compiler.build.resolve_bundled_packages",
                 return_value=(("native", package),),
             ):
                 compile_project(
-                    ROOT / "examples" / "hello-world",
+                    project,
                     output,
                     source_version=1,
                 )
