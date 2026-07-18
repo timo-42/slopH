@@ -300,16 +300,16 @@ def _native_boundary() -> tuple[Path, Path]:
     system = platform.system()
     machine = platform.machine().lower()
     if system == "Darwin" and machine == "arm64":
-        provider = root / "platform" / "macos" / "syscall.c"
+        provider = root / "platform" / "macos" / "syscall.S"
     elif system == "Linux" and machine in ("x86_64", "amd64"):
-        provider = root / "platform" / "linux" / "syscall.c"
+        provider = root / "platform" / "linux" / "syscall.S"
     else:
         fail(
             "compiler.c11.unsupported_host", "environment",
             "the experimental native bridge supports only macOS ARM64 and Linux AMD64",
             system=system, machine=machine,
         )
-    return root / "include", provider
+    return provider.parent, provider
 
 
 def _atomic_text(path: Path, content: str) -> None:

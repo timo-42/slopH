@@ -19,7 +19,7 @@
       "pointer_retention": "none",
       "result": "must_use"
     },
-    "header": "include/syscall.h",
+    "header": "syscall.h",
     "identity": "foreign.syscall.posix_write",
     "provenance": "compiler-bundled-reviewed",
     "requires": ["backend.native", "foreign.c", "host.posix.fd-io"],
@@ -39,7 +39,7 @@
       "pointer_retention": "none",
       "result": "must_use"
     },
-    "header": "include/syscall.h",
+    "header": "syscall.h",
     "identity": "foreign.syscall.posix_read",
     "provenance": "compiler-bundled-reviewed",
     "requires": ["backend.native", "foreign.c", "host.posix.fd-io"],
