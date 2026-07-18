@@ -167,11 +167,13 @@ The exact schema and compression format remain deferred. Download entries must
 include:
 
 - artifact kind: canonical source, interface, Core, native object, audit
-  report, or another defined kind;
+  report, Wasm module, JavaScript binding or adapter, TypeScript declaration,
+  source map, or another defined kind;
 - HTTPS URL;
 - exact content hash and byte size;
 - media type and encoding;
 - target, ABI, compiler, Core, and feature identities when applicable;
+- backend and host-profile identities when applicable;
 - deterministic priority or mirror role;
 - optional independent signature identity.
 
@@ -191,6 +193,8 @@ The first registry can use GitHub Release assets to host:
 
 - canonical compressed package archives;
 - optional compiled interfaces, Core, and native accelerators;
+- optional Wasm modules, JavaScript host bindings, TypeScript declarations,
+  and source maps;
 - audit reports and attestations;
 - signed registry metadata snapshots or indexes.
 
@@ -293,3 +297,4 @@ silent substitution.
 - [Package Metadata and Ordered Search Paths](./PACKAGE_SEARCH_PATH.md)
 - [Compiler and Package Infrastructure](../docs/toolchain/INFRASTRUCTURE.md)
 - [Single-Binary Command-Line Interface](../docs/toolchain/CLI.md)
+- [Native and WebAssembly Backends with Inferred Compatibility](./BACKENDS.md)
