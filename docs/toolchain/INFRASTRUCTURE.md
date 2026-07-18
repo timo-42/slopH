@@ -203,6 +203,23 @@ Canonical compressed source and a complete manifest are the portable source of
 truth for a registry package. A conforming compiler must be able to build a
 package when every optional binary artifact is absent or incompatible.
 
+Published archives also carry inert publisher audit claims. The claims are
+untrusted statements covered by the package hash, not evidence that an audit
+profile passed. A registry or library CDN may independently verify them after
+upload and store signed attestations outside the archive, bound to its already
+computed content identity.
+
+Registries also maintain external mutable metadata that cannot be canonical
+package content: upload time, uploader identity, moderation and yank state,
+download statistics, attestation indexes, and presentation data. This layer may
+include clearly labeled AI-generated summaries, keywords, and categories for
+discovery. It never affects program meaning, artifact hashes, or locked build
+output. External version metadata also lists verified download locations with
+mandatory content hashes and sizes. GitHub Release assets may provide the
+initial byte-hosting layer; their URLs are locators, not artifact identities.
+The exploratory design is recorded in
+[Library Registry Metadata and GitHub-Backed CDN](../../idea/LIBRARY_CDN.md).
+
 A registry may additionally distribute the following accelerators:
 
 1. **Compiled module interfaces.** Small, quick-to-load public contracts used
@@ -274,6 +291,14 @@ The compiler validates at the appropriate boundary:
 Signatures prove who published bytes; they do not prove that code is safe or
 correct. The registry and package manager must expose publisher identity,
 checksums, dependency identity, and artifact provenance for auditing.
+
+Publisher claims, registry verification, independent-auditor attestations, and
+mutable registry metadata remain separate provenance sources. A CDN must not
+copy a self-claim into a verified field. AI summaries and keywords are
+informational discovery metadata, not audit evidence. Their records identify
+the package hash and generation model/template, and their generator processes
+untrusted package text without network, publication, signing, or audit
+authority.
 
 Given the same canonical inputs and declared toolchain, compilation must be
 reproducible. Timestamps, absolute workspace paths, directory enumeration

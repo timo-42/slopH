@@ -520,13 +520,26 @@ compiler diagnostics and rebuild explanations.
 <lang> package verify
     [--source-only]
     [--rebuild-artifacts]
+    [--audit-claims]
+    [--audit-attestations]
+    [--downloads]
 
 <lang> package info [NAME]
+    [--presentation publisher|ai|all]
+    [--audits]
+    [--downloads]
     [--format text|json]
 ```
 
 Dependency resolution writes a deterministic lockfile. `--locked` forbids
 changes to it, while `--offline` forbids network access.
+
+`package info` keeps publisher-authored and AI-generated descriptions separate
+and can show audit provenance and verified download locations. `package verify`
+validates self-claims, locally available attestations, and download records
+under explicit trust policy. A publisher claim is never treated as registry
+verification, and a download URL is never accepted without its expected hash
+and size.
 
 ### Publishing
 
@@ -559,6 +572,48 @@ or shell history.
 
 `artifact reproduce` rebuilds an accelerator from canonical inputs and can
 compare its content identity with a published artifact.
+
+## Audit Profiles
+
+```text
+<lang> audit [PATH]
+    --profile NAME[@VERSION]
+    [--profile NAME[@VERSION]]...
+    [--target TRIPLE]
+    [--scope package|application]
+    [--format human|json|sarif]
+    [--evidence none|summary|full]
+    [--evidence-source package|registry|local|all]
+    [--deny conditional|unknown|not-applicable]...
+    [-o PATH]
+
+<lang> audit profile list
+    [--format human|json]
+
+<lang> audit profile show NAME[@VERSION]
+    [--resolved]
+    [--format human|json]
+```
+
+An audit profile is a versioned ordered list of requirement identities,
+parameters, and accepted result states. Requirements report `pass`, `fail`,
+`conditional`, `unknown`, or `not-applicable`; an unproven state never silently
+becomes a pass. Package scope may retain machine-checkable obligations on its
+callers. Application scope resolves the locked graph, generic arguments,
+providers, runtime helpers, target backend, and foreign boundaries before
+attempting to discharge those obligations.
+
+Profiles are resolved from declared and locked inputs without ambient network
+access. Multiple `--profile` options compose their requirements and apply the
+strictest compatible result policy. Conflicting requirement parameters are a
+profile-resolution error rather than an order-dependent choice.
+
+The official Power-of-Ten profile, if admitted, is an evidence-producing SlopH
+interpretation of the original C rules. Its result is not presented as NASA/JPL
+certification. Project profiles may extend it with requirements such as a
+static memory profile, bounded collection capacity, or an FFI allowlist. The
+exploratory design is recorded in
+[Audit Commands and Requirement Profiles](../../idea/AUDIT_PROFILES.md).
 
 ## Cache and Build Output Management
 

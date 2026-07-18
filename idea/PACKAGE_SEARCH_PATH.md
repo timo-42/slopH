@@ -66,6 +66,28 @@ Descriptions, README content, publisher profiles, download counts, and other
 registry presentation data do not affect builds and should not enlarge the
 compiler manifest format. A registry may store them separately.
 
+Every published archive should also contain a bounded inert
+`audit-claims.sloph` self-report. It can lie and is treated as untrusted package
+content. Independent registry/CDN audit attestations live outside the archive
+because they bind its already computed content hash.
+
+External registry metadata includes upload time, uploader and moderation state,
+download statistics, attestation indexes, and AI-generated library summaries
+and search keywords. Generated descriptions record their package hash,
+model/provider, prompt-template version, generation time, and moderation state
+and remain visibly distinct from publisher-authored text. None of this mutable
+metadata participates in package semantics, compatibility, artifact identity,
+or locked build output. See
+[Audit Commands and Requirement Profiles](./AUDIT_PROFILES.md).
+
+Publisher-authored presentation should live in a separate inert
+`publish.sloph` file inside the package rather than enlarging semantic
+`package.sloph`. The registry AI may read safely bounded package content and
+publisher presentation, but writes its own namespaced summary and keywords only
+to external registry metadata. That external version record also supplies
+verified download URLs, hashes, and sizes. See
+[Library Registry Metadata and GitHub-Backed CDN](./LIBRARY_CDN.md).
+
 The parser rejects unknown tags, duplicate singleton fields, incorrect arity,
 unsupported format versions, malformed atoms, and input exceeding explicit
 byte, token, nesting, node, or token-size limits. Diagnostics contain stable
