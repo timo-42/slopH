@@ -272,7 +272,14 @@ def _lower_body(
     lowered: list[tuple[Binder, Any]] = []
     for binding in _sequence(body, "bindings", "lets"):
         value = _lower_expr(scope, binding.value, active, used)
-        binder = _new_binder(scope, binding.binder, active, used)
+        inferred = (
+            _infer_lowered_type(scope, value, active)
+            if _class(binding.binder.type) == "InferredType"
+            else None
+        )
+        binder = _new_binder(
+            scope, binding.binder, active, used, inferred_type=inferred
+        )
         lowered.append((binder, value))
     result = _lower_expr(scope, body.result, active, used)
     for binder, value in reversed(lowered):
@@ -531,6 +538,7 @@ def _new_binder(
     source_binder: Any,
     locals_: dict[str, CoreType],
     used: set[str],
+    inferred_type: CoreType | None = None,
 ) -> Binder:
     name = source_binder.name
     if name in used or name in scope.visible:
@@ -541,10 +549,45 @@ def _new_binder(
             _span(source_binder),
             name=name,
         )
-    type_ = _resolve_type(scope, source_binder.type)
+    type_ = inferred_type or _resolve_type(scope, source_binder.type)
     used.add(name)
     locals_[name] = type_
     return Binder(name, type_, _span(source_binder))
+
+
+def _infer_lowered_type(
+    scope: _Scope, expression: Any, locals_: dict[str, CoreType]
+) -> CoreType:
+    if isinstance(expression, IntExpr): return INT
+    if isinstance(expression, BytesExpr): return NamedType("core::Bytes")
+    if isinstance(expression, LocalExpr): return locals_[expression.name]
+    if isinstance(expression, GlobalExpr):
+        for symbol in scope.visible.values():
+            if symbol.global_name == expression.name:
+                if symbol.kind == "function":
+                    result = _resolve_type(scope, symbol.declaration.result_type)
+                    for parameter in reversed(_sequence(symbol.declaration, "parameters")):
+                        result = FunctionType(_resolve_type(scope, parameter.type), result)
+                    if not _sequence(symbol.declaration, "parameters"):
+                        result = FunctionType(NamedType("core::Unit"), result)
+                    return result
+                return _resolve_type(scope, symbol.declaration.type)
+        raise AssertionError(f"unresolved global {expression.name}")
+    if isinstance(expression, LamExpr):
+        return FunctionType(expression.binder.type, _infer_lowered_type(scope, expression.body, locals_ | {expression.binder.name: expression.binder.type}))
+    if isinstance(expression, AppExpr):
+        function = _infer_lowered_type(scope, expression.function, locals_)
+        if not isinstance(function, FunctionType):
+            fail("project.infer.not_function", "type", "application target is not a function", expression.span)
+        return function.result
+    if isinstance(expression, LetExpr):
+        return _infer_lowered_type(scope, expression.body, locals_ | {expression.binder.name: expression.binder.type})
+    if isinstance(expression, PrimExpr):
+        return NamedType("core::Bool") if expression.name in ("int.equal", "int.less") else INT
+    if isinstance(expression, ConExpr):
+        return NamedType(expression.constructor.rsplit("::", 1)[0])
+    if isinstance(expression, CaseExpr): return expression.result_type
+    raise AssertionError(f"cannot infer {type(expression).__name__}")
 
 
 def _validate_entry(project: Project, unit: CoreUnit) -> None:

@@ -9,7 +9,7 @@ from sloph.syntax.validate import validate_syntax
 __all__ = [
     "Diagnostic", "DiagnosticError", "Span", "Limits", "parse_source", "parse_source_v1",
     "format_source", "syntax_to_json", "syntax_from_json", "validate_syntax",
-    "IntType", "NamedType", "FunctionType", "TypeRef", "Binder", "IntExpr", "BytesExpr", "LocalExpr",
+    "IntType", "NamedType", "FunctionType", "InferredType", "TypeRef", "Binder", "IntExpr", "BytesExpr", "LocalExpr",
     "GlobalExpr", "CallExpr", "LambdaExpr", "ConstructorExpr", "PrimitiveExpr", "LetBinding",
     "Block", "CaseAlternative", "CaseExpr", "Expr", "ImportDecl", "FieldDecl",
     "ConstructorDecl", "TypeDecl", "FunctionDecl", "ValueDecl", "Module",

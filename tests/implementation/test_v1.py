@@ -31,7 +31,7 @@ class SourceV1Tests(unittest.TestCase):
         source = """/* outer /* nested */ comment */
 module demo::main;
 fn answer() -> Int { 42 }
-value main: Int { answer() }
+const main: Int { answer() }
 """
         module = parse_source_v1(source)
         self.assertEqual((), module.functions[0].parameters)
@@ -61,7 +61,7 @@ fn count(item: Nat) -> Int {
     }
   }
 }
-value main: Int { count(Nat::Next(Nat::Next(Nat::Zero()))) }
+const main: Int { count(Nat::Next(Nat::Next(Nat::Zero()))) }
 """
         )
         with tempfile.TemporaryDirectory() as directory:
@@ -82,7 +82,7 @@ fn factorial(n: Int) -> Int {
     Bool::True() => { 1 }
   }
 }
-value main: Int { factorial(6) }
+const main: Int { factorial(6) }
 """
         )
         with tempfile.TemporaryDirectory() as directory:
@@ -98,7 +98,7 @@ value main: Int { factorial(6) }
 fn factorial(n: Int) -> Int
 | 0 => { 1 }
 | n => { n * factorial(n - 1) }
-value main: Int { factorial(6) }
+const main: Int { factorial(6) }
 """
         )
         with tempfile.TemporaryDirectory() as directory:
@@ -116,7 +116,7 @@ value main: Int { factorial(6) }
 
     def test_bytes_are_source_core_and_runtime_values(self) -> None:
         project = self._project(
-            'module demo::main; value main: Bytes { "hello\\n\\x00\\xff" }'
+            'module demo::main; const main: Bytes { "hello\\n\\x00\\xff" }'
         )
         unit = elaborate_project_v1(project)
         core = format_core(unit)
@@ -136,7 +136,10 @@ value main: Int { factorial(6) }
             """module demo::main;
 fn add(left: Int, right: Int) -> Int { left + right }
 fn apply(function: fn(Int) -> Int, item: Int) -> Int { function(item) }
-value main: Int { apply(add(1), 41) }
+const main: Int {
+  let increment = add(1);
+  apply(increment, 41)
+}
 """
         )
         with tempfile.TemporaryDirectory() as directory:
@@ -152,7 +155,7 @@ value main: Int { apply(add(1), 41) }
 fn make_adder(base: Int) -> fn(Int) -> Int {
   fn(item: Int) -> Int { base + item }
 }
-value main: Int { make_adder(40)(2) }
+const main: Int { make_adder(40)(2) }
 """
         )
         with tempfile.TemporaryDirectory() as directory:
