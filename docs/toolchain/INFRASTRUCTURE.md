@@ -342,6 +342,11 @@ are presented.
 
 ## Required Performance Tests
 
+The proposed runner, result schema, environment fingerprint, baseline policy,
+and concrete compiler workload families are described in the exploratory
+[benchmarking design](../../idea/BENCHMARKING.md). Regardless of the eventual
+runner interface, the requirements in this section are mandatory.
+
 The toolchain repository must continuously test at least:
 
 - a representative 200,000-line, 150-library reference project;
