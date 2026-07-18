@@ -50,6 +50,7 @@ class _Scope:
     own: dict[str, _Symbol]
     visible: dict[str, _Symbol]
     constructors: dict[str, tuple[str, Any]]
+    version: int
 
 
 def elaborate_project(
@@ -72,7 +73,7 @@ def elaborate_project_v1(
 
 
 def _elaborate(project: Project, *, version: int) -> CoreUnit:
-    scopes = _build_scopes(project)
+    scopes = _build_scopes(project, version=version)
     enums: list[EnumDecl] = []
     if version == 1:
         enums.extend(
@@ -113,7 +114,7 @@ def _elaborate(project: Project, *, version: int) -> CoreUnit:
     return unit
 
 
-def _build_scopes(project: Project) -> dict[str, _Scope]:
+def _build_scopes(project: Project, *, version: int = 0) -> dict[str, _Scope]:
     scopes: dict[str, _Scope] = {}
     for module in project.modules:
         own: dict[str, _Symbol] = {}
@@ -159,7 +160,7 @@ def _build_scopes(project: Project) -> dict[str, _Scope]:
                             f"{module.name}::{name}::{constructor.name}",
                             constructor,
                         )
-        scopes[module.name] = _Scope(module, own, dict(own), constructors)
+        scopes[module.name] = _Scope(module, own, dict(own), constructors, version)
 
     for module in project.modules:
         scope = scopes[module.name]
@@ -297,13 +298,9 @@ def _lower_expr(
             return LocalExpr(name, span)
         symbol = _resolve_symbol(scope, name, span)
         if symbol.kind == "function":
-            fail(
-                "project.resolve.escaping_function",
-                "resolve",
-                "Source v0 functions may only appear as the direct target of a saturated call",
-                span,
-                function=symbol.global_name,
-            )
+            if scope.version == 1:
+                return GlobalExpr(symbol.global_name, span)
+            fail("project.resolve.escaping_function", "resolve", "Source v0 functions may only appear as the direct target of a saturated call", span, function=symbol.global_name)
         if symbol.kind != "value":
             fail(
                 "project.resolve.expected_value",
@@ -315,6 +312,21 @@ def _lower_expr(
         return GlobalExpr(symbol.global_name, span)
     if kind == "CallExpr":
         target = expression.function
+        if scope.version == 1:
+            if _class(target) in ("LocalExpr", "GlobalExpr") and target.name in locals_:
+                result = LocalExpr(target.name, _span(target))
+            else:
+                result = _lower_expr(scope, target, locals_, used)
+            arguments = _sequence(expression, "arguments", "args")
+            if not arguments:
+                lowered_arguments = (ConExpr("core::Unit::Unit", (), span),)
+            else:
+                lowered_arguments = tuple(
+                    _lower_expr(scope, argument, locals_, used) for argument in arguments
+                )
+            for argument in lowered_arguments:
+                result = AppExpr(result, argument, span)
+            return result
         if _class(target) not in ("LocalExpr", "GlobalExpr"):
             fail(
                 "project.resolve.dynamic_call",
@@ -443,6 +455,11 @@ def _resolve_type(scope: _Scope, source_type: Any) -> CoreType:
                 name=source_type.name,
             )
         return NamedType(symbol.global_name)
+    if _class(source_type) == "FunctionType":
+        return FunctionType(
+            _resolve_type(scope, source_type.parameter),
+            _resolve_type(scope, source_type.result),
+        )
     fail(
         "project.lower.type",
         "lower",

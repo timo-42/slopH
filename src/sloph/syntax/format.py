@@ -4,7 +4,7 @@ from sloph.core.diagnostics import fail
 from sloph.core.limits import Limits
 from sloph.syntax._integer import format_decimal
 from sloph.syntax.model import (
-    Block, BytesExpr, CallExpr, CaseExpr, ConstructorExpr, Expr, GlobalExpr, IntExpr,
+    Block, BytesExpr, CallExpr, CaseExpr, ConstructorExpr, Expr, FunctionType, GlobalExpr, IntExpr,
     IntType, LocalExpr, Module, NamedType, PrimitiveExpr, TypeRef,
 )
 
@@ -12,6 +12,7 @@ from sloph.syntax.model import (
 def _type(value: TypeRef) -> str:
     if isinstance(value, IntType): return "Int"
     if isinstance(value, NamedType): return value.name
+    if isinstance(value, FunctionType): return f"fn({_type(value.parameter)}) -> {_type(value.result)}"
     raise TypeError(f"unknown syntax type: {type(value).__name__}")
 
 

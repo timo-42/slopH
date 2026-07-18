@@ -72,15 +72,17 @@ def validate_profile(unit: CoreUnit, symbol: str) -> None:
     for definition in sorted(unit.definitions, key=lambda item: item.name):
         if definition.name in functions:
             function = functions[definition.name]
-            for binder in function.parameters:
-                if isinstance(binder.type, FunctionType):
-                    _unsupported_type(binder.type, binder.span, "function parameter")
-            if isinstance(_function_result(definition.type), FunctionType):
-                _unsupported_type(definition.type, definition.span, "function result")
-            _check_expression(function.body, definitions, functions)
+            if unit.version == 0:
+                for binder in function.parameters:
+                    if isinstance(binder.type, FunctionType):
+                        _unsupported_type(binder.type, binder.span, "function parameter")
+                if isinstance(_function_result(definition.type), FunctionType):
+                    _unsupported_type(definition.type, definition.span, "function result")
+            _check_expression(function.body, definitions, functions, allow_higher_order=unit.version == 1)
         else:
-            _check_data_type(definition.type, definition.span, "data global")
-            _check_expression(definition.value, definitions, functions)
+            if unit.version == 0:
+                _check_data_type(definition.type, definition.span, "data global")
+            _check_expression(definition.value, definitions, functions, allow_higher_order=unit.version == 1)
 
 
 def emit_c(unit: CoreUnit, symbol: str) -> str:
@@ -158,6 +160,8 @@ def _check_expression(
     expression: Expr,
     definitions: dict[str, Definition],
     functions: dict[str, _Function],
+    *,
+    allow_higher_order: bool = False,
 ) -> None:
     if isinstance(expression, IntExpr):
         if abs(expression.value).bit_length() > MAX_INTEGER_BITS:
@@ -174,7 +178,7 @@ def _check_expression(
     if isinstance(expression, LocalExpr):
         return
     if isinstance(expression, GlobalExpr):
-        if expression.name in functions:
+        if expression.name in functions and not allow_higher_order:
             fail(
                 "backend.c11.function_escape",
                 "backend",
@@ -191,6 +195,10 @@ def _check_expression(
             expression.span,
         )
     if isinstance(expression, AppExpr):
+        if allow_higher_order:
+            _check_expression(expression.function, definitions, functions, allow_higher_order=True)
+            _check_expression(expression.argument, definitions, functions, allow_higher_order=True)
+            return
         target, arguments = _flatten_application(expression)
         if not isinstance(target, GlobalExpr) or target.name not in functions:
             fail(
@@ -212,28 +220,31 @@ def _check_expression(
                 actual=len(arguments),
             )
         for argument in arguments:
-            _check_expression(argument, definitions, functions)
+            _check_expression(argument, definitions, functions, allow_higher_order=allow_higher_order)
         return
     if isinstance(expression, LetExpr):
-        _check_data_type(expression.binder.type, expression.binder.span, "let binding")
-        _check_expression(expression.value, definitions, functions)
-        _check_expression(expression.body, definitions, functions)
+        if not allow_higher_order:
+            _check_data_type(expression.binder.type, expression.binder.span, "let binding")
+        _check_expression(expression.value, definitions, functions, allow_higher_order=allow_higher_order)
+        _check_expression(expression.body, definitions, functions, allow_higher_order=allow_higher_order)
         return
     if isinstance(expression, PrimExpr):
         for argument in expression.arguments:
-            _check_expression(argument, definitions, functions)
+            _check_expression(argument, definitions, functions, allow_higher_order=allow_higher_order)
         return
     if isinstance(expression, ConExpr):
         for field in expression.fields:
-            _check_expression(field, definitions, functions)
+            _check_expression(field, definitions, functions, allow_higher_order=allow_higher_order)
         return
     if isinstance(expression, CaseExpr):
-        _check_data_type(expression.result_type, expression.span, "case result")
-        _check_expression(expression.scrutinee, definitions, functions)
+        if not allow_higher_order:
+            _check_data_type(expression.result_type, expression.span, "case result")
+        _check_expression(expression.scrutinee, definitions, functions, allow_higher_order=allow_higher_order)
         for alternative in expression.alternatives:
             for binder in alternative.binders:
-                _check_data_type(binder.type, binder.span, "case binder")
-            _check_expression(alternative.body, definitions, functions)
+                if not allow_higher_order:
+                    _check_data_type(binder.type, binder.span, "case binder")
+            _check_expression(alternative.body, definitions, functions, allow_higher_order=allow_higher_order)
         return
     raise AssertionError(f"unsupported expression {type(expression)!r}")
 
@@ -260,7 +271,8 @@ typedef struct SlChunk SlChunk;
 struct SlBig { int sign; size_t len; uint32_t limb[]; };
 typedef struct { uint32_t tag; size_t count; SlValue **field; } SlCon;
 typedef struct { size_t len; unsigned char *data; } SlBytes;
-struct SlValue { uint32_t kind; union { SlBig *integer; SlCon con; SlBytes bytes; } as; };
+typedef struct { uint32_t function; size_t arity; size_t count; SlValue **argument; } SlClosure;
+struct SlValue { uint32_t kind; union { SlBig *integer; SlCon con; SlBytes bytes; SlClosure closure; } as; };
 struct SlChunk { SlChunk *next; size_t used; size_t cap; max_align_t align; unsigned char data[]; };
 
 static SlChunk *sl_arena = NULL;
@@ -445,6 +457,22 @@ static SlValue *sl_bytes(const unsigned char *data, size_t len) {
     value->as.bytes.data=len?(unsigned char *)sl_alloc(len):NULL;if(len)memcpy(value->as.bytes.data,data,len);return value;
 }
 
+static SlValue *sl_dispatch(uint32_t function, size_t count, SlValue **argument);
+
+static SlValue *sl_closure(uint32_t function, size_t arity, size_t count, SlValue **argument) {
+    if (++sl_value_count > SL_MAX_VALUES) sl_die("value-node limit exceeded (100000)");
+    SlValue *value=(SlValue *)sl_alloc(sizeof(SlValue));value->kind=3u;value->as.closure.function=function;value->as.closure.arity=arity;value->as.closure.count=count;
+    value->as.closure.argument=count?(SlValue **)sl_alloc(count*sizeof(SlValue *)):NULL;if(count)memcpy(value->as.closure.argument,argument,count*sizeof(SlValue *));return value;
+}
+
+static SlValue *sl_apply(SlValue *function, SlValue *argument) {
+    if(function->kind!=3u)sl_die("application received non-function value");
+    SlClosure *closure=&function->as.closure;if(closure->count>=closure->arity)sl_die("invalid saturated closure");
+    size_t count=closure->count+1u;SlValue **arguments=(SlValue **)sl_alloc(count*sizeof(SlValue *));
+    if(closure->count)memcpy(arguments,closure->argument,closure->count*sizeof(SlValue *));arguments[count-1u]=argument;
+    return count==closure->arity?sl_dispatch(closure->function,count,arguments):sl_closure(closure->function,closure->arity,count,arguments);
+}
+
 static void sl_print_big(const SlBig *value) {
     if (!value->sign) { sl_text("0"); return; }
     uint32_t work[SL_MAX_LIMBS], chunks[SL_DECIMAL_CHUNKS]; size_t len=value->len,count=0u; memcpy(work,value->limb,len*4u);
@@ -475,6 +503,7 @@ class _Emitter:
     def emit(self) -> str:
         output = [_RUNTIME]
         output.append(self._declarations())
+        output.append(self._dispatch())
         output.append(self._printer())
         for name in sorted(self.functions):
             output.append(self._function(self.functions[name]))
@@ -483,7 +512,7 @@ class _Emitter:
                 output.append(self._global(definition))
         entry = self._gid(self.symbol)
         output.append(
-            f"int main(void) {{ (void)&sl_int_literal; (void)&sl_int_add; (void)&sl_int_sub; (void)&sl_int_mul; (void)&sl_int_compare; (void)&sl_con; (void)&sl_bytes; SlValue *result=sl_g{entry}(); sl_print_value(result); sl_char('\\n'); if(fflush(stdout)!=0||ferror(stdout))sl_die(\"stdout write failed\"); sl_destroy(); return 0; }}\n"
+            f"int main(void) {{ (void)&sl_int_literal; (void)&sl_int_add; (void)&sl_int_sub; (void)&sl_int_mul; (void)&sl_int_compare; (void)&sl_con; (void)&sl_bytes; (void)&sl_closure; (void)&sl_apply; SlValue *result=sl_g{entry}(); sl_print_value(result); sl_char('\\n'); if(fflush(stdout)!=0||ferror(stdout))sl_die(\"stdout write failed\"); sl_destroy(); return 0; }}\n"
         )
         return "\n".join(output)
 
@@ -499,6 +528,17 @@ class _Emitter:
                 lines.append(f"static SlValue *sl_g{self._gid(name)}(void);")
         return "\n".join(lines) + "\n"
 
+    def _dispatch(self) -> str:
+        lines = ["static SlValue *sl_dispatch(uint32_t function, size_t count, SlValue **argument) {", "  (void)count;", "  (void)argument;"]
+        lines.append("  switch(function){")
+        for name in sorted(self.functions):
+            function = self.functions[name]
+            arguments = ", ".join(f"argument[{index}u]" for index in range(len(function.parameters)))
+            lines.append(f"  case {self._gid(name)}u: if(count!={len(function.parameters)}u)sl_die(\"closure arity mismatch\");return sl_f{self._gid(name)}({arguments});")
+        lines.append("  default:sl_die(\"unknown closure function\");}")
+        lines.append("  return NULL;\n}\n")
+        return "\n".join(lines)
+
     def _printer(self) -> str:
         cases = []
         for name, tag in sorted(self.constructor_ids.items(), key=lambda item: item[1]):
@@ -510,6 +550,7 @@ class _Emitter:
             "  if(++sl_print_depth>SL_MAX_DEPTH)sl_die(\"print depth exceeds 4096\");\n"
             "  if(value->kind==0u){sl_text(\"(int \");sl_print_big(value->as.integer);sl_char(')');--sl_print_depth;return;}\n"
             "  if(value->kind==2u){static const char h[]=\"0123456789abcdef\";sl_text(\"(bytes x\");for(size_t i=0u;i<value->as.bytes.len;++i){char b[2]={h[value->as.bytes.data[i]>>4u],h[value->as.bytes.data[i]&15u]};sl_write(b,2u);}sl_char(')');--sl_print_depth;return;}\n"
+            "  if(value->kind==3u)sl_die(\"function values are not printable\");\n"
             f"  switch(value->as.con.tag){{{switch} default:sl_die(\"invalid constructor tag\");}}\n"
             "  for(size_t i=0u;i<value->as.con.count;++i){sl_char(' ');sl_print_node(value->as.con.field[i]);}sl_char(')');--sl_print_depth;\n"
             "}\n"
@@ -569,10 +610,18 @@ class _Emitter:
             return result
         if isinstance(expression, LocalExpr): return environment[expression.name]
         if isinstance(expression, GlobalExpr):
-            result=self._new(); lines.append(f"{indent}SlValue *{result}=sl_g{self._gid(expression.name)}();"); return result
+            result=self._new()
+            if expression.name in self.functions:
+                lines.append(f"{indent}SlValue *{result}=sl_closure({self._gid(expression.name)}u,{len(self.functions[expression.name].parameters)}u,0u,NULL);")
+            else:
+                lines.append(f"{indent}SlValue *{result}=sl_g{self._gid(expression.name)}();")
+            return result
         if isinstance(expression, AppExpr):
-            target,args=_flatten_application(expression); values=[self._expr(item,environment,lines,indent) for item in args]
-            result=self._new(); lines.append(f"{indent}SlValue *{result}=sl_f{self._gid(target.name)}({', '.join(values)});"); return result
+            if self.unit.version == 0:
+                target,args=_flatten_application(expression); values=[self._expr(item,environment,lines,indent) for item in args]
+                result=self._new(); lines.append(f"{indent}SlValue *{result}=sl_f{self._gid(target.name)}({', '.join(values)});"); return result
+            function=self._expr(expression.function,environment,lines,indent); argument=self._expr(expression.argument,environment,lines,indent)
+            result=self._new(); lines.append(f"{indent}SlValue *{result}=sl_apply({function},{argument});"); return result
         if isinstance(expression, LetExpr):
             value=self._expr(expression.value,environment,lines,indent); lines.append(f"{indent}(void){value};"); local=dict(environment); local[expression.binder.name]=value; return self._expr(expression.body,local,lines,indent)
         if isinstance(expression, PrimExpr):
