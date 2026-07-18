@@ -23,6 +23,7 @@ from sloph.core.model import (
     GlobalExpr,
     IntExpr,
     IntType,
+    BytesType,
     LamExpr,
     LetExpr,
     LocalExpr,
@@ -155,6 +156,8 @@ def _definition_size(definition: Definition) -> int:
 def _type_size(type_: CoreType) -> int:
     if isinstance(type_, IntType):
         return len("Int")
+    if isinstance(type_, BytesType):
+        return len("Bytes")
     if isinstance(type_, NamedType):
         return _list_size((len("named"), len(type_.name)))
     if isinstance(type_, TypeVariable):
@@ -375,6 +378,8 @@ def _definition_form(definition: Definition, version: int) -> Form:
 def _type_form(type_: CoreType) -> Form:
     if isinstance(type_, IntType):
         return "Int"
+    if isinstance(type_, BytesType):
+        return "Bytes"
     if isinstance(type_, NamedType):
         return ("named", type_.name)
     if isinstance(type_, TypeVariable):

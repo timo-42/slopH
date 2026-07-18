@@ -6,6 +6,7 @@ from typing import Any
 
 from sloph.core.diagnostics import Span, UNKNOWN_SPAN, fail
 from sloph.core.model import (
+    BYTES,
     INT,
     Alternative,
     AppliedType,
@@ -33,6 +34,7 @@ from sloph.core.model import (
     TypeExpr,
     TypeVariable,
 )
+from sloph.core.primitives import FIXED_PRIMITIVES
 from sloph.core.validate import validate
 from sloph.core.limits import Limits
 from sloph.project.load import load_project
@@ -54,6 +56,7 @@ class _Scope:
     module: ProjectModule
     own: dict[str, _Symbol]
     visible: dict[str, _Symbol]
+    exports: dict[str, _Symbol]
     constructors: dict[str, tuple[str, Any]]
     version: int
     foreign_bindings: dict[str, Any]
@@ -83,20 +86,12 @@ def elaborate_project_v1(
 def _elaborate(project: Project, *, version: int) -> CoreUnit:
     scopes = _build_scopes(project, version=version)
     enums: list[EnumDecl] = []
-    if version >= 1:
-        enums.extend(
-            (
-                EnumDecl(
-                    "core::Bytes",
-                    (),
-                ),
-            )
-        )
     definitions: list[Definition] = []
     for module in project.modules:
         scope = scopes[module.name]
         for declaration in _sequence(module.syntax, "types"):
-            enums.append(_lower_enum(scope, declaration))
+            if _class(declaration) == "TypeDecl":
+                enums.append(_lower_enum(scope, declaration))
         for declaration in _sequence(module.syntax, "functions"):
             definitions.append(_lower_function(scope, declaration, version=version))
         for declaration in _sequence(module.syntax, "values"):
@@ -125,7 +120,32 @@ def _build_scopes(project: Project, *, version: int = 0) -> dict[str, _Scope]:
         )
         for kind, declarations in groups:
             for declaration in declarations:
+                actual_kind = "intrinsic_type" if _class(declaration) == "IntrinsicTypeDecl" else kind
                 name = declaration.name
+                if actual_kind == "intrinsic_type" and (
+                    not module.bundled
+                    or module.name != "core"
+                    or name not in {"Int", "Bytes"}
+                ):
+                    fail(
+                        "project.resolve.trusted_intrinsic",
+                        "resolve",
+                        "intrinsic types are restricted to the canonical core package",
+                        _span(declaration),
+                        module=module.name,
+                        type=name,
+                    )
+                if _class(declaration) == "IntrinsicFunctionDecl" and (
+                    not module.bundled or not module.name.startswith("core::")
+                ):
+                    fail(
+                        "project.resolve.trusted_intrinsic",
+                        "resolve",
+                        "intrinsic functions are restricted to canonical core modules",
+                        _span(declaration),
+                        module=module.name,
+                        function=name,
+                    )
                 if name in own:
                     fail(
                         "project.resolve.declaration_collision",
@@ -138,12 +158,12 @@ def _build_scopes(project: Project, *, version: int = 0) -> dict[str, _Scope]:
                 own[name] = _Symbol(
                     name,
                     f"{module.name}::{name}",
-                    kind,
+                    actual_kind,
                     declaration,
                     module.name,
                     bool(getattr(declaration, "public", False)),
                 )
-                if kind == "type":
+                if actual_kind == "type":
                     seen: set[str] = set()
                     for constructor in _sequence(declaration, "constructors"):
                         if constructor.name in seen:
@@ -160,10 +180,49 @@ def _build_scopes(project: Project, *, version: int = 0) -> dict[str, _Scope]:
                             constructor,
                         )
         scopes[module.name] = _Scope(
-            module, own, dict(own), constructors, version, foreign_bindings, {}, {}
+            module,
+            own,
+            dict(own),
+            {name: symbol for name, symbol in own.items() if symbol.public},
+            constructors,
+            version,
+            foreign_bindings,
+            {},
+            {},
         )
 
-    core_scope = scopes.get("core")
+    core_scope = scopes.get("sloph")
+    intrinsic_scope = scopes.get("core")
+    if version >= 1 and (
+        intrinsic_scope is None
+        or {name for name, symbol in intrinsic_scope.own.items() if symbol.kind == "intrinsic_type"}
+        != {"Int", "Bytes"}
+    ):
+        fail("project.resolve.intrinsic_catalog", "resolve", "the core package must declare exactly Int and Bytes intrinsic types")
+    if version >= 1:
+        expected_bindings = {
+            "int.add": "core::int::add",
+            "int.sub": "core::int::sub",
+            "int.mul": "core::int::mul",
+            "int.equal": "core::int::equal",
+            "int.less": "core::int::less",
+            "int.to_bytes": "core::int::to_bytes",
+            "bytes.length": "core::bytes::length",
+            "runtime.trap": "core::runtime::trap",
+        }
+        actual_bindings: dict[str, str] = {}
+        for scope in scopes.values():
+            for symbol in scope.own.values():
+                if _class(symbol.declaration) != "IntrinsicFunctionDecl":
+                    continue
+                identity = symbol.declaration.intrinsic
+                if identity in actual_bindings:
+                    fail("project.resolve.intrinsic_catalog", "resolve", f"Core primitive {identity!r} is bound more than once", _span(symbol.declaration), intrinsic=identity)
+                if not symbol.public:
+                    fail("project.resolve.intrinsic_catalog", "resolve", "Core intrinsic bindings must be public", _span(symbol.declaration), intrinsic=identity)
+                actual_bindings[identity] = symbol.global_name
+        if actual_bindings != expected_bindings:
+            fail("project.resolve.intrinsic_catalog", "resolve", "the core package does not expose the complete fixed primitive catalog", expected=expected_bindings, actual=actual_bindings)
     for scope in scopes.values():
         scope.scopes = scopes
     if core_scope is not None:
@@ -175,18 +234,34 @@ def _build_scopes(project: Project, *, version: int = 0) -> dict[str, _Scope]:
             for name, symbol in core_types.items():
                 declaration = symbol.declaration
                 for constructor in _sequence(declaration, "constructors"):
-                    value = (f"core::{name}::{constructor.name}", constructor)
+                    value = (f"sloph::{name}::{constructor.name}", constructor)
                     scope.constructors.setdefault(f"{name}::{constructor.name}", value)
-                    scope.constructors.setdefault(f"core::{name}::{constructor.name}", value)
+                    scope.constructors.setdefault(f"sloph::{name}::{constructor.name}", value)
 
     for module in project.modules:
         scope = scopes[module.name]
+        if module.name.split("::", 1)[0] not in {"sloph", "core", "prelude"}:
+            prelude = scopes.get("prelude")
+            if prelude is not None:
+                for name, symbol in prelude.exports.items():
+                    if name in scope.visible:
+                        fail("project.resolve.import_collision", "resolve", f"prelude name {name!r} collides in module {module.name!r}", module=module.name, name=name)
+                    scope.visible[name] = symbol
         for import_decl in _sequence(module.syntax, "imports"):
             imported_module = _import_module(import_decl)
             target = scopes[imported_module]
             for name in _sequence(import_decl, "names"):
-                symbol = target.own.get(name)
+                symbol = target.exports.get(name)
                 if symbol is None:
+                    private = target.own.get(name)
+                    if private is not None and not private.public:
+                        fail(
+                            "project.resolve.private_import",
+                            "resolve",
+                            f"declaration {private.global_name!r} is private",
+                            _span(import_decl),
+                            declaration=private.global_name,
+                        )
                     fail(
                         "project.resolve.unknown_import",
                         "resolve",
@@ -213,6 +288,10 @@ def _build_scopes(project: Project, *, version: int = 0) -> dict[str, _Scope]:
                         name=name,
                     )
                 scope.visible[name] = symbol
+                if bool(getattr(import_decl, "public", False)):
+                    if name in scope.exports:
+                        fail("project.resolve.export_collision", "resolve", f"re-exported name {name!r} collides in module {module.name!r}", _span(import_decl), module=module.name, name=name)
+                    scope.exports[name] = symbol
                 if symbol.kind == "type":
                     owner_scope = scopes[symbol.module]
                     prefix = symbol.name + "::"
@@ -243,6 +322,7 @@ def _lower_function(scope: _Scope, declaration: Any, *, version: int = 0) -> Def
     parameters = _sequence(declaration, "parameters")
     type_parameters = tuple(getattr(declaration, "type_parameters", ()))
     type_variables = set(type_parameters)
+    declaration_kind = _class(declaration)
     if not parameters and version == 0:
         fail(
             "project.resolve.zero_parameter_function",
@@ -261,14 +341,29 @@ def _lower_function(scope: _Scope, declaration: Any, *, version: int = 0) -> Def
     used: set[str] = set()
     binders: list[Binder] = []
     if not parameters:
-        unit = NamedType("core::Unit")
+        unit = NamedType("sloph::Unit")
         type_ = FunctionType(unit, type_)
         binders.append(Binder("_unit", unit, _span(declaration)))
         used.add("_unit")
     for parameter in parameters:
         binder = _new_binder(scope, parameter, locals_, used, type_variables=type_variables)
         binders.append(binder)
-    expression = _lower_body(scope, declaration.body, locals_, used, type_variables)
+    if declaration_kind == "IntrinsicFunctionDecl":
+        if not scope.module.bundled or not scope.module.name.startswith("core::"):
+            fail("project.resolve.trusted_intrinsic", "resolve", "intrinsic declarations are restricted to bundled core modules", _span(declaration), module=scope.module.name)
+        signature = FIXED_PRIMITIVES.get(declaration.intrinsic)
+        declared = (tuple(binder.type for binder in binders), result)
+        if signature is None or signature != declared:
+            fail("project.resolve.intrinsic_signature", "resolve", "intrinsic declaration does not match the fixed Core catalog", _span(declaration), intrinsic=declaration.intrinsic)
+        expression = PrimExpr(declaration.intrinsic, tuple(LocalExpr(binder.name, binder.span) for binder in binders), _span(declaration))
+    elif declaration_kind == "ForeignFunctionDecl":
+        binding = scope.foreign_bindings.get(declaration.binding)
+        declared = (tuple(binder.type for binder in binders), result)
+        if binding is None or binding.provider != scope.module.name or (binding.parameters, binding.result) != declared:
+            fail("project.resolve.foreign_signature", "resolve", "foreign declaration does not match its module provider metadata", _span(declaration), binding=declaration.binding, module=scope.module.name)
+        expression = PrimExpr(declaration.binding, tuple(LocalExpr(binder.name, binder.span) for binder in binders), _span(declaration))
+    else:
+        expression = _lower_body(scope, declaration.body, locals_, used, type_variables)
     for binder in reversed(binders):
         expression = LamExpr(binder, expression, _span(declaration))
     for type_parameter in reversed(type_parameters):
@@ -324,6 +419,17 @@ def _lower_expr(
         return IntExpr(expression.value, span)
     if kind == "BytesExpr":
         return BytesExpr(expression.value, span)
+    if kind == "BinaryExpr":
+        identity = {
+            "+": "core::int::add",
+            "-": "core::int::sub",
+            "*": "core::int::mul",
+            "==": "core::int::equal",
+            "<": "core::int::less",
+        }[expression.operator]
+        left = _lower_expr(scope, expression.left, locals_, used, type_variables)
+        right = _lower_expr(scope, expression.right, locals_, used, type_variables)
+        return AppExpr(AppExpr(GlobalExpr(identity, span), left, span), right, span)
     if kind in ("LocalExpr", "GlobalExpr"):
         name = expression.name
         if name in locals_:
@@ -371,7 +477,7 @@ def _lower_expr(
                 result = AppExpr(result, TypeExpr(_resolve_type(scope, source_type, type_variables), _span(source_type)), span)
             arguments = _sequence(expression, "arguments", "args")
             if not arguments:
-                lowered_arguments = (ConExpr("core::Unit::Unit", (), span),)
+                lowered_arguments = (ConExpr("sloph::Unit::Unit", (), span),)
             else:
                 lowered_arguments = tuple(
                     _lower_expr(scope, argument, locals_, used, type_variables) for argument in arguments
@@ -417,7 +523,7 @@ def _lower_expr(
             )
         result = GlobalExpr(symbol.global_name, _span(target))
         if expected == 0:
-            return AppExpr(result, ConExpr("core::Unit::Unit", (), span), span)
+            return AppExpr(result, ConExpr("sloph::Unit::Unit", (), span), span)
         for argument in arguments:
             result = AppExpr(
                 result, _lower_expr(scope, argument, locals_, used, type_variables), span
@@ -428,7 +534,7 @@ def _lower_expr(
         binders: list[Binder] = []
         parameters = _sequence(expression, "parameters")
         if not parameters:
-            unit = NamedType("core::Unit")
+            unit = NamedType("sloph::Unit")
             binders.append(Binder("_unit", unit, span))
         for parameter in parameters:
             binders.append(_new_binder(scope, parameter, active, used, type_variables=type_variables))
@@ -453,8 +559,8 @@ def _lower_expr(
             condition,
             then_type,
             (
-                Alternative("core::Bool::False", (), else_body, span),
-                Alternative("core::Bool::True", (), then_body, span),
+                Alternative("sloph::Bool::False", (), else_body, span),
+                Alternative("sloph::Bool::True", (), then_body, span),
             ),
             span,
         )
@@ -561,14 +667,14 @@ def _resolve_type(scope: _Scope, source_type: Any, type_variables: set[str] | No
     if _class(source_type) == "NamedType":
         if source_type.name in type_variables:
             return TypeVariable(source_type.name)
-        if source_type.name in ("Bool", "core::Bool"):
-            return NamedType("core::Bool")
-        if source_type.name in ("Unit", "core::Unit"):
-            return NamedType("core::Unit")
+        if source_type.name in ("Bool", "sloph::Bool"):
+            return NamedType("sloph::Bool")
+        if source_type.name in ("Unit", "sloph::Unit"):
+            return NamedType("sloph::Unit")
         if source_type.name in ("Bytes", "core::Bytes"):
-            return NamedType("core::Bytes")
+            return BYTES
         symbol = _resolve_type_symbol(scope, source_type.name, _span(source_type))
-        if symbol.kind != "type":
+        if symbol.kind not in ("type", "intrinsic_type"):
             fail(
                 "project.resolve.expected_type",
                 "resolve",
@@ -579,6 +685,12 @@ def _resolve_type(scope: _Scope, source_type: Any, type_variables: set[str] | No
         expected = len(getattr(symbol.declaration, "type_parameters", ()))
         if expected:
             fail("project.resolve.type_argument_arity", "resolve", f"type {symbol.global_name!r} expects {expected} type arguments, got 0", _span(source_type), type=symbol.global_name, expected=expected, actual=0)
+        if symbol.kind == "intrinsic_type":
+            if symbol.global_name == "core::Int":
+                return INT
+            if symbol.global_name == "core::Bytes":
+                return BYTES
+            raise AssertionError(f"unknown intrinsic type {symbol.global_name}")
         return NamedType(symbol.global_name)
     if _class(source_type) == "AppliedType":
         symbol = _resolve_type_symbol(scope, source_type.constructor, _span(source_type))
@@ -622,22 +734,22 @@ def _resolve_symbol(scope: _Scope, name: str, span: Span) -> _Symbol:
 
 
 def _resolve_type_symbol(scope: _Scope, name: str, span: Span) -> _Symbol:
-    short = name.removeprefix("core::")
+    short = name.removeprefix("sloph::")
     if "::" not in name and short in scope.visible:
         return scope.visible[short]
-    if ("::" not in name or name.startswith("core::")) and "::" not in short and short in scope.core_types:
+    if ("::" not in name or name.startswith("sloph::")) and "::" not in short and short in scope.core_types:
         return scope.core_types[short]
     return _resolve_symbol(scope, name, span)
 
 
 def _resolve_constructor(scope: _Scope, name: str, span: Span) -> tuple[str, Any, Any]:
     builtins = {
-        "Bool::False": ("core::Bool::False", ()),
-        "Bool::True": ("core::Bool::True", ()),
-        "core::Bool::False": ("core::Bool::False", ()),
-        "core::Bool::True": ("core::Bool::True", ()),
-        "Unit::Unit": ("core::Unit::Unit", ()),
-        "core::Unit::Unit": ("core::Unit::Unit", ()),
+        "Bool::False": ("sloph::Bool::False", ()),
+        "Bool::True": ("sloph::Bool::True", ()),
+        "sloph::Bool::False": ("sloph::Bool::False", ()),
+        "sloph::Bool::True": ("sloph::Bool::True", ()),
+        "Unit::Unit": ("sloph::Unit::Unit", ()),
+        "sloph::Unit::Unit": ("sloph::Unit::Unit", ()),
     }
     if name in builtins:
         global_name, fields = builtins[name]
@@ -696,20 +808,22 @@ def _infer_lowered_type(
     scope: _Scope, expression: Any, locals_: dict[str, CoreType]
 ) -> CoreType:
     if isinstance(expression, IntExpr): return INT
-    if isinstance(expression, BytesExpr): return NamedType("core::Bytes")
+    if isinstance(expression, BytesExpr): return BYTES
     if isinstance(expression, LocalExpr): return locals_[expression.name]
     if isinstance(expression, GlobalExpr):
-        for symbol in scope.visible.values():
-            if symbol.global_name == expression.name:
+        for defining_scope in scope.scopes.values():
+            for symbol in defining_scope.own.values():
+                if symbol.global_name != expression.name:
+                    continue
                 if symbol.kind == "function":
-                    defining_scope = scope.scopes[symbol.module]
+                    symbol_scope = scope.scopes[symbol.module]
                     parameters = tuple(getattr(symbol.declaration, "type_parameters", ()))
                     variables = set(parameters)
-                    result = _resolve_type(defining_scope, symbol.declaration.result_type, variables)
+                    result = _resolve_type(symbol_scope, symbol.declaration.result_type, variables)
                     for parameter in reversed(_sequence(symbol.declaration, "parameters")):
-                        result = FunctionType(_resolve_type(defining_scope, parameter.type, variables), result)
+                        result = FunctionType(_resolve_type(symbol_scope, parameter.type, variables), result)
                     if not _sequence(symbol.declaration, "parameters"):
-                        result = FunctionType(NamedType("core::Unit"), result)
+                        result = FunctionType(NamedType("sloph::Unit"), result)
                     for parameter in reversed(parameters):
                         result = ForAllType(parameter, result)
                     return result
@@ -731,10 +845,10 @@ def _infer_lowered_type(
     if isinstance(expression, LetExpr):
         return _infer_lowered_type(scope, expression.body, locals_ | {expression.binder.name: expression.binder.type})
     if isinstance(expression, PrimExpr):
-        if expression.name in ("int.equal", "int.less"): return NamedType("core::Bool")
-        if expression.name == "int.to_bytes": return NamedType("core::Bytes")
+        if expression.name in ("int.equal", "int.less"): return NamedType("sloph::Bool")
+        if expression.name == "int.to_bytes": return BYTES
         if expression.name == "bytes.length": return INT
-        if expression.name == "runtime.trap": return NamedType("core::Unit")
+        if expression.name == "runtime.trap": return NamedType("sloph::Unit")
         binding = scope.foreign_bindings.get(expression.name)
         if binding is not None: return binding.result
         return INT
@@ -757,7 +871,7 @@ def _validate_entry(project: Project, unit: CoreUnit) -> None:
         )
     if isinstance(entry.type, FunctionType):
         expected = FunctionType(
-            NamedType("core::Unit"), NamedType("os::process::Exit")
+            NamedType("sloph::Unit"), NamedType("os::process::Exit")
         )
         if unit.version != 2 or entry.type != expected:
             fail(

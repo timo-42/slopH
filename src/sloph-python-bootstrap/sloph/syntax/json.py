@@ -24,6 +24,7 @@ def _encode(value: Any) -> dict[str, Any]:
     if isinstance(value, BytesExpr): return common | {"hex": value.value.hex()}
     if isinstance(value, (LocalExpr, GlobalExpr)): return common | {"name": value.name}
     if isinstance(value, CallExpr): return common | {"function": _encode(value.function), "arguments": [_encode(x) for x in value.arguments], "type_arguments": [_encode(x) for x in value.type_arguments]}
+    if isinstance(value, BinaryExpr): return common | {"operator": value.operator, "left": _encode(value.left), "right": _encode(value.right)}
     if isinstance(value, LambdaExpr): return common | {"parameters": [_encode(x) for x in value.parameters], "result_type": _encode(value.result_type), "body": _encode(value.body)}
     if isinstance(value, IfExpr): return common | {"condition": _encode(value.condition), "then_body": _encode(value.then_body), "else_body": _encode(value.else_body)}
     if isinstance(value, ConstructorExpr): return common | {"constructor": value.constructor, "arguments": [_encode(x) for x in value.arguments], "type_arguments": [_encode(x) for x in value.type_arguments]}
@@ -32,7 +33,10 @@ def _encode(value: Any) -> dict[str, Any]:
     if isinstance(value, Block): return common | {"bindings": [_encode(x) for x in value.bindings], "result": _encode(value.result)}
     if isinstance(value, CaseAlternative): return common | {"constructor": value.constructor, "binders": [_encode(x) for x in value.binders], "body": _encode(value.body)}
     if isinstance(value, CaseExpr): return common | {"scrutinee": _encode(value.scrutinee), "result_type": _encode(value.result_type), "alternatives": [_encode(x) for x in value.alternatives]}
-    if isinstance(value, ImportDecl): return common | {"module": value.module, "names": list(value.names)}
+    if isinstance(value, ImportDecl):
+        result = common | {"module": value.module, "names": list(value.names)}
+        if value.public: result["public"] = True
+        return result
     if isinstance(value, TargetConstantPattern): return common | {"name": value.name}
     if isinstance(value, TargetTuplePattern): return common | {"items": [_encode(x) for x in value.items]}
     if isinstance(value, Availability): return common | {"selector": value.selector, "pattern": _encode(value.pattern)}
@@ -41,7 +45,10 @@ def _encode(value: Any) -> dict[str, Any]:
     if isinstance(value, FieldDecl): return common | {"name": value.name, "type": _encode(value.type)}
     if isinstance(value, ConstructorDecl): return common | {"name": value.name, "fields": [_encode(x) for x in value.fields]}
     if isinstance(value, TypeDecl): return common | {"name": value.name, "constructors": [_encode(x) for x in value.constructors], "public": value.public, "type_parameters": list(value.type_parameters)}
+    if isinstance(value, IntrinsicTypeDecl): return common | {"name": value.name, "public": value.public}
     if isinstance(value, FunctionDecl): return common | {"name": value.name, "parameters": [_encode(x) for x in value.parameters], "result_type": _encode(value.result_type), "body": _encode(value.body), "public": value.public, "type_parameters": list(value.type_parameters)}
+    if isinstance(value, IntrinsicFunctionDecl): return common | {"name": value.name, "parameters": [_encode(x) for x in value.parameters], "result_type": _encode(value.result_type), "intrinsic": value.intrinsic, "public": value.public}
+    if isinstance(value, ForeignFunctionDecl): return common | {"name": value.name, "parameters": [_encode(x) for x in value.parameters], "result_type": _encode(value.result_type), "binding": value.binding, "public": value.public}
     if isinstance(value, ValueDecl): return common | {"name": value.name, "type": _encode(value.type), "value": _encode(value.value), "public": value.public}
     if isinstance(value, Module):
         result = common | {"name": value.name, "imports": [_encode(x) for x in value.imports], "types": [_encode(x) for x in value.types], "functions": [_encode(x) for x in value.functions], "values": [_encode(x) for x in value.values]}
@@ -107,7 +114,7 @@ class _Decoder:
             kind = value["kind"]
             fields: dict[str, set[str]] = {
                 "IntType": set(), "NamedType": {"name"}, "AppliedType": {"constructor", "arguments"}, "FunctionType": {"parameter", "result"}, "InferredType": set(), "Binder": {"name", "type"}, "IntExpr": {"value"}, "BytesExpr": {"hex"},
-                "LocalExpr": {"name"}, "GlobalExpr": {"name"}, "CallExpr": {"function", "arguments", "type_arguments"}, "LambdaExpr": {"parameters", "result_type", "body"}, "IfExpr": {"condition", "then_body", "else_body"},
+                "LocalExpr": {"name"}, "GlobalExpr": {"name"}, "CallExpr": {"function", "arguments", "type_arguments"}, "BinaryExpr": {"operator", "left", "right"}, "LambdaExpr": {"parameters", "result_type", "body"}, "IfExpr": {"condition", "then_body", "else_body"},
                 "ConstructorExpr": {"constructor", "arguments", "type_arguments"}, "PrimitiveExpr": {"name", "arguments"},
                 "LetBinding": {"binder", "value"}, "Block": {"bindings", "result"},
                 "CaseAlternative": {"constructor", "binders", "body"}, "CaseExpr": {"scrutinee", "result_type", "alternatives"},
@@ -117,7 +124,10 @@ class _Decoder:
                 "ConditionalImportAlternative": {"pattern", "import"},
                 "ConditionalImportDecl": {"selector", "alternatives"},
                 "ConstructorDecl": {"name", "fields"}, "TypeDecl": {"name", "constructors", "public", "type_parameters"},
+                "IntrinsicTypeDecl": {"name", "public"},
                 "FunctionDecl": {"name", "parameters", "result_type", "body", "public", "type_parameters"},
+                "IntrinsicFunctionDecl": {"name", "parameters", "result_type", "intrinsic", "public"},
+                "ForeignFunctionDecl": {"name", "parameters", "result_type", "binding", "public"},
                 "ValueDecl": {"name", "type", "value", "public"},
                 "Module": {"name", "imports", "types", "functions", "values", "availability"},
             }
@@ -125,6 +135,8 @@ class _Decoder:
             expected_fields = fields[kind]
             if kind == "Module" and "availability" not in value:
                 expected_fields = expected_fields - {"availability"}
+            if kind == "ImportDecl" and "public" in value:
+                expected_fields = expected_fields | {"public"}
             obj = self.obj(value, {"kind", "span"} | expected_fields, kind); span = self.span(obj["span"])
             s, n, a = self.string, self.node, self.array
             if kind == "IntType": return IntType(span)
@@ -148,6 +160,7 @@ class _Decoder:
             if kind == "LocalExpr": return LocalExpr(s(obj["name"], "name"), span)
             if kind == "GlobalExpr": return GlobalExpr(s(obj["name"], "name"), span)
             if kind == "CallExpr": return CallExpr(n(obj["function"]), a(obj["arguments"], n), span, a(obj["type_arguments"], n))
+            if kind == "BinaryExpr": return BinaryExpr(s(obj["operator"], "operator"), n(obj["left"]), n(obj["right"]), span)
             if kind == "LambdaExpr": return LambdaExpr(a(obj["parameters"], n), n(obj["result_type"]), n(obj["body"]), span)
             if kind == "IfExpr": return IfExpr(n(obj["condition"]), n(obj["then_body"]), n(obj["else_body"]), span)
             if kind == "ConstructorExpr": return ConstructorExpr(s(obj["constructor"], "constructor"), a(obj["arguments"], n), span, a(obj["type_arguments"], n))
@@ -156,7 +169,7 @@ class _Decoder:
             if kind == "Block": return Block(a(obj["bindings"], n), n(obj["result"]), span)
             if kind == "CaseAlternative": return CaseAlternative(s(obj["constructor"], "constructor"), a(obj["binders"], n), n(obj["body"]), span)
             if kind == "CaseExpr": return CaseExpr(n(obj["scrutinee"]), n(obj["result_type"]), a(obj["alternatives"], n), span)
-            if kind == "ImportDecl": return ImportDecl(s(obj["module"], "module"), a(obj["names"], lambda x: s(x, "name")), span)
+            if kind == "ImportDecl": return ImportDecl(s(obj["module"], "module"), a(obj["names"], lambda x: s(x, "name")), span, self.boolean(obj["public"], "public") if "public" in obj else False)
             if kind == "TargetConstantPattern": return TargetConstantPattern(s(obj["name"], "name"), span)
             if kind == "TargetTuplePattern": return TargetTuplePattern(a(obj["items"], n), span)
             if kind == "Availability": return Availability(s(obj["selector"], "selector"), n(obj["pattern"]), span)
@@ -165,7 +178,10 @@ class _Decoder:
             if kind == "FieldDecl": return FieldDecl(s(obj["name"], "name"), n(obj["type"]), span)
             if kind == "ConstructorDecl": return ConstructorDecl(s(obj["name"], "name"), a(obj["fields"], n), span)
             if kind == "TypeDecl": return TypeDecl(s(obj["name"], "name"), a(obj["constructors"], n), self.boolean(obj["public"], "public"), span, a(obj["type_parameters"], lambda x: s(x, "type parameter")))
+            if kind == "IntrinsicTypeDecl": return IntrinsicTypeDecl(s(obj["name"], "name"), self.boolean(obj["public"], "public"), span)
             if kind == "FunctionDecl": return FunctionDecl(s(obj["name"], "name"), a(obj["parameters"], n), n(obj["result_type"]), n(obj["body"]), self.boolean(obj["public"], "public"), span, a(obj["type_parameters"], lambda x: s(x, "type parameter")))
+            if kind == "IntrinsicFunctionDecl": return IntrinsicFunctionDecl(s(obj["name"], "name"), a(obj["parameters"], n), n(obj["result_type"]), s(obj["intrinsic"], "intrinsic"), self.boolean(obj["public"], "public"), span)
+            if kind == "ForeignFunctionDecl": return ForeignFunctionDecl(s(obj["name"], "name"), a(obj["parameters"], n), n(obj["result_type"]), s(obj["binding"], "binding"), self.boolean(obj["public"], "public"), span)
             if kind == "ValueDecl": return ValueDecl(s(obj["name"], "name"), n(obj["type"]), n(obj["value"]), self.boolean(obj["public"], "public"), span)
             if kind == "Module":
                 availability = None if "availability" not in obj or obj["availability"] is None else n(obj["availability"])

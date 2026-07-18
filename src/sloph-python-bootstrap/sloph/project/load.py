@@ -11,7 +11,7 @@ from typing import Any
 from sloph._resources import libraries_root
 from sloph.core.diagnostics import DiagnosticError, fail
 from sloph.core.limits import Limits
-from sloph.core.model import INT, AppliedType, ForeignBinding, NamedType
+from sloph.core.model import BYTES, INT, AppliedType, ForeignBinding, NamedType
 from sloph.project.model import Project, ProjectManifest, ProjectModule
 from sloph.project.special import Arch, CompilerTarget, OS
 from sloph.syntax.model import ConditionalImportDecl, ImportDecl, TargetConstantPattern, TargetPattern, TargetTuplePattern
@@ -227,7 +227,7 @@ def load_project(
         sources[actual] = data
     if source_version == 1:
         _load_bundled_dependencies(
-            ("core", *manifest.dependencies),
+            ("prelude", *manifest.dependencies),
             by_name,
             sources,
             actual_limits,
@@ -458,8 +458,9 @@ def _target_pattern_display(pattern: TargetPattern):
 
 def _reachable_modules(modules: dict[str, ProjectModule]) -> set[str]:
     roots = {name for name, module in modules.items() if not module.bundled}
-    if "core" in modules:
-        roots.add("core")
+    if "prelude" in modules:
+        roots.add("prelude")
+    roots.update(name for name in modules if name == "core" or name.startswith("core::"))
     pending = sorted(roots)
     reached: set[str] = set()
     while pending:
@@ -524,7 +525,7 @@ def _decode_foreign_binding(raw: object, path: Path) -> ForeignBinding:
         # A raw pointer binding is visible to audit tooling, but not callable
         # until Source has a writable borrowed-buffer type.
         parameters: tuple = ()
-        result = NamedType("core::Unit")
+        result = NamedType("sloph::Unit")
         adapter_kind = "unavailable"
     else:
         expected = {"kind", "arguments", "result", "sloph_parameters", "sloph_result"}
@@ -611,8 +612,12 @@ def _binding_type(value: object, path: Path):
             if arguments:
                 bad()
             return INT
-        if name in {"Bytes", "Unit", "Bool", "Option", "Result"}:
-            name = f"core::{name}"
+        if name == "Bytes":
+            if arguments:
+                bad()
+            return BYTES
+        if name in {"Unit", "Bool", "Option", "Result"}:
+            name = f"sloph::{name}"
         return AppliedType(name, tuple(arguments)) if arguments else NamedType(name)
 
     result = parse()

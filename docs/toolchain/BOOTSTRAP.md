@@ -93,7 +93,7 @@ The seed compiler contains only the facilities required to cross the trust
 gap:
 
 - the source and Core frontend needed by production compiler source;
-- mandatory `core`-library support and the required runtime boundary;
+- mandatory `sloph`, `core`, and `prelude` support and the required runtime boundary;
 - deterministic native object generation for the bootstrap targets;
 - enough package-graph and link-plan handling to build declared local sources;
 - no registry client or server, HTTP stack, remote cache, language server, or
@@ -103,7 +103,7 @@ After the native seed compiler exists, it builds the production compiler
 engine. That engine builds the independently versioned official packages and
 links the complete single-binary toolchain. In the proposed library layering,
 HTTP, networking, crypto providers, and cache/registry service code belong to
-the official package bundle rather than the mandatory `core` library. The
+the official package bundle rather than the mandatory language packages. The
 toolchain may link those packages into its distributed executable without
 making them bootstrap dependencies or implicit dependencies of user programs.
 
@@ -389,7 +389,7 @@ engine from local source. The production compiler then builds the selected
 official package bundle and all tool frontends and links the complete
 single-binary toolchain. Hosted packages used only by these tools may include
 networking, HTTP, TLS or crypto bindings, and the verified cache/registry
-server. They are outside the mandatory `core` library and outside the
+server. They are outside the mandatory language packages and outside the
 bootstrap-critical seed compiler.
 
 The complete toolchain recompiles the same compiler, package, and frontend

@@ -64,6 +64,7 @@ class _Validator:
             ImportDecl: ("names",), ConstructorDecl: ("fields",),
             TargetTuplePattern: ("items",), ConditionalImportDecl: ("alternatives",),
             TypeDecl: ("constructors", "type_parameters"), FunctionDecl: ("parameters", "type_parameters"),
+            IntrinsicFunctionDecl: ("parameters",), ForeignFunctionDecl: ("parameters",),
             CallExpr: ("arguments", "type_arguments"), LambdaExpr: ("parameters",), ConstructorExpr: ("arguments", "type_arguments"),
             AppliedType: ("arguments",),
             PrimitiveExpr: ("arguments",), Block: ("bindings",),
@@ -89,7 +90,7 @@ class _Validator:
         self.visit(node)
 
     def expr(self, node: Any) -> None:
-        if not isinstance(node, (IntExpr, BytesExpr, LocalExpr, GlobalExpr, CallExpr, LambdaExpr, IfExpr, ConstructorExpr, PrimitiveExpr, CaseExpr)):
+        if not isinstance(node, (IntExpr, BytesExpr, LocalExpr, GlobalExpr, CallExpr, BinaryExpr, LambdaExpr, IfExpr, ConstructorExpr, PrimitiveExpr, CaseExpr)):
             _bad("wrong_node", "expected source expression", node)
         self.visit(node)
 
@@ -136,6 +137,9 @@ class _Validator:
         self.expr(node.function)
         for x in node.type_arguments: self.typ(x)
         for x in node.arguments: self.expr(x)
+    def v_BinaryExpr(self, node):
+        if self.version != 1 or node.operator not in {"==", "<", "+", "-", "*"}: _bad("invalid_operator", "unknown binary operator", node, operator=node.operator)
+        self.expr(node.left); self.expr(node.right)
     def v_LambdaExpr(self, node):
         if self.version == 0: _bad("wrong_node", "lambda expressions require Source v1", node)
         for x in node.parameters: self.binder(x)
@@ -150,23 +154,15 @@ class _Validator:
         for x in node.type_arguments: self.typ(x)
         for x in node.arguments: self.expr(x)
     def v_PrimitiveExpr(self, node):
+        if self.version == 1: _bad("wrong_node", "primitive expressions are not part of Source v1", node)
         primitives = {"int.add", "int.sub", "int.mul"}
-        if self.version == 1:
-            primitives |= {
-                "int.equal",
-                "int.less",
-                "int.to_bytes",
-                "bytes.length",
-                "runtime.trap",
-            }
-        foreign = self.version == 1 and node.name.startswith("foreign.")
-        if node.name not in primitives and not foreign: _bad("invalid_primitive", "unknown source primitive", node, name=node.name)
+        if node.name not in primitives: _bad("invalid_primitive", "unknown source primitive", node, name=node.name)
         expected = {
             "int.to_bytes": 1,
             "bytes.length": 1,
             "runtime.trap": 1,
         }.get(node.name, 2)
-        if not foreign and len(node.arguments) != expected: _bad("primitive_arity", f"primitive requires exactly {expected} arguments", node, name=node.name)
+        if len(node.arguments) != expected: _bad("primitive_arity", f"primitive requires exactly {expected} arguments", node, name=node.name)
         for x in node.arguments: self.expr(x)
     def v_LetBinding(self, node): self.binder(node.binder); self.expr(node.value)
     def v_Block(self, node):
@@ -185,6 +181,7 @@ class _Validator:
             if not isinstance(x, CaseAlternative): _bad("wrong_node", "case alternatives must be CaseAlternative nodes", node)
             self.visit(x)
     def v_ImportDecl(self, node):
+        if not isinstance(node.public, bool) or (node.public and self.version != 1): _bad("invalid_import", "public imports require Source v1", node)
         if not node.names or not all(_lower(x) for x in node.module.split("::")): _bad("invalid_import", "import requires a lowercase module and selected names", node)
         if not all(_lower(x) or _upper(x) for x in node.names): _bad("invalid_import", "import selections must be unqualified source names", node)
         if any(len(x) > self.limits.token_bytes for x in node.names): _bad("limit_exceeded", f"token_bytes limit exceeded (configured {self.limits.token_bytes})", node, limit="token_bytes", configured=self.limits.token_bytes)
@@ -208,6 +205,8 @@ class _Validator:
     def v_ConditionalImportAlternative(self, node):
         if not isinstance(node.pattern, (TargetConstantPattern, TargetTuplePattern)) or not isinstance(node.import_, ImportDecl):
             _bad("invalid_import", "invalid conditional import alternative", node)
+        if node.import_.public:
+            _bad("invalid_import", "conditional imports cannot be public", node)
         self.visit(node.pattern)
         self.visit(node.import_)
     def v_ConditionalImportDecl(self, node):
@@ -242,6 +241,8 @@ class _Validator:
         for x in node.constructors:
             if not isinstance(x, ConstructorDecl): _bad("wrong_node", "type constructors must be ConstructorDecl nodes", node)
             self.visit(x)
+    def v_IntrinsicTypeDecl(self, node):
+        if self.version != 1 or not isinstance(node.public, bool) or not _upper(node.name): _bad("invalid_declaration", "invalid intrinsic type declaration", node)
     def v_FunctionDecl(self, node):
         if not isinstance(node.public, bool) or not _lower(node.name): _bad("invalid_declaration", "function must have boolean visibility and lowercase name", node)
         if len(set(node.type_parameters)) != len(node.type_parameters) or not all(_upper(x) for x in node.type_parameters): _bad("invalid_type_parameters", "type parameters must be unique uppercase identifiers", node)
@@ -251,6 +252,16 @@ class _Validator:
             if isinstance(x.type, InferredType): _bad("missing_type", "function parameters require explicit types", x)
             self.binder(x)
         self.typ(node.result_type); self.block(node.body)
+    def _bound_function(self, node, prefix: str):
+        if self.version != 1 or not isinstance(node.public, bool) or not _lower(node.name): _bad("invalid_declaration", "invalid bound function declaration", node)
+        binding = getattr(node, "intrinsic", getattr(node, "binding", ""))
+        if not isinstance(binding, str) or "." not in binding or (prefix and not binding.startswith(prefix)): _bad("invalid_declaration", "invalid binding identity", node, binding=binding)
+        for parameter in node.parameters:
+            if isinstance(parameter.type, InferredType): _bad("missing_type", "bound function parameters require explicit types", parameter)
+            self.binder(parameter)
+        self.typ(node.result_type)
+    def v_IntrinsicFunctionDecl(self, node): self._bound_function(node, "")
+    def v_ForeignFunctionDecl(self, node): self._bound_function(node, "foreign.")
     def v_ValueDecl(self, node):
         if not isinstance(node.public, bool) or not _lower(node.name): _bad("invalid_declaration", "value must have boolean visibility and lowercase name", node)
         self.typ(node.type); self.block(node.value)
@@ -259,7 +270,7 @@ class _Validator:
         if node.availability is not None:
             if self.version != 1 or not isinstance(node.availability, Availability): _bad("invalid_target", "module availability requires Source v1", node)
             self.visit(node.availability)
-        groups = ((node.imports, (ImportDecl, ConditionalImportDecl)), (node.types, TypeDecl), (node.functions, FunctionDecl), (node.values, ValueDecl))
+        groups = ((node.imports, (ImportDecl, ConditionalImportDecl)), (node.types, (TypeDecl, IntrinsicTypeDecl)), (node.functions, (FunctionDecl, IntrinsicFunctionDecl, ForeignFunctionDecl)), (node.values, ValueDecl))
         for values, expected in groups:
             for value in values:
                 if not isinstance(value, expected): _bad("wrong_node", "module contains an invalid declaration node", node)

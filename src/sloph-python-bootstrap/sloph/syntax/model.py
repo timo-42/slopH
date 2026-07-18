@@ -79,6 +79,14 @@ class CallExpr:
 
 
 @dataclass(frozen=True, slots=True)
+class BinaryExpr:
+    operator: str
+    left: "Expr"
+    right: "Expr"
+    span: Span = UNKNOWN_SPAN
+
+
+@dataclass(frozen=True, slots=True)
 class LambdaExpr:
     parameters: tuple[Binder, ...]
     result_type: TypeRef
@@ -140,7 +148,7 @@ class CaseExpr:
 
 
 Expr: TypeAlias = (
-    IntExpr | BytesExpr | LocalExpr | GlobalExpr | CallExpr | LambdaExpr | IfExpr | ConstructorExpr | PrimitiveExpr | CaseExpr
+    IntExpr | BytesExpr | LocalExpr | GlobalExpr | CallExpr | BinaryExpr | LambdaExpr | IfExpr | ConstructorExpr | PrimitiveExpr | CaseExpr
 )
 
 
@@ -149,6 +157,7 @@ class ImportDecl:
     module: str
     names: tuple[str, ...]
     span: Span = UNKNOWN_SPAN
+    public: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -214,6 +223,13 @@ class TypeDecl:
 
 
 @dataclass(frozen=True, slots=True)
+class IntrinsicTypeDecl:
+    name: str
+    public: bool = False
+    span: Span = UNKNOWN_SPAN
+
+
+@dataclass(frozen=True, slots=True)
 class FunctionDecl:
     name: str
     parameters: tuple[Binder, ...]
@@ -222,6 +238,26 @@ class FunctionDecl:
     public: bool = False
     span: Span = UNKNOWN_SPAN
     type_parameters: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class IntrinsicFunctionDecl:
+    name: str
+    parameters: tuple[Binder, ...]
+    result_type: TypeRef
+    intrinsic: str
+    public: bool = False
+    span: Span = UNKNOWN_SPAN
+
+
+@dataclass(frozen=True, slots=True)
+class ForeignFunctionDecl:
+    name: str
+    parameters: tuple[Binder, ...]
+    result_type: TypeRef
+    binding: str
+    public: bool = False
+    span: Span = UNKNOWN_SPAN
 
 
 @dataclass(frozen=True, slots=True)
@@ -237,8 +273,8 @@ class ValueDecl:
 class Module:
     name: str
     imports: tuple[Import, ...]
-    types: tuple[TypeDecl, ...]
-    functions: tuple[FunctionDecl, ...]
+    types: tuple[TypeDecl | IntrinsicTypeDecl, ...]
+    functions: tuple[FunctionDecl | IntrinsicFunctionDecl | ForeignFunctionDecl, ...]
     values: tuple[ValueDecl, ...]
     span: Span = UNKNOWN_SPAN
     availability: Availability | None = None

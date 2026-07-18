@@ -1,0 +1,45 @@
+module sloph;
+
+public type Unit {
+  Unit();
+}
+
+public type Bool {
+  False();
+  True();
+}
+
+public type Option[Item] {
+  None();
+  Some(item: Item);
+}
+
+public type Result[Success, Failure] {
+  Ok(success: Success);
+  Err(failure: Failure);
+}
+
+public fn not(item: Bool) -> Bool {
+  case item -> Bool {
+    Bool::False() => { Bool::True() }
+    Bool::True() => { Bool::False() }
+  }
+}
+
+public fn equal(left: Bool, right: Bool) -> Bool {
+  case left -> Bool {
+    Bool::False() => { not(right) }
+    Bool::True() => { right }
+  }
+}
+
+public fn not_equal(left: Bool, right: Bool) -> Bool {
+  not(equal(left, right))
+}
+
+public fn xor(left: Bool, right: Bool) -> Bool {
+  case left -> Bool {
+    Bool::False() => { right }
+    Bool::True() => { not(right) }
+  }
+}

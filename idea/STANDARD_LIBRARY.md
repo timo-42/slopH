@@ -4,8 +4,8 @@ Status: exploratory, non-normative.
 
 SlopH should ship a standard library, but the complete batteries-included
 experience should not become one compiler-coupled compatibility surface. The
-distribution should combine a small mandatory library with independently
-versioned official packages and a tested bundle of those packages.
+distribution should combine small mandatory language, Core bridge, and prelude
+packages with independently versioned official packages and a tested bundle.
 
 This aims to provide Python-like availability of useful functionality while
 retaining the Haskell-style ability to evolve, replace, and version libraries
@@ -18,13 +18,17 @@ The distribution has three conceptual layers:
 | Layer | Compatibility | Purpose |
 | --- | --- | --- |
 | Language and Core | Extremely stable | Syntax, types, evaluation, effects, primitives, and ABI-relevant semantics |
-| Mandatory `core` library | Compiler-coupled | Types and protocols whose identity or behavior is required by the language |
+| Mandatory `sloph` package | Compiler-coupled | Ordinary types and functions whose identity is required by the language |
+| Mandatory `core` package | Compiler-coupled | Typed bindings for fixed Core types and primitives |
+| Mandatory `prelude` package | Compiler-coupled | Curated re-exports visible to every module |
 | Official package bundle | Independently versioned | General-purpose libraries selected and tested together |
 
 The exact package names are deferred. A possible organization is:
 
 ```text
-sloph-core       mandatory and compiler-coupled
+sloph            mandatory language-level data
+core             mandatory Core bridge
+prelude          mandatory selected re-exports
 sloph-std        conservative portable foundations
 sloph-batteries  manifest selecting tested official package versions
 ```
@@ -37,15 +41,21 @@ Compiler-shipped libraries should use the same package metadata and resolution
 rules as other libraries. The compiler installation contributes the final root
 to an ordered package search path, allowing project or CLI roots to provide
 compatible replacements for ordinary standard packages while protecting the
-compiler-coupled `core` identity. See
+compiler-coupled mandatory identities. See
 [Package Metadata and Ordered Search Paths](./PACKAGE_SEARCH_PATH.md).
 
-## Mandatory Core Library
+## Mandatory Packages
 
-The mandatory library should contain an abstraction only when changing or
-replacing it would effectively change the language. Likely contents include:
+The `sloph` package contains ordinary nominal types and functions whose stable
+identity is part of the language, including `Bool`, `Unit`, `Option`, and
+`Result`. The `core` package contains intrinsic Core types and one typed
+binding per fixed primitive. The `prelude` re-exports only the fundamental
+types.
 
-- `Bool`, `Unit`, `Option`, `Result`, and ordering types;
+The mandatory packages should contain an abstraction only when changing or
+replacing it would effectively change the language. Further likely contents include:
+
+- ordering types;
 - conventional numeric types built around the language's numeric semantics;
 - the primitive text or string representation, if one is language-defined;
 - fundamental equality, comparison, hashing, and iteration protocols;
@@ -164,7 +174,7 @@ root. Unused bundled packages must remain outside the build graph.
 
 ## Questions to Resolve
 
-- The exact boundary between the mandatory `core` library and portable `std`.
+- The exact boundary between the mandatory packages and portable `std`.
 - Whether `Option`, `Result`, iteration, hashing, and text are automatically in
   scope or merely always available for explicit import.
 - Whether official packages ship as source, compiled artifacts, or both.

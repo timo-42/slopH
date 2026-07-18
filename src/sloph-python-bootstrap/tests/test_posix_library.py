@@ -30,7 +30,7 @@ class PosixLibraryTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         subprocess.run([str(LIBRARY / "build.sh")], cwd=LIBRARY, check=True)
 
-    def test_application_cannot_invoke_foreign_primitive_directly(self) -> None:
+    def test_application_cannot_declare_foreign_binding(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / "src").mkdir()
@@ -39,12 +39,12 @@ class PosixLibraryTests(unittest.TestCase):
                 encoding="ascii",
             )
             (root / "src" / "main.sloph").write_text(
-                'module demo::main; const main: Int { primitive foreign.demo.write(1, "x", 0, 1) }',
+                'module demo::main; public foreign fn fake(item: Int) -> Int = foreign.demo.write; const main: Int { fake(1) }',
                 encoding="ascii",
             )
             with self.assertRaises(DiagnosticError) as caught:
                 elaborate_project_v1(load_project(root, source_version=1))
-        self.assertEqual("project.resolve.trusted_primitive", caught.exception.diagnostic.code)
+        self.assertEqual("project.resolve.foreign_signature", caught.exception.diagnostic.code)
 
     def test_legacy_provider_sources_are_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

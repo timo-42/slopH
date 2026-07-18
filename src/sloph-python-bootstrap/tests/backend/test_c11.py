@@ -234,12 +234,12 @@ class C11BackendTests(unittest.TestCase):
         self.assertIn(b"work limit exceeded (10000000)", completed.stderr)
 
     def test_parametric_core_is_erased_and_emitted_once(self) -> None:
-        source = b"""(core 2 (types (enum core::Bytes (params))) (defs
+        source = b"""(core 2 (types) (defs
           (def example::identity (forall T (fn (var T) (var T)))
             (lam (type-bind T) (lam (bind item (var T)) (local item))))
           (def example::main Int
-            (let (bind ignored (named core::Bytes))
-              (app (app (global example::identity) (type (named core::Bytes))) (bytes x78))
+            (let (bind ignored Bytes)
+              (app (app (global example::identity) (type Bytes)) (bytes x78))
               (app (app (global example::identity) (type Int)) (int 42))))))"""
         generated, output = run_c(source)
         self.assertEqual("(value 0 (int 42))\n", output)

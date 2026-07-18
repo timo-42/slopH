@@ -83,8 +83,9 @@ The language has two universally available layers:
 Every implementation must ship the same standard profile. An AI may assume
 that profile without separately loading project-specific syntax definitions.
 
-The mandatory standard library also supplies nominal `Bool`, `Unit`, tuple,
-`Option`, and `Result` definitions. `Bool` is an ordinary two-constructor enum;
+The mandatory `sloph` package supplies nominal `Bool`, `Unit`, `Option`, and
+`Result` definitions, while `prelude` re-exports their type names. `Bool` is an
+ordinary two-constructor enum;
 surface conditionals and short-circuit Boolean forms transform into exhaustive
 Core `Case` expressions. Boolean functions use ordinary `Con` and `Case` rather
 than Bool-specific primitives; only irreducible comparisons remain cataloged

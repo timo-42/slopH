@@ -15,7 +15,7 @@ unconstrained generics profile. Core v2 adds:
 
 ```text
 (var T)                         scoped type variable
-(apply core::Option Int)        applied nominal type
+(apply sloph::Option Int)       applied nominal type
 (forall T TYPE)                 universal type
 (lam (type-bind T) EXPR)        type abstraction
 (app EXPR (type TYPE))          explicit type application
@@ -252,6 +252,10 @@ that transformations need them inside the expression grammar.
 `Prim` represents behavior that cannot be implemented as ordinary Core
 functions. The complete primitive catalog is part of the language's semantic
 size and must remain tightly controlled.
+
+SlopH exposes the fixed catalog through privileged, typed `intrinsic fn`
+declarations in the `core` package. Ordinary Source calls and operators target
+those functions; raw primitive expressions are not part of Source v1.
 
 Likely primitive categories include:
 

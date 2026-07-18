@@ -133,10 +133,10 @@ new contextual interpretation that makes old source ambiguous.
 
 ## Mandatory Library Compatibility
 
-The mandatory `core` library is coupled to language and Core semantics but has
-its own explicit revision. An edition defines the compatible range or exact
-major revision of that library. The compiler distribution supplies a matching
-implementation and rejects an incompatible replacement.
+The mandatory `sloph`, `core`, and `prelude` packages are coupled to language
+and Core semantics but have their own explicit revision. An edition defines
+their compatible range or exact major revision. The compiler distribution
+supplies matching implementations and rejects incompatible replacements.
 
 Independently versioned standard and batteries packages are not part of the
 edition. They declare compatible language editions, Core-library revisions,

@@ -67,7 +67,8 @@ unsafe pointer as immutable `Bytes`.
 
 ## Trust boundary
 
-Only compiler-bundled modules may spell `foreign.*` and `runtime.*`
-primitives. Ordinary packages call typed library functions. This restriction
-is temporary scaffolding for a future reviewed/generated C-header binding
-tool, not an assertion that the bundled implementation is Core.
+Raw primitive expressions are not part of Source v1. A provider module may
+declare a `foreign fn` only when its identity and complete signature match that
+module's reviewed binding metadata. Fixed Core operations are declared only as
+`intrinsic fn` members of the bundled `core` package. Ordinary packages call
+these typed functions.

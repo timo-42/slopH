@@ -171,6 +171,34 @@ const main: Box[Int] { wrap[Int](42) }
         self.assertEqual(module, syntax_from_json(encoded, version=1))
         self.assertIn('"type_arguments"', encoded)
 
+    def test_v1_bridge_declarations_reexports_and_operators_round_trip(self) -> None:
+        source = """module bridge;
+public import sloph::{Bool};
+
+public intrinsic type Bytes;
+
+public intrinsic fn add(left: Int, right: Int) -> Int = int.add;
+
+public foreign fn write(item: Bytes) -> Int = foreign.demo.write;
+
+const answer: Int { 20 + 22 }
+"""
+        module = parse_source_v1(source)
+        self.assertTrue(module.imports[0].public)
+        self.assertEqual("IntrinsicTypeDecl", type(module.types[0]).__name__)
+        self.assertEqual("IntrinsicFunctionDecl", type(module.functions[0]).__name__)
+        self.assertEqual("ForeignFunctionDecl", type(module.functions[1]).__name__)
+        self.assertEqual("BinaryExpr", type(module.values[0].value.result).__name__)
+        rendered = format_source(module, version=1)
+        self.assertEqual(rendered, format_source(parse_source_v1(rendered), version=1))
+        encoded = syntax_to_json(module, version=1)
+        self.assertEqual(module, syntax_from_json(encoded, version=1))
+
+    def test_v1_rejects_raw_primitive_expression(self) -> None:
+        with self.assertRaises(DiagnosticError) as raised:
+            parse_source_v1("module demo; const answer: Int { primitive int.add(20, 22) }")
+        self.assertEqual("syntax.parse.unexpected_token", raised.exception.diagnostic.code)
+
     def test_v0_rejects_generic_syntax(self) -> None:
         with self.assertRaises(DiagnosticError) as raised:
             parse_source("module x; type Box[Item] { Box(item: Item); }")

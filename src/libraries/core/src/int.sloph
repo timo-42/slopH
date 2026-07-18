@@ -1,0 +1,11 @@
+module core::int;
+
+import core::{Bytes};
+import sloph::{Bool};
+
+public intrinsic fn add(left: Int, right: Int) -> Int = int.add;
+public intrinsic fn sub(left: Int, right: Int) -> Int = int.sub;
+public intrinsic fn mul(left: Int, right: Int) -> Int = int.mul;
+public intrinsic fn equal(left: Int, right: Int) -> Bool = int.equal;
+public intrinsic fn less(left: Int, right: Int) -> Bool = int.less;
+public intrinsic fn to_bytes(item: Int) -> Bytes = int.to_bytes;

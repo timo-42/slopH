@@ -6,8 +6,8 @@ from sloph.core.diagnostics import DiagnosticError, Span, fail
 from sloph.core.limits import Limits
 from sloph.syntax._integer import parse_decimal
 from sloph.syntax.model import (
-    Availability, Binder, Block, BytesExpr, CallExpr, CaseAlternative, CaseExpr, ConditionalImportAlternative, ConditionalImportDecl, ConstructorDecl,
-    ConstructorExpr, FieldDecl, FunctionDecl, GlobalExpr, ImportDecl, IntExpr,
+    Availability, Binder, BinaryExpr, Block, BytesExpr, CallExpr, CaseAlternative, CaseExpr, ConditionalImportAlternative, ConditionalImportDecl, ConstructorDecl,
+    ConstructorExpr, FieldDecl, ForeignFunctionDecl, FunctionDecl, GlobalExpr, ImportDecl, IntExpr, IntrinsicFunctionDecl, IntrinsicTypeDecl,
     AppliedType, FunctionType, IfExpr, InferredType, IntType, LambdaExpr, LetBinding, LocalExpr, Module, NamedType, PrimitiveExpr, TypeDecl,
     TargetConstantPattern, TargetPattern, TargetTuplePattern, TypeRef, ValueDecl,
 )
@@ -21,7 +21,7 @@ class _Token:
 
 
 _PUNCT = frozenset("{}[](),;:=|")
-_KEYWORDS = frozenset({"module", "import", "when", "is", "public", "type", "fn", "value", "const", "let", "case", "if", "else", "primitive"})
+_KEYWORDS = frozenset({"module", "import", "when", "is", "public", "type", "fn", "value", "const", "let", "case", "if", "else", "primitive", "intrinsic", "foreign"})
 
 
 def _limit(name: str, configured: int, span: Span = Span(0, 0)) -> None:
@@ -275,15 +275,10 @@ class _Parser:
                 result = CallExpr(result, args, self.node(start, self.tokens[self.i - 1].end), type_arguments)
             if self.version == 1:
                 precedence = {"==": 3, "<": 3, "+": 6, "-": 6, "*": 7}
-                primitive = {"==": "int.equal", "<": "int.less", "+": "int.add", "-": "int.sub", "*": "int.mul"}
                 while self.token.text in precedence and precedence[self.token.text] >= minimum:
                     operator = self.take()
                     right = self.binary_expr(precedence[operator.text] + 1)
-                    result = PrimitiveExpr(
-                        primitive[operator.text],
-                        (result, right),
-                        self.node(result.span.start, right.span.end),
-                    )
+                    result = BinaryExpr(operator.text, result, right, self.node(result.span.start, right.span.end))
             return result
         finally: self.depth -= 1
 
@@ -320,20 +315,10 @@ class _Parser:
             self.take()
             if len(token.text.lstrip("-")) > self.limits.literal_digits: _limit("literal_digits", self.limits.literal_digits, Span(token.start, token.end))
             return IntExpr(parse_decimal(token.text), self.node(token.start, token.end))
-        if self.peek("primitive"):
+        if self.version == 0 and self.peek("primitive"):
             start = self.take().start; name = self.take()
             primitives = {"int.add", "int.sub", "int.mul"}
-            if self.version == 1:
-                primitives |= {
-                    "int.equal",
-                    "int.less",
-                    "int.to_bytes",
-                    "bytes.length",
-                    "runtime.trap",
-                }
-            if name.text not in primitives and not (
-                self.version == 1 and name.text.startswith("foreign.")
-            ):
+            if name.text not in primitives:
                 self.error("expected a supported integer primitive", name)
             self.take("("); args = self.comma_list(self.expr); end = self.tokens[self.i - 1].end
             return PrimitiveExpr(name.text, args, self.node(start, end))
@@ -409,7 +394,7 @@ class _Parser:
             return pattern.name
         return tuple(self.target_pattern_key(item) for item in pattern.items)
 
-    def selected_import(self) -> ImportDecl:
+    def selected_import(self, *, public: bool = False) -> ImportDecl:
         start = self.token.start
         parts = [self.lower_ident("module component").text]
         while self.peek("::"):
@@ -419,10 +404,12 @@ class _Parser:
         self.take("{")
         names = self.comma_list(lambda: self.ident().text, "}")
         if not names: self.error("imports must select at least one name", self.tokens[self.i - 1])
-        return ImportDecl("::".join(parts), names, self.node(start, self.tokens[self.i - 1].end))
+        return ImportDecl("::".join(parts), names, self.node(start, self.tokens[self.i - 1].end), public)
 
-    def import_decl(self):
+    def import_decl(self, *, public: bool = False):
         start = self.take("import").start
+        if public and (self.version != 1 or self.peek("case")):
+            self.error("public imports must be unconditional selected imports")
         if self.version == 1 and self.peek("case"):
             self.take("case")
             selector = self.selector()
@@ -452,9 +439,27 @@ class _Parser:
             )
         self.i -= 1
         start = self.take("import").start
-        import_ = self.selected_import()
+        import_ = self.selected_import(public=public)
         end = self.take(";").end
-        return ImportDecl(import_.module, import_.names, self.node(start, end))
+        return ImportDecl(import_.module, import_.names, self.node(start, end), public)
+
+    def intrinsic_type_decl(self, public: bool, start: int) -> IntrinsicTypeDecl:
+        self.take("type")
+        name = self.upper_ident("intrinsic type")
+        end = self.take(";").end
+        return IntrinsicTypeDecl(name.text, public, self.node(start, end))
+
+    def bound_function_decl(self, public: bool, start: int, *, foreign: bool):
+        self.take("fn"); name = self.lower_ident("function")
+        self.take("("); parameters = self.comma_list(self.binder)
+        self.take("->"); result = self.type_ref(); self.take("=")
+        binding = self.take()
+        prefix = "foreign." if foreign else ""
+        if "." not in binding.text or (foreign and not binding.text.startswith(prefix)):
+            self.error("expected a foreign binding identity" if foreign else "expected a Core primitive identity", binding)
+        end = self.take(";").end
+        cls = ForeignFunctionDecl if foreign else IntrinsicFunctionDecl
+        return cls(name.text, parameters, result, binding.text, public, self.node(start, end))
 
     def type_decl(self, public: bool, start: int) -> TypeDecl:
         self.take("type"); name = self.upper_ident("type"); type_parameters = self.type_parameters(); self.take("{"); ctors = []
@@ -530,11 +535,7 @@ class _Parser:
                 fallback = body
                 continue
             assert fallback is not None
-            condition = PrimitiveExpr(
-                "int.equal",
-                (LocalExpr(parameter.name, span), IntExpr(pattern, span)),
-                span,
-            )
+            condition = BinaryExpr("==", LocalExpr(parameter.name, span), IntExpr(pattern, span), span)
             case = CaseExpr(
                 condition,
                 result,
@@ -605,12 +606,24 @@ class _Parser:
             )
         self.take(";")
         imports = []
-        while self.peek("import"): imports.append(self.import_decl())
+        while self.peek("import") or (self.version == 1 and self.peek("public") and self.tokens[self.i + 1].text == "import"):
+            public_import = self.peek("public")
+            if public_import: self.take("public")
+            imports.append(self.import_decl(public=public_import))
         types, functions, values = [], [], []
         while not self.peek("<eof>"):
             dstart = self.token.start; public = False
             if self.peek("public"): public = True; self.take()
-            if self.peek("type"): types.append(self.type_decl(public, dstart))
+            if self.version == 1 and self.peek("intrinsic"):
+                self.take("intrinsic")
+                if self.peek("type"): types.append(self.intrinsic_type_decl(public, dstart))
+                elif self.peek("fn"): functions.append(self.bound_function_decl(public, dstart, foreign=False))
+                else: self.error("expected type or fn after intrinsic")
+            elif self.version == 1 and self.peek("foreign"):
+                self.take("foreign")
+                if not self.peek("fn"): self.error("expected fn after foreign")
+                functions.append(self.bound_function_decl(public, dstart, foreign=True))
+            elif self.peek("type"): types.append(self.type_decl(public, dstart))
             elif self.peek("fn"): functions.append(self.fn_decl(public, dstart))
             elif (self.version == 1 and self.peek("const")) or (self.version == 0 and self.peek("value")): values.append(self.value_decl(public, dstart))
             else: self.error("expected type, fn, or const declaration" if self.version == 1 else "expected type, fn, or value declaration")
