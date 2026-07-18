@@ -1,0 +1,31 @@
+module core;
+
+public type Bool {
+  False();
+  True();
+}
+
+public fn not(item: Bool) -> Bool {
+  case item -> Bool {
+    Bool::False() => { Bool::True() }
+    Bool::True() => { Bool::False() }
+  }
+}
+
+public fn equal(left: Bool, right: Bool) -> Bool {
+  case left -> Bool {
+    Bool::False() => { not(right) }
+    Bool::True() => { right }
+  }
+}
+
+public fn not_equal(left: Bool, right: Bool) -> Bool {
+  not(equal(left, right))
+}
+
+public fn xor(left: Bool, right: Bool) -> Bool {
+  case left -> Bool {
+    Bool::False() => { right }
+    Bool::True() => { not(right) }
+  }
+}

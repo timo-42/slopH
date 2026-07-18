@@ -9,9 +9,10 @@ def libraries_root() -> Path:
     """Return the monorepo's bundled language-library directory."""
 
     root = Path(__file__).resolve().parents[2] / "libraries"
-    if (root / "std" / "library.json").is_file() and (
-        root / "syscall" / "library.json"
-    ).is_file():
+    if all(
+        (root / package / "library.json").is_file()
+        for package in ("core", "std", "syscall")
+    ):
         return root
     fail(
         "toolchain.libraries.missing",
