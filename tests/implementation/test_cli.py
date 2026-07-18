@@ -57,5 +57,22 @@ class ExperimentalCliTests(unittest.TestCase):
         self.assertEqual(2, document["details"]["exit_code"])
 
 
+class StableV1CliTests(unittest.TestCase):
+    def test_ast_json_identifies_version_one(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "input.sloph"
+            path.write_text(
+                "module demo; /* v1 */ fn answer() -> Int { 42 }",
+                encoding="ascii",
+            )
+            output = io.StringIO()
+            with patch("sys.stdout", output):
+                result = main(["ast", "print", str(path)])
+        self.assertEqual(0, result)
+        document = json.loads(output.getvalue())
+        self.assertEqual("sloph.syntax", document["schema"])
+        self.assertEqual(1, document["version"])
+
+
 if __name__ == "__main__":
     unittest.main()

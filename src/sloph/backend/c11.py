@@ -397,6 +397,15 @@ static SlValue *sl_int_add_signed(SlValue *av, SlValue *bv, int subtract) {
 static SlValue *sl_int_add(SlValue *a, SlValue *b) { return sl_int_add_signed(a,b,0); }
 static SlValue *sl_int_sub(SlValue *a, SlValue *b) { return sl_int_add_signed(a,b,1); }
 
+static int sl_int_compare(SlValue *av, SlValue *bv) {
+    if (av->kind != 0u || bv->kind != 0u) sl_die("integer primitive received non-integer value");
+    SlBig *a=av->as.integer,*b=bv->as.integer;
+    sl_charge(1u+a->len+b->len);
+    if(a->sign!=b->sign)return a->sign<b->sign?-1:1;
+    if(!a->sign)return 0;
+    int magnitude=sl_mag_cmp(a,b);return a->sign<0?-magnitude:magnitude;
+}
+
 static SlValue *sl_int_mul(SlValue *av, SlValue *bv) {
     if (av->kind != 0u || bv->kind != 0u) sl_die("integer primitive received non-integer value");
     SlBig *a=av->as.integer, *b=bv->as.integer; uint32_t out[SL_MAX_LIMBS+1u] = {0};
@@ -464,7 +473,7 @@ class _Emitter:
                 output.append(self._global(definition))
         entry = self._gid(self.symbol)
         output.append(
-            f"int main(void) {{ (void)&sl_int_add; (void)&sl_int_sub; (void)&sl_int_mul; (void)&sl_con; SlValue *result=sl_g{entry}(); sl_print_value(result); sl_char('\\n'); if(fflush(stdout)!=0||ferror(stdout))sl_die(\"stdout write failed\"); sl_destroy(); return 0; }}\n"
+            f"int main(void) {{ (void)&sl_int_add; (void)&sl_int_sub; (void)&sl_int_mul; (void)&sl_int_compare; (void)&sl_con; SlValue *result=sl_g{entry}(); sl_print_value(result); sl_char('\\n'); if(fflush(stdout)!=0||ferror(stdout))sl_die(\"stdout write failed\"); sl_destroy(); return 0; }}\n"
         )
         return "\n".join(output)
 
@@ -547,8 +556,17 @@ class _Emitter:
         if isinstance(expression, LetExpr):
             value=self._expr(expression.value,environment,lines,indent); lines.append(f"{indent}(void){value};"); local=dict(environment); local[expression.binder.name]=value; return self._expr(expression.body,local,lines,indent)
         if isinstance(expression, PrimExpr):
-            values=[self._expr(item,environment,lines,indent) for item in expression.arguments]; op={"int.add":"add","int.sub":"sub","int.mul":"mul"}[expression.name]
-            result=self._new(); lines.append(f"{indent}SlValue *{result}=sl_int_{op}({values[0]}, {values[1]});"); return result
+            values=[self._expr(item,environment,lines,indent) for item in expression.arguments]
+            result=self._new()
+            if expression.name in ("int.equal", "int.less"):
+                false_tag=self.constructor_ids["core::Bool::False"]
+                true_tag=self.constructor_ids["core::Bool::True"]
+                operator="==0" if expression.name == "int.equal" else "<0"
+                lines.append(f"{indent}SlValue *{result}=sl_con(sl_int_compare({values[0]}, {values[1]}){operator}?{true_tag}u:{false_tag}u,0u,NULL);")
+            else:
+                op={"int.add":"add","int.sub":"sub","int.mul":"mul"}[expression.name]
+                lines.append(f"{indent}SlValue *{result}=sl_int_{op}({values[0]}, {values[1]});")
+            return result
         if isinstance(expression, ConExpr):
             values=[self._expr(item,environment,lines,indent) for item in expression.fields]; result=self._new()
             if values:

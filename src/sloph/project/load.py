@@ -121,12 +121,15 @@ def _required_string(raw: dict[str, object], key: str) -> str:
     return value
 
 
-def load_project(path: str | Path, limits: Limits | None = None) -> Project:
+def load_project(
+    path: str | Path, limits: Limits | None = None, *, source_version: int = 0
+) -> Project:
     """Load, parse, and topologically order all modules in a project."""
 
     manifest = load_manifest(path)
     actual_limits = limits or Limits()
-    from sloph.syntax import parse_source
+    from sloph.syntax import parse_source, parse_source_v1
+    source_parser = parse_source_v1 if source_version == 1 else parse_source
 
     by_name: dict[str, ProjectModule] = {}
     sources: dict[str, bytes] = {}
@@ -158,7 +161,9 @@ def load_project(path: str | Path, limits: Limits | None = None) -> Project:
                 "project source-byte limit exceeded",
                 configured=actual_limits.project_bytes,
             )
-        actual, imports = _scan_header(data, source_path)
+        actual, imports = _scan_header(
+            data, source_path, source_version=source_version
+        )
         if actual != expected:
             fail(
                 "project.module.path_mismatch",
@@ -205,7 +210,7 @@ def load_project(path: str | Path, limits: Limits | None = None) -> Project:
     ordered: list[ProjectModule] = []
     for header in ordered_headers:
         try:
-            syntax = parse_source(sources[header.name], actual_limits)
+            syntax = source_parser(sources[header.name], actual_limits)
         except DiagnosticError as error:
             error.diagnostic.details.setdefault("path", str(header.path))
             raise
@@ -284,7 +289,9 @@ class _HeaderCursor:
         return result
 
 
-def _scan_header(data: bytes, path: Path) -> tuple[str, tuple[str, ...]]:
+def _scan_header(
+    data: bytes, path: Path, *, source_version: int = 0
+) -> tuple[str, tuple[str, ...]]:
     try:
         text = data.decode("ascii")
     except UnicodeDecodeError as error:
@@ -295,6 +302,8 @@ def _scan_header(data: bytes, path: Path) -> tuple[str, tuple[str, ...]]:
             path=str(path),
             offset=error.start,
         )
+    if source_version == 1:
+        text = _comments_to_space(text, path)
     cursor = _HeaderCursor(text, path)
     if cursor.word() != "module":
         _header_fail(path, "source must begin with a module declaration")
@@ -311,6 +320,37 @@ def _scan_header(data: bytes, path: Path) -> tuple[str, tuple[str, ...]]:
         cursor.require("}")
         cursor.require(";")
     return module, tuple(imports)
+
+
+def _comments_to_space(text: str, path: Path) -> str:
+    """Remove v1 comments without changing offsets or line structure."""
+    chars = list(text)
+    index = 0
+    depth = 0
+    while index < len(text):
+        if depth == 0 and text.startswith("//", index):
+            end = text.find("\n", index + 2)
+            end = len(text) if end < 0 else end
+            for position in range(index, end):
+                chars[position] = " "
+            index = end
+            continue
+        if text.startswith("/*", index):
+            depth += 1
+            chars[index] = chars[index + 1] = " "
+            index += 2
+            continue
+        if depth and text.startswith("*/", index):
+            depth -= 1
+            chars[index] = chars[index + 1] = " "
+            index += 2
+            continue
+        if depth and text[index] not in "\r\n":
+            chars[index] = " "
+        index += 1
+    if depth:
+        _header_fail(path, "unterminated block comment")
+    return "".join(chars)
 
 
 def _scan_path(cursor: _HeaderCursor, *, stop_at_selection: bool) -> str:

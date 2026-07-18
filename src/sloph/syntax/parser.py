@@ -50,7 +50,7 @@ def _source_bytes(source: str | bytes, limits: Limits) -> bytes:
     return data
 
 
-def _lex(data: bytes, limits: Limits) -> tuple[_Token, ...]:
+def _lex(data: bytes, limits: Limits, *, version: int = 0) -> tuple[_Token, ...]:
     text = data.decode("ascii")
     out: list[_Token] = []
     i = 0
@@ -63,6 +63,31 @@ def _lex(data: bytes, limits: Limits) -> tuple[_Token, ...]:
             continue
         if ch in " \t\n":
             i += 1
+            continue
+        if version == 1 and text.startswith("//", i):
+            newline = text.find("\n", i + 2)
+            i = len(text) if newline < 0 else newline
+            continue
+        if version == 1 and text.startswith("/*", i):
+            start = i
+            depth = 1
+            i += 2
+            while depth and i < len(text):
+                if text.startswith("/*", i):
+                    depth += 1
+                    i += 2
+                elif text.startswith("*/", i):
+                    depth -= 1
+                    i += 2
+                else:
+                    i += 1
+            if depth:
+                fail(
+                    "syntax.parse.unterminated_comment",
+                    "parse",
+                    "unterminated block comment",
+                    Span(start, len(text)),
+                )
             continue
         start = i
         if text.startswith("::", i) or text.startswith("->", i) or text.startswith("=>", i):
@@ -88,8 +113,8 @@ def _lex(data: bytes, limits: Limits) -> tuple[_Token, ...]:
 
 
 class _Parser:
-    def __init__(self, tokens: tuple[_Token, ...], limits: Limits):
-        self.tokens, self.limits, self.i, self.depth, self.nodes = tokens, limits, 0, 0, 0
+    def __init__(self, tokens: tuple[_Token, ...], limits: Limits, *, version: int = 0):
+        self.tokens, self.limits, self.version, self.i, self.depth, self.nodes = tokens, limits, version, 0, 0, 0
 
     @property
     def token(self) -> _Token: return self.tokens[self.i]
@@ -191,7 +216,11 @@ class _Parser:
             return IntExpr(parse_decimal(token.text), self.node(token.start, token.end))
         if self.peek("primitive"):
             start = self.take().start; name = self.take()
-            if name.text not in {"int.add", "int.sub", "int.mul"}: self.error("expected int.add, int.sub, or int.mul", name)
+            primitives = {"int.add", "int.sub", "int.mul"}
+            if self.version == 1:
+                primitives |= {"int.equal", "int.less"}
+            if name.text not in primitives:
+                self.error("expected a supported integer primitive", name)
             self.take("("); args = self.comma_list(self.expr); end = self.tokens[self.i - 1].end
             return PrimitiveExpr(name.text, args, self.node(start, end))
         if self.peek("case"): return self.case_expr()
@@ -290,4 +319,13 @@ def parse_source(source: str | bytes, limits: Limits | None = None) -> Module:
     return module
 
 
-__all__ = ["DiagnosticError", "parse_source"]
+def parse_source_v1(source: str | bytes, limits: Limits | None = None) -> Module:
+    """Parse Source v1 without changing the experimental Source v0 contract."""
+    actual = limits or Limits()
+    module = _Parser(_lex(_source_bytes(source, actual), actual, version=1), actual, version=1).module()
+    from sloph.syntax.validate import validate_syntax
+    validate_syntax(module, actual, version=1)
+    return module
+
+
+__all__ = ["DiagnosticError", "parse_source", "parse_source_v1"]

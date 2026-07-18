@@ -31,10 +31,15 @@ def compile_project(
     *,
     cc: str = "cc",
     emit_c_path: str | Path | None = None,
+    source_version: int = 0,
 ) -> BuildResult:
     start = perf_counter_ns()
-    loaded = load_project(project)
-    unit = elaborate_project(loaded)
+    loaded = load_project(project, source_version=source_version)
+    if source_version == 1:
+        from sloph.project import elaborate_project_v1
+        unit = elaborate_project_v1(loaded)
+    else:
+        unit = elaborate_project(loaded)
     lowered = perf_counter_ns()
     return _compile(
         unit,
@@ -118,11 +123,16 @@ def run_project(
     *,
     cc: str = "cc",
     emit_c_path: str | Path | None = None,
+    source_version: int = 0,
 ) -> tuple[BuildResult, subprocess.CompletedProcess[bytes]]:
     with tempfile.TemporaryDirectory(prefix="sloph-run-") as directory:
         executable = Path(directory) / "program"
         result = compile_project(
-            project, executable, cc=cc, emit_c_path=emit_c_path
+            project,
+            executable,
+            cc=cc,
+            emit_c_path=emit_c_path,
+            source_version=source_version,
         )
         try:
             completed = subprocess.run(

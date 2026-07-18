@@ -34,6 +34,10 @@ PRIMITIVES: dict[str, tuple[tuple[CoreType, ...], CoreType]] = {
     "int.sub": ((INT, INT), INT),
     "int.mul": ((INT, INT), INT),
 }
+V1_PRIMITIVES: dict[str, tuple[tuple[CoreType, ...], CoreType]] = PRIMITIVES | {
+    "int.equal": ((INT, INT), NamedType("core::Bool")),
+    "int.less": ((INT, INT), NamedType("core::Bool")),
+}
 
 
 class _Context:
@@ -45,11 +49,11 @@ class _Context:
 
 
 def validate(unit: CoreUnit) -> None:
-    if unit.version != 0:
+    if unit.version not in (0, 1):
         fail(
             "core.validate.unsupported_version",
             "validate",
-            "only Core version 0 is supported",
+            "only Core versions 0 and 1 are supported",
             unit.span,
             version=unit.version,
         )
@@ -159,6 +163,11 @@ def _validate_global_cycles(context: _Context) -> None:
                     global_id=dependency,
                 )
         names = {name for name, _ in dependencies}
+        # A v1 function definition evaluates to its closure without evaluating
+        # the body. Recursive references in that body are therefore not a
+        # value-initialization cycle. Data definitions remain acyclic.
+        if context.unit.version == 1 and isinstance(definition.type, FunctionType):
+            names = set()
         graph[definition.name] = names
         for name in names:
             reverse[name].add(definition.name)
@@ -180,7 +189,11 @@ def _validate_global_cycles(context: _Context) -> None:
         fail(
             "core.validate.global_cycle",
             "validate",
-            "Core v0 value definitions must be acyclic",
+            (
+                "Core v0 value definitions must be acyclic"
+                if context.unit.version == 0
+                else "Core value definitions must be acyclic"
+            ),
             first.span,
             definitions=cyclic,
         )
@@ -316,7 +329,8 @@ def _infer(
         local_environment[expression.binder.name] = expression.binder.type
         return _infer(context, expression.body, local_environment, all_binders)
     if isinstance(expression, PrimExpr):
-        signature = PRIMITIVES.get(expression.name)
+        catalog = V1_PRIMITIVES if context.unit.version == 1 else PRIMITIVES
+        signature = catalog.get(expression.name)
         if signature is None:
             fail(
                 "core.validate.unknown_primitive",

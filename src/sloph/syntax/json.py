@@ -36,12 +36,14 @@ def _encode(value: Any) -> dict[str, Any]:
     raise TypeError(f"unknown syntax node: {type(value).__name__}")
 
 
-def syntax_to_json(module: Module, limits: Limits | None = None) -> str:
+def syntax_to_json(
+    module: Module, limits: Limits | None = None, *, version: int = 0
+) -> str:
     if not isinstance(module, Module): raise TypeError("module must be a syntax Module")
     actual = limits or Limits()
     from sloph.syntax.validate import validate_syntax
-    validate_syntax(module, actual)
-    rendered = json.dumps({"schema": "sloph.syntax", "version": 0, "module": _encode(module)}, ensure_ascii=True, sort_keys=True, separators=(",", ":")) + "\n"
+    validate_syntax(module, actual, version=version)
+    rendered = json.dumps({"schema": "sloph.syntax", "version": version, "module": _encode(module)}, ensure_ascii=True, sort_keys=True, separators=(",", ":")) + "\n"
     maximum = actual.output_bytes
     if len(rendered.encode("ascii")) > maximum:
         fail("syntax.json.limit_exceeded", "json", f"output_bytes limit exceeded (configured {maximum})", limit="output_bytes", configured=maximum)
@@ -131,7 +133,9 @@ class _Decoder:
         finally: self.depth -= 1
 
 
-def syntax_from_json(source: str | bytes, limits: Limits | None = None) -> Module:
+def syntax_from_json(
+    source: str | bytes, limits: Limits | None = None, *, version: int = 0
+) -> Module:
     actual = limits or Limits()
     if isinstance(source, str):
         if len(source) > actual.input_bytes: fail("syntax.json.limit_exceeded", "json", f"input_bytes limit exceeded (configured {actual.input_bytes})", limit="input_bytes", configured=actual.input_bytes)
@@ -143,11 +147,11 @@ def syntax_from_json(source: str | bytes, limits: Limits | None = None) -> Modul
     try: decoded = json.loads(data)
     except (json.JSONDecodeError, UnicodeDecodeError, ValueError) as error: fail("syntax.json.invalid", "json", "invalid JSON", error=str(error))
     root = _Decoder(actual).obj(decoded, {"schema", "version", "module"})
-    if root["schema"] != "sloph.syntax" or type(root["version"]) is not int or root["version"] != 0: fail("syntax.json.unsupported_schema", "json", "expected sloph.syntax schema version 0")
+    if root["schema"] != "sloph.syntax" or type(root["version"]) is not int or root["version"] != version: fail("syntax.json.unsupported_schema", "json", f"expected sloph.syntax schema version {version}")
     module = _Decoder(actual).node(root["module"])
     if not isinstance(module, Module): fail("syntax.json.invalid", "json", "root node must be Module")
     from sloph.syntax.validate import validate_syntax
-    validate_syntax(module, actual)
+    validate_syntax(module, actual, version=version)
     return module
 
 
