@@ -55,7 +55,7 @@ rejected if it materially harms any of them.
 
 The compiler, build system, package registry, artifact, cache, trust, and
 performance requirements derived from these goals are specified in
-[INFRASTRUCTURE.md](./INFRASTRUCTURE.md).
+[INFRASTRUCTURE.md](./docs/toolchain/INFRASTRUCTURE.md).
 
 ## Top-Level Non-Goal
 

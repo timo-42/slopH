@@ -231,7 +231,7 @@ outputs must be byte-identical before the chain proceeds.
 ## Stage 2: Bootstrap Core
 
 A B0 program implements a validator and lowerer for a restricted profile of the
-canonical typed Core described in [CORE.md](./CORE.md). It consumes canonical
+canonical typed Core described in [CORE.md](../language/CORE.md). It consumes canonical
 textual Core and emits the portable RV32IM bootstrap image.
 
 Bootstrap Core is a profile, not another semantic language. It uses exactly the

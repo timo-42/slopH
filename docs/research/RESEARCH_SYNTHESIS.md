@@ -187,7 +187,8 @@ compiler-provided values. It contains no ambient operating-system capabilities.
 
 ### Keep
 
-The direction already present in [CORE.md](CORE.md) and [MACRO.md](MACRO.md) is
+The direction already present in [CORE.md](../language/CORE.md) and
+[MACRO.md](../language/MACRO.md) is
 well supported by the research:
 
 - one canonical small Core;

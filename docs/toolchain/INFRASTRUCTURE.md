@@ -2,7 +2,7 @@
 
 This document defines requirements for the compiler, build system, package
 registry, and compiled artifacts. It is subordinate to the top-level goals in
-[REQUIREMENTS.md](./REQUIREMENTS.md). An infrastructure feature may be rejected
+[REQUIREMENTS.md](../../REQUIREMENTS.md). An infrastructure feature may be rejected
 when it adds more operational or conceptual cost than the latency it removes.
 
 The details below are requirements and design constraints, not a promise that
@@ -268,7 +268,7 @@ returns a miss.
 ## Build Tasks
 
 External build tasks follow the capability and declaration rules in
-[MACRO.md](./MACRO.md). They are exceptional graph nodes, not an unrestricted
+[MACRO.md](../language/MACRO.md). They are exceptional graph nodes, not an unrestricted
 escape from deterministic compilation.
 
 A task declares its inputs, outputs, target dependence, environment access,
