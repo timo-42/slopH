@@ -1,0 +1,7 @@
+format: 0
+name: core/invalid/non-printable-closure
+kind: core-eval
+input: input.core
+symbol: example::identity
+expect-exit: 1
+expect-diagnostics: expected.jsonl

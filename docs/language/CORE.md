@@ -4,6 +4,11 @@ This document records the proposed architecture for a small, explicitly typed
 canonical Core language. Surface syntax, standard syntax sugar, and user macros
 must elaborate into this Core before optimization and native code generation.
 
+The implemented [experimental Core v0 profile](./CORE_V0.md) is a deliberately
+narrow test vehicle for this direction. Its exact grammar and semantics are
+normative for that experiment; the broader forms proposed here remain design
+work and must not be inferred from v0 omissions.
+
 The examples and Core forms below are provisional design directions rather
 than a finalized grammar.
 

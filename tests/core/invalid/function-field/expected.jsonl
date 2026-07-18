@@ -1,0 +1,1 @@
+{"code":"core.parse.function_field","details":{},"message":"Core v0 nominal fields cannot have function type","message_id":"core.parse.function_field","phase":"parse","schema":"sloph.diagnostic","severity":"error","span":{"end":98,"start":86},"version":0}

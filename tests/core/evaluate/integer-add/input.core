@@ -1,0 +1,5 @@
+(core 0
+  (types)
+  (defs
+    (def example::main Int
+      (prim int.add (int 20) (int 22)))))

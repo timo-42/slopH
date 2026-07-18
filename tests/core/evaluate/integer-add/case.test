@@ -1,0 +1,8 @@
+format: 0
+name: core/evaluate/integer-add
+kind: core-eval
+input: input.core
+symbol: example::main
+fuel: 1000
+expect-exit: 0
+expect-output: expected.value

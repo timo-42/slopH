@@ -1,0 +1,8 @@
+format: 0
+name: core/limits/fuel
+kind: core-eval
+input: input.core
+symbol: example::main
+fuel: 1
+expect-exit: 1
+expect-diagnostics: expected.jsonl

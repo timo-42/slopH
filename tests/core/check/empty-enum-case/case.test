@@ -1,0 +1,5 @@
+format: 0
+name: core/check/empty-enum-case
+kind: core-check
+input: input.core
+expect-exit: 0

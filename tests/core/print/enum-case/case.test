@@ -1,0 +1,6 @@
+format: 0
+name: core/print/enum-case
+kind: core-print
+input: input.core
+expect-exit: 0
+expect-output: expected.core

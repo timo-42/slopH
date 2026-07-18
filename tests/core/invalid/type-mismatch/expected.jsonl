@@ -1,0 +1,1 @@
+{"code":"core.validate.definition_type","details":{"actual":"(named example::Unit)","definition":"example::main","expected":"Int"},"message":"definition 'example::main' has type (named example::Unit), expected Int","message_id":"core.validate.definition_type","phase":"validate","schema":"sloph.diagnostic","severity":"error","span":{"end":122,"start":97},"version":0}

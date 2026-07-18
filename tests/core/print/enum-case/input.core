@@ -1,0 +1,13 @@
+; definitions and alternatives are deliberately non-canonical
+(core 0
+  (types
+    (enum example::Choice
+      (ctor example::Choice::Left (field value Int))
+      (ctor example::Choice::Right (field value Int))))
+  (defs
+    (def example::pick (fn (named example::Choice) Int)
+      (lam (bind choice (named example::Choice))
+        (case (local choice) Int
+          (alt example::Choice::Right (bind r Int) (local r))
+          (alt example::Choice::Left (bind l Int) (local l)))))
+    (def example::answer Int (int -0))))

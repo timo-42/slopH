@@ -1,0 +1,5 @@
+format: 0
+name: core/check/valid-recursive-type
+kind: core-check
+input: input.core
+expect-exit: 0

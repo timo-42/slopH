@@ -1,0 +1,1 @@
+{"code":"core.validate.global_cycle","details":{"definitions":["example::a","example::b"]},"message":"Core v0 value definitions must be acyclic","message_id":"core.validate.global_cycle","phase":"validate","schema":"sloph.diagnostic","severity":"error","span":{"end":96,"start":24},"version":0}

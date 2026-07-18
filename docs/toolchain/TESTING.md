@@ -21,6 +21,63 @@ define language behavior.
 - Treat resource-limit, malformed-input, and determinism tests as conformance
   requirements rather than optional robustness tests.
 
+## Experimental Core v0 Test Profile
+
+The first implemented profile tests the tagged S-expression text format in
+[CORE_V0.md](../language/CORE_V0.md). It covers only the three operations
+exposed by the experimental CLI:
+
+```text
+sloph unstable core check
+sloph unstable core print
+sloph unstable core eval
+```
+
+Shared cases live under `tests/core/**/case.test`. They are data, not Python
+test programs, and use these exact manifest keys:
+
+```text
+format: 0
+name: core/valid/integer-add
+kind: core-eval
+input: input.core
+symbol: example::main
+fuel: 1000
+expect-exit: 0
+expect-output: expected.core-value
+expect-diagnostics: diagnostics.txt
+```
+
+The fixed field catalog is:
+
+- `format`, `name`, `kind`, `input`, and `expect-exit` are required;
+- `symbol` is permitted for `core-eval` and selects the fully qualified global;
+- `fuel` is permitted for `core-eval` and sets its evaluation bound;
+- `expect-output` and `expect-diagnostics` optionally name golden files;
+- `kind` is exactly `core-check`, `core-print`, or `core-eval`.
+
+Unknown or duplicate fields, missing required fields, invalid values, and fields
+not permitted for the selected kind are case-format errors. Referenced paths are
+relative to the case directory. Golden output is compared as exact UTF-8 text;
+the runner does not normalize different Core forms or diagnostics into
+equality.
+
+The Python adapter is `tests/runners/python.py`. The standard-library test suite
+and shared cases run together with:
+
+```text
+python -m unittest discover -s tests -t .
+```
+
+Core v0 cases cover text parsing, validation, canonical printing, evaluation,
+resource limits, diagnostics, and CLI behavior. They do not cover JSON or
+binary serialization, Core diffing, source elaboration, optimization, ownership,
+effects, or C, native, WebAssembly, or other backends. Such a case is outside
+the advertised profile, not a skipped or passing Core v0 case.
+
+This narrow profile is experimental. It does not make the broader future test
+layout or stable Core boundaries below part of the current implementation.
+
 ## Directory Layout
 
 ```text
@@ -171,6 +228,10 @@ Core tests are independent of surface syntax, macros, and source type
 inference. They directly exercise the public Core parser, serializer, validator,
 reference evaluator, and stable optimizer boundary.
 
+For the current implementation, only the experimental Core v0 text, validator,
+and evaluator subset described above exists. The rest of this subsection
+describes the eventual supported Core suite.
+
 The Core suite includes:
 
 - accepted canonical Core;
@@ -286,9 +347,11 @@ The manifest is deliberately simpler than TOML, YAML, or general JSON:
 - duplicate or unknown keys rejected unless a format version explicitly
   permits them.
 
-The final keys and escaping rules remain to be specified alongside the first
-runner. The complete format must remain small enough to implement in Python,
-the self-hosted language, B0, or Bootstrap Core without a general-purpose data
+The complete cross-profile key catalog and escaping rules remain to be
+specified. The implemented Core v0 subset is fixed in
+[Experimental Core v0 Test Profile](#experimental-core-v0-test-profile). Any
+future additions must remain small enough to implement in Python, the
+self-hosted language, B0, or Bootstrap Core without a general-purpose data
 format dependency.
 
 ## Shared Runners
@@ -399,7 +462,8 @@ compiler implementation, not part of the language contract.
 
 ## Deferred Decisions
 
-- The complete `case.test` field catalog and format versioning.
+- Extensions to `case.test` beyond the implemented Core v0 field catalog and
+  format version `0`.
 - The first implementation of the common runner result schema.
 - Feature-profile and target-selection notation.
 - Golden-update CLI commands and review workflow.

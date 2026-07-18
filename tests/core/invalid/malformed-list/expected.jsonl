@@ -1,0 +1,1 @@
+{"code":"core.parse.unclosed_list","details":{},"message":"unclosed list","message_id":"core.parse.unclosed_list","phase":"parse","schema":"sloph.diagnostic","severity":"error","span":{"end":23,"start":0},"version":0}
