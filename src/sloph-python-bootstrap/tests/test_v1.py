@@ -230,6 +230,7 @@ const main: Int { factorial(6) }
     def test_function_main_writes_bytes_and_returns_exit(self) -> None:
         project = self._project(
             """module demo::main;
+import os::process::{Exit};
 import std::io::{write};
 public fn main() -> Exit {
   let written = write("hello\\n");
@@ -238,7 +239,7 @@ public fn main() -> Exit {
 """
         )
         (project / "sloph.toml").write_text(
-            MANIFEST + 'dependencies = ["std"]\n', encoding="utf-8"
+            MANIFEST + 'dependencies = ["os", "std"]\n', encoding="utf-8"
         )
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "application"
@@ -250,8 +251,12 @@ public fn main() -> Exit {
     def test_function_main_failure_sets_process_status(self) -> None:
         project = self._project(
             """module demo::main;
+import os::process::{Exit};
 public fn main() -> Exit { Exit::Failure(7) }
 """
+        )
+        (project / "sloph.toml").write_text(
+            MANIFEST + 'dependencies = ["os"]\n', encoding="utf-8"
         )
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "failure"

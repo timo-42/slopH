@@ -245,6 +245,12 @@ The first synchronous Host ABI group is deliberately small:
 - obtain startup standard-input, standard-output, and standard-error handles;
 - terminate the process with a status.
 
+The high-level namespace separates portable command hosting from POSIX. A
+command entry returns `os::process::Exit`, which native, WASI CLI, or Node/Bun
+CLI providers may translate into their host status mechanism. Browser Wasm has
+no command exit. Operations with specifically POSIX semantics belong under
+`os::posix::process` and are unavailable without a POSIX provider.
+
 The startup runtime supplies initial handles and capabilities. A normal native
 command may receive broad filesystem authority. A constrained or managed host
 may supply narrower directory and stream handles.

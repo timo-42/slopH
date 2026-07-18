@@ -1,0 +1,6 @@
+module os::process;
+
+public type Exit {
+  Success();
+  Failure(code: Int);
+}

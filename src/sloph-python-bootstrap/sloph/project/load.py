@@ -400,7 +400,7 @@ def _binding_type(value: object, path: Path):
     name = _binding_string(value, path)
     if name == "Int":
         return INT
-    if name in {"Bytes", "Unit", "Bool", "Exit"}:
+    if name in {"Bytes", "Unit", "Bool"}:
         return NamedType(f"core::{name}")
     return NamedType(name)
 

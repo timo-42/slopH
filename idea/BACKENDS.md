@@ -80,6 +80,23 @@ documented SlopH-to-JavaScript ABI. WASI and the WebAssembly Component Model may
 later provide additional host profiles or component packaging; they are not
 required to run the initial module in JavaScript hosts.
 
+## Command Entries and Process Namespaces
+
+WebAssembly itself has no process and no exit operation. A function returns a
+value or traps; its embedder decides what that outcome means. SlopH therefore
+does not impose the native command entry contract on browser-hosted Wasm.
+
+Command-capable profiles use `os::process::Exit` as the result of `main`.
+Native targets map it to their process status, while future WASI CLI and
+Node/Bun CLI adapters may map it to the corresponding host facility. Browser
+Wasm exports callable functions and does not provide `host.process`.
+
+Portable command services belong under `os::process` and require
+`host.process`. Genuine POSIX extensions such as `fork`, `exec`, `waitpid`, and
+signals belong under `os::posix::process` and additionally require a POSIX
+provider. Merely targeting Wasm never implies either capability; the selected
+host profile is authoritative.
+
 ## Native Backend
 
 The native backend consumes validated Core and directly emits machine code,

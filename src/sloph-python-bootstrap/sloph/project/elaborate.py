@@ -32,8 +32,6 @@ from sloph.core.validate import validate
 from sloph.core.limits import Limits
 from sloph.project.load import load_project
 from sloph.project.model import Project, ProjectModule
-from sloph.syntax.model import FieldDecl as SourceFieldDecl
-from sloph.syntax.model import IntType as SourceIntType
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,20 +81,6 @@ def _elaborate(project: Project, *, version: int) -> CoreUnit:
                 EnumDecl(
                     "core::Bytes",
                     (),
-                ),
-                EnumDecl(
-                    "core::Exit",
-                    (
-                        ConstructorDecl("core::Exit::Success", ()),
-                        ConstructorDecl(
-                            "core::Exit::Failure",
-                            (FieldDecl("code", INT),),
-                        ),
-                    ),
-                ),
-                EnumDecl(
-                    "core::Unit",
-                    (ConstructorDecl("core::Unit::Unit", ()),),
                 ),
             )
         )
@@ -514,8 +498,6 @@ def _resolve_type(scope: _Scope, source_type: Any) -> CoreType:
             return NamedType("core::Unit")
         if source_type.name in ("Bytes", "core::Bytes"):
             return NamedType("core::Bytes")
-        if source_type.name in ("Exit", "core::Exit"):
-            return NamedType("core::Exit")
         symbol = _resolve_symbol(scope, source_type.name, _span(source_type))
         if symbol.kind != "type":
             fail(
@@ -566,10 +548,6 @@ def _resolve_constructor(scope: _Scope, name: str, span: Span) -> tuple[str, Any
         "core::Bool::True": ("core::Bool::True", ()),
         "Unit::Unit": ("core::Unit::Unit", ()),
         "core::Unit::Unit": ("core::Unit::Unit", ()),
-        "Exit::Success": ("core::Exit::Success", ()),
-        "Exit::Failure": ("core::Exit::Failure", (SourceFieldDecl("code", SourceIntType()),)),
-        "core::Exit::Success": ("core::Exit::Success", ()),
-        "core::Exit::Failure": ("core::Exit::Failure", (SourceFieldDecl("code", SourceIntType()),)),
     }
     if name in builtins:
         global_name, fields = builtins[name]
@@ -660,7 +638,9 @@ def _validate_entry(project: Project, unit: CoreUnit) -> None:
             entry=project.manifest.entry,
         )
     if isinstance(entry.type, FunctionType):
-        expected = FunctionType(NamedType("core::Unit"), NamedType("core::Exit"))
+        expected = FunctionType(
+            NamedType("core::Unit"), NamedType("os::process::Exit")
+        )
         if unit.version != 1 or entry.type != expected:
             fail(
                 "project.entry.function",
