@@ -10,6 +10,7 @@ from sloph.core.model import (
     Alternative,
     AppExpr,
     Binder,
+    BytesExpr,
     CaseExpr,
     ConExpr,
     ConstructorDecl,
@@ -82,6 +83,10 @@ def _elaborate(project: Project, *, version: int) -> CoreUnit:
                         ConstructorDecl("core::Bool::False", ()),
                         ConstructorDecl("core::Bool::True", ()),
                     ),
+                ),
+                EnumDecl(
+                    "core::Bytes",
+                    (),
                 ),
                 EnumDecl(
                     "core::Unit",
@@ -284,6 +289,8 @@ def _lower_expr(
     span = _span(expression)
     if kind == "IntExpr":
         return IntExpr(expression.value, span)
+    if kind == "BytesExpr":
+        return BytesExpr(expression.value, span)
     if kind in ("LocalExpr", "GlobalExpr"):
         name = expression.name
         if name in locals_:
@@ -424,6 +431,8 @@ def _resolve_type(scope: _Scope, source_type: Any) -> CoreType:
             return NamedType("core::Bool")
         if source_type.name in ("Unit", "core::Unit"):
             return NamedType("core::Unit")
+        if source_type.name in ("Bytes", "core::Bytes"):
+            return NamedType("core::Bytes")
         symbol = _resolve_symbol(scope, source_type.name, _span(source_type))
         if symbol.kind != "type":
             fail(

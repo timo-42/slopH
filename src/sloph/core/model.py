@@ -42,6 +42,12 @@ class IntExpr:
 
 
 @dataclass(frozen=True, slots=True)
+class BytesExpr:
+    value: bytes
+    span: Span = UNKNOWN_SPAN
+
+
+@dataclass(frozen=True, slots=True)
 class LocalExpr:
     name: str
     span: Span = UNKNOWN_SPAN
@@ -107,6 +113,7 @@ class CaseExpr:
 
 Expr: TypeAlias = (
     IntExpr
+    | BytesExpr
     | LocalExpr
     | GlobalExpr
     | LamExpr

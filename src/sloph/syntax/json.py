@@ -18,6 +18,7 @@ def _encode(value: Any) -> dict[str, Any]:
     if isinstance(value, NamedType): return common | {"name": value.name}
     if isinstance(value, Binder): return common | {"name": value.name, "type": _encode(value.type)}
     if isinstance(value, IntExpr): return common | {"value": format_decimal(value.value)}
+    if isinstance(value, BytesExpr): return common | {"hex": value.value.hex()}
     if isinstance(value, (LocalExpr, GlobalExpr)): return common | {"name": value.name}
     if isinstance(value, CallExpr): return common | {"function": _encode(value.function), "arguments": [_encode(x) for x in value.arguments]}
     if isinstance(value, ConstructorExpr): return common | {"constructor": value.constructor, "arguments": [_encode(x) for x in value.arguments]}
@@ -91,7 +92,7 @@ class _Decoder:
             if not isinstance(value, dict) or not isinstance(value.get("kind"), str): self.bad("node must have a string kind")
             kind = value["kind"]
             fields: dict[str, set[str]] = {
-                "IntType": set(), "NamedType": {"name"}, "Binder": {"name", "type"}, "IntExpr": {"value"},
+                "IntType": set(), "NamedType": {"name"}, "Binder": {"name", "type"}, "IntExpr": {"value"}, "BytesExpr": {"hex"},
                 "LocalExpr": {"name"}, "GlobalExpr": {"name"}, "CallExpr": {"function", "arguments"},
                 "ConstructorExpr": {"constructor", "arguments"}, "PrimitiveExpr": {"name", "arguments"},
                 "LetBinding": {"binder", "value"}, "Block": {"bindings", "result"},
@@ -113,6 +114,13 @@ class _Decoder:
                 if raw == "-0" or not (raw.isdigit() or (raw.startswith("-") and raw[1:].isdigit())): self.bad("integer value must use canonical decimal spelling")
                 if len(raw.lstrip("-")) > self.limits.literal_digits: fail("syntax.json.limit_exceeded", "json", f"literal_digits limit exceeded (configured {self.limits.literal_digits})", limit="literal_digits", configured=self.limits.literal_digits)
                 return IntExpr(parse_decimal(raw), span)
+            if kind == "BytesExpr":
+                raw = obj["hex"]
+                if not isinstance(raw, str): self.bad("hex must be a string")
+                try: raw.encode("ascii")
+                except UnicodeEncodeError: self.bad("hex must contain ASCII only")
+                if len(raw) % 2 or any(x not in "0123456789abcdef" for x in raw): self.bad("byte hex must be lowercase and even length")
+                return BytesExpr(bytes.fromhex(raw), span)
             if kind == "LocalExpr": return LocalExpr(s(obj["name"], "name"), span)
             if kind == "GlobalExpr": return GlobalExpr(s(obj["name"], "name"), span)
             if kind == "CallExpr": return CallExpr(n(obj["function"]), a(obj["arguments"], n), span)

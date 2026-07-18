@@ -8,6 +8,7 @@ from sloph.core.model import (
     INT,
     Alternative,
     AppExpr,
+    BytesExpr,
     CaseExpr,
     ConExpr,
     ConstructorDecl,
@@ -280,6 +281,10 @@ def _infer(
 ) -> CoreType:
     if isinstance(expression, IntExpr):
         return INT
+    if isinstance(expression, BytesExpr):
+        if context.unit.version != 1:
+            fail("core.validate.expression_form", "validate", "byte literals require Core version 1", expression.span)
+        return NamedType("core::Bytes")
     if isinstance(expression, LocalExpr):
         if expression.name not in environment:
             fail(

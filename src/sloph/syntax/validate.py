@@ -59,7 +59,7 @@ class _Validator:
         self.visit(node)
 
     def expr(self, node: Any) -> None:
-        if not isinstance(node, (IntExpr, LocalExpr, GlobalExpr, CallExpr, ConstructorExpr, PrimitiveExpr, CaseExpr)):
+        if not isinstance(node, (IntExpr, BytesExpr, LocalExpr, GlobalExpr, CallExpr, ConstructorExpr, PrimitiveExpr, CaseExpr)):
             _bad("wrong_node", "expected source expression", node)
         self.visit(node)
 
@@ -81,6 +81,9 @@ class _Validator:
     def v_IntExpr(self, node):
         if not isinstance(node.value, int) or isinstance(node.value, bool): _bad("invalid_integer", "integer expression value must be an integer", node)
         if decimal_digits(node.value) > self.limits.literal_digits: _bad("limit_exceeded", f"literal_digits limit exceeded (configured {self.limits.literal_digits})", node, limit="literal_digits", configured=self.limits.literal_digits)
+    def v_BytesExpr(self, node):
+        if not isinstance(node.value, bytes): _bad("invalid_bytes", "byte literal value must be bytes", node)
+        if len(node.value) > self.limits.input_bytes: _bad("limit_exceeded", f"input_bytes limit exceeded (configured {self.limits.input_bytes})", node, limit="input_bytes", configured=self.limits.input_bytes)
     def v_LocalExpr(self, node):
         if not _lower(node.name): _bad("invalid_name", "local name must start with lowercase or underscore", node, name=node.name)
     def v_GlobalExpr(self, node):

@@ -10,6 +10,7 @@ from sloph.core.model import (
     Alternative,
     AppExpr,
     Binder,
+    BytesExpr,
     CaseExpr,
     ConExpr,
     ConstructorDecl,
@@ -185,11 +186,11 @@ def _parse_sexpr(raw: bytes, limits: Limits) -> SExpr:
 def _decode_unit(node: SExpr, limits: Limits) -> CoreUnit:
     items = _tagged(node, "core", exact=4)
     version_atom = _atom(items[1], "Core version")
-    if version_atom.value != "0":
+    if version_atom.value not in ("0", "1"):
         fail(
             "core.parse.unsupported_version",
             "parse",
-            "only Core version 0 is supported",
+            "only Core versions 0 and 1 are supported",
             version_atom.span,
             version=version_atom.value,
         )
@@ -197,7 +198,7 @@ def _decode_unit(node: SExpr, limits: Limits) -> CoreUnit:
     def_items = _tagged(items[3], "defs", minimum=1)
     types = tuple(_decode_enum(item, limits) for item in type_items[1:])
     definitions = tuple(_decode_definition(item, limits) for item in def_items[1:])
-    return CoreUnit(0, types, definitions, node.span)
+    return CoreUnit(int(version_atom.value), types, definitions, node.span)
 
 
 def _decode_enum(node: SExpr, limits: Limits) -> EnumDecl:
@@ -285,6 +286,17 @@ def _decode_expr(node: SExpr, limits: Limits) -> Expr:
         items = _tagged(node, "int", exact=2)
         literal = _atom(items[1], "integer literal")
         return IntExpr(_parse_integer(literal, limits), node.span)
+    if tag.value == "bytes":
+        items = _tagged(node, "bytes", exact=2)
+        literal = _atom(items[1], "byte literal")
+        payload = literal.value[1:] if literal.value.startswith("x") else ""
+        if not literal.value.startswith("x") or len(payload) % 2 or any(
+            character not in "0123456789abcdef" for character in payload
+        ):
+            fail("core.parse.byte_syntax", "parse", "bytes use 'x' followed by canonical lowercase hexadecimal", literal.span)
+        if len(payload) // 2 > limits.input_bytes:
+            limit_fail("parse", "input_bytes", limits.input_bytes, literal.span)
+        return BytesExpr(bytes.fromhex(payload), node.span)
     if tag.value == "local":
         items = _tagged(node, "local", exact=2)
         return LocalExpr(_atom(items[1], "local name").value, node.span)
