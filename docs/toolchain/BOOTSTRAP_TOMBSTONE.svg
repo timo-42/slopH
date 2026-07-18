@@ -1,0 +1,226 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1770" viewBox="0 0 1800 1770" role="img" aria-labelledby="title description">
+  <title id="title">SlopH bootstrap expressed with tombstone diagrams</title>
+  <desc id="description">Six stages show the C90 seed establishing an RV32IM environment, bootstrapping B0, lowering Bootstrap Core, creating a small native seed compiler for macOS and Linux, then using it to build the complete toolchain and reach a byte-identical distribution fixed point.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#52606d"/>
+    </marker>
+    <style>
+      .background { fill: #f7f9fc; }
+      .panel { fill: #ffffff; stroke: #c9d2df; stroke-width: 2; rx: 18; }
+      .trust { fill: #fff4df; stroke: #d99122; }
+      .portable { fill: #eef6ff; stroke: #3984c6; }
+      .native { fill: #f4efff; stroke: #7857b8; }
+      .fixed { fill: #ecf8ef; stroke: #398451; }
+      .title { font: 700 36px ui-sans-serif, system-ui, sans-serif; fill: #152536; }
+      .subtitle { font: 400 19px ui-sans-serif, system-ui, sans-serif; fill: #52606d; }
+      .stage { font: 700 22px ui-sans-serif, system-ui, sans-serif; fill: #152536; }
+      .label { font: 700 17px ui-sans-serif, system-ui, sans-serif; fill: #263746; }
+      .small { font: 400 15px ui-sans-serif, system-ui, sans-serif; fill: #52606d; }
+      .tiny { font: 400 13px ui-sans-serif, system-ui, sans-serif; fill: #52606d; }
+      .mono { font: 600 17px ui-monospace, SFMono-Regular, Menlo, monospace; fill: #152536; }
+      .tline { fill: none; stroke: #263746; stroke-width: 5; stroke-linecap: round; }
+      .arrow { fill: none; stroke: #52606d; stroke-width: 3; marker-end: url(#arrow); }
+      .dashed { fill: none; stroke: #8a99a8; stroke-width: 2; stroke-dasharray: 8 7; }
+    </style>
+  </defs>
+
+  <rect class="background" width="1800" height="1770"/>
+  <text class="title" x="70" y="58">SlopH bootstrap as T-diagrams</text>
+  <text class="subtitle" x="70" y="91">Left arm: accepted source · right arm: emitted target · stem: implementation language</text>
+
+  <!-- Legend -->
+  <g transform="translate(70 125)">
+    <rect class="panel" width="470" height="180"/>
+    <text class="stage" x="24" y="34">T-diagram legend</text>
+    <path class="tline" d="M 40 92 H 430 M 235 92 V 148"/>
+    <text class="mono" text-anchor="middle" x="128" y="78">SOURCE</text>
+    <text class="mono" text-anchor="middle" x="342" y="78">TARGET</text>
+    <text class="mono" text-anchor="middle" x="235" y="171">IMPLEMENTATION</text>
+  </g>
+
+  <g transform="translate(575 125)">
+    <rect class="panel trust" width="1155" height="180" rx="18"/>
+    <text class="stage" x="28" y="38">Stage 0 · establish the portable machine</text>
+    <rect x="30" y="62" width="290" height="86" rx="12" fill="#ffffff" stroke="#d99122" stroke-width="2"/>
+    <text class="label" text-anchor="middle" x="175" y="91">hosted C90 compiler</text>
+    <text class="small" text-anchor="middle" x="175" y="119">builds one auditable seed.c</text>
+    <path class="arrow" d="M 335 105 H 445"/>
+    <rect x="460" y="54" width="320" height="102" rx="12" fill="#ffffff" stroke="#d99122" stroke-width="2"/>
+    <text class="label" text-anchor="middle" x="620" y="84">seed.c</text>
+    <text class="small" text-anchor="middle" x="620" y="110">RV32IM assembler + interpreter</text>
+    <text class="tiny" text-anchor="middle" x="620" y="135">implemented in portable C90</text>
+    <path class="arrow" d="M 795 105 H 905"/>
+    <rect x="920" y="62" width="205" height="86" rx="12" fill="#ffffff" stroke="#d99122" stroke-width="2"/>
+    <text class="label" text-anchor="middle" x="1022" y="93">RV32IM</text>
+    <text class="small" text-anchor="middle" x="1022" y="120">execution environment</text>
+  </g>
+
+  <!-- Stage 1 -->
+  <g transform="translate(70 335)">
+    <rect class="panel portable" width="1660" height="260" rx="18"/>
+    <text class="stage" x="28" y="38">Stage 1 · bootstrap the B0 compiler</text>
+
+    <g transform="translate(55 68)">
+      <text class="small" text-anchor="middle" x="225" y="0">initial compiler, assembled by seed</text>
+      <path class="tline" d="M 20 64 H 430 M 225 64 V 130"/>
+      <text class="mono" text-anchor="middle" x="118" y="49">B0</text>
+      <text class="mono" text-anchor="middle" x="332" y="49">RV32IM</text>
+      <text class="mono" text-anchor="middle" x="225" y="157">RV32IM</text>
+    </g>
+
+    <text class="label" text-anchor="middle" x="565" y="150">compiles</text>
+    <path class="arrow" d="M 500 161 H 625"/>
+
+    <g transform="translate(620 68)">
+      <text class="small" text-anchor="middle" x="225" y="0">full B0 compiler source</text>
+      <path class="tline" d="M 20 64 H 430 M 225 64 V 130"/>
+      <text class="mono" text-anchor="middle" x="118" y="49">B0</text>
+      <text class="mono" text-anchor="middle" x="332" y="49">RV32IM</text>
+      <text class="mono" text-anchor="middle" x="225" y="157">B0</text>
+    </g>
+
+    <path class="arrow" d="M 1080 161 H 1205"/>
+    <g transform="translate(1175 68)">
+      <text class="small" text-anchor="middle" x="225" y="0">resulting executable compiler</text>
+      <path class="tline" d="M 20 64 H 430 M 225 64 V 130"/>
+      <text class="mono" text-anchor="middle" x="118" y="49">B0</text>
+      <text class="mono" text-anchor="middle" x="332" y="49">RV32IM</text>
+      <text class="mono" text-anchor="middle" x="225" y="157">RV32IM</text>
+    </g>
+    <text class="tiny" text-anchor="middle" x="1400" y="241">recompile itself; require byte-identical B0 compiler output</text>
+  </g>
+
+  <!-- Stage 2 -->
+  <g transform="translate(70 625)">
+    <rect class="panel portable" width="1660" height="250" rx="18"/>
+    <text class="stage" x="28" y="38">Stage 2 · compile the Bootstrap-Core validator and lowerer</text>
+
+    <g transform="translate(100 66)">
+      <text class="small" text-anchor="middle" x="225" y="0">executable B0 compiler</text>
+      <path class="tline" d="M 20 64 H 430 M 225 64 V 130"/>
+      <text class="mono" text-anchor="middle" x="118" y="49">B0</text>
+      <text class="mono" text-anchor="middle" x="332" y="49">RV32IM</text>
+      <text class="mono" text-anchor="middle" x="225" y="157">RV32IM</text>
+    </g>
+
+    <path class="arrow" d="M 550 155 H 665"/>
+    <g transform="translate(625 66)">
+      <text class="small" text-anchor="middle" x="250" y="0">Bootstrap-Core compiler source</text>
+      <path class="tline" d="M 0 64 H 500 M 250 64 V 130"/>
+      <text class="mono" text-anchor="middle" x="125" y="49">Bootstrap Core</text>
+      <text class="mono" text-anchor="middle" x="375" y="49">RV32IM</text>
+      <text class="mono" text-anchor="middle" x="250" y="157">B0</text>
+    </g>
+
+    <path class="arrow" d="M 1140 155 H 1250"/>
+    <g transform="translate(1190 66)">
+      <text class="small" text-anchor="middle" x="225" y="0">executable Bootstrap-Core compiler</text>
+      <path class="tline" d="M 0 64 H 450 M 225 64 V 130"/>
+      <text class="mono" text-anchor="middle" x="112" y="49">Bootstrap Core</text>
+      <text class="mono" text-anchor="middle" x="338" y="49">RV32IM</text>
+      <text class="mono" text-anchor="middle" x="225" y="157">RV32IM</text>
+    </g>
+  </g>
+
+  <!-- Stage 3 -->
+  <g transform="translate(70 905)">
+    <rect class="panel portable" width="1660" height="250" rx="18"/>
+    <text class="stage" x="28" y="38">Stage 3 · turn checked seed-compiler Core into a small compiler running on RV32IM</text>
+
+    <g transform="translate(100 66)">
+      <text class="small" text-anchor="middle" x="225" y="0">Bootstrap-Core executable</text>
+      <path class="tline" d="M 0 64 H 450 M 225 64 V 130"/>
+      <text class="mono" text-anchor="middle" x="112" y="49">Bootstrap Core</text>
+      <text class="mono" text-anchor="middle" x="338" y="49">RV32IM</text>
+      <text class="mono" text-anchor="middle" x="225" y="157">RV32IM</text>
+    </g>
+
+    <path class="arrow" d="M 550 155 H 665"/>
+    <g transform="translate(625 66)">
+      <text class="small" text-anchor="middle" x="250" y="0">checked-in seed-compiler implementation</text>
+      <path class="tline" d="M 0 64 H 500 M 250 64 V 130"/>
+      <text class="mono" text-anchor="middle" x="125" y="49">SlopH</text>
+      <text class="mono" text-anchor="middle" x="375" y="49">Native object</text>
+      <text class="mono" text-anchor="middle" x="250" y="157">Bootstrap Core</text>
+    </g>
+
+    <path class="arrow" d="M 1140 155 H 1250"/>
+    <g transform="translate(1190 66)">
+      <text class="small" text-anchor="middle" x="225" y="0">small seed-compiler executable</text>
+      <path class="tline" d="M 0 64 H 450 M 225 64 V 130"/>
+      <text class="mono" text-anchor="middle" x="112" y="49">SlopH</text>
+      <text class="mono" text-anchor="middle" x="338" y="49">Native object</text>
+      <text class="mono" text-anchor="middle" x="225" y="157">RV32IM</text>
+    </g>
+  </g>
+
+  <path class="dashed" d="M 70 1184 H 1730"/>
+  <text class="tiny" text-anchor="middle" x="900" y="1177">first platform-specific boundary · artifacts above are target-independent RV32IM</text>
+
+  <!-- Stage 4 -->
+  <g transform="translate(70 1205)">
+    <rect class="panel native" width="1660" height="205" rx="18"/>
+    <text class="stage" x="28" y="38">Stage 4 · native seed-compiler handoff on each required host</text>
+
+    <g transform="translate(95 58)">
+      <path class="tline" d="M 0 54 H 430 M 215 54 V 105"/>
+      <text class="mono" text-anchor="middle" x="108" y="40">SlopH</text>
+      <text class="mono" text-anchor="middle" x="322" y="40">Mach-O ARM64</text>
+      <text class="mono" text-anchor="middle" x="215" y="132">RV32IM</text>
+    </g>
+    <path class="arrow" d="M 535 112 H 650"/>
+    <text class="small" text-anchor="middle" x="592" y="98">compile seed</text>
+    <g transform="translate(650 58)">
+      <path class="tline" d="M 0 54 H 430 M 215 54 V 105"/>
+      <text class="mono" text-anchor="middle" x="108" y="40">SlopH</text>
+      <text class="mono" text-anchor="middle" x="322" y="40">Mach-O ARM64</text>
+      <text class="mono" text-anchor="middle" x="215" y="132">ARM64</text>
+    </g>
+
+    <g transform="translate(1125 58)">
+      <path class="tline" d="M 0 54 H 430 M 215 54 V 105"/>
+      <text class="mono" text-anchor="middle" x="108" y="40">SlopH</text>
+      <text class="mono" text-anchor="middle" x="322" y="40">ELF x86-64</text>
+      <text class="mono" text-anchor="middle" x="215" y="132">x86-64</text>
+    </g>
+  </g>
+
+  <!-- Stage 5 -->
+  <g transform="translate(70 1435)">
+    <rect class="panel fixed" width="1660" height="285" rx="18"/>
+    <text class="stage" x="28" y="38">Stage 5 · build the complete toolchain; verify the distribution fixed point</text>
+
+    <rect x="35" y="68" width="235" height="76" rx="11" fill="#ffffff" stroke="#398451" stroke-width="2"/>
+    <text class="label" text-anchor="middle" x="152" y="98">native seed compiler</text>
+    <text class="tiny" text-anchor="middle" x="152" y="123">bootstrap-critical and small</text>
+    <path class="arrow" d="M 280 106 H 338"/>
+
+    <rect x="348" y="68" width="260" height="76" rx="11" fill="#ffffff" stroke="#398451" stroke-width="2"/>
+    <text class="label" text-anchor="middle" x="478" y="98">production compiler</text>
+    <text class="tiny" text-anchor="middle" x="478" y="123">engine and public toolchain APIs</text>
+    <text class="stage" text-anchor="middle" x="635" y="114">+</text>
+
+    <rect x="665" y="68" width="330" height="76" rx="11" fill="#ffffff" stroke="#398451" stroke-width="2"/>
+    <text class="label" text-anchor="middle" x="830" y="98">official package bundle</text>
+    <text class="tiny" text-anchor="middle" x="830" y="123">networking · HTTP · crypto · async</text>
+    <text class="stage" text-anchor="middle" x="1022" y="114">+</text>
+
+    <rect x="1052" y="68" width="292" height="76" rx="11" fill="#ffffff" stroke="#398451" stroke-width="2"/>
+    <text class="label" text-anchor="middle" x="1198" y="98">tool frontends</text>
+    <text class="tiny" text-anchor="middle" x="1198" y="123">CLI · cache server · registry · LSP</text>
+    <path class="arrow" d="M 1354 106 H 1412"/>
+
+    <rect x="1422" y="68" width="202" height="76" rx="11" fill="#ffffff" stroke="#398451" stroke-width="2"/>
+    <text class="label" text-anchor="middle" x="1523" y="98">single binary</text>
+    <text class="tiny" text-anchor="middle" x="1523" y="123">complete sloph toolchain</text>
+
+    <text class="mono" x="50" y="208">distribution N</text>
+    <path class="arrow" d="M 225 202 H 400"/>
+    <text class="mono" x="425" y="208">distribution N+1</text>
+    <path class="arrow" d="M 640 202 H 815"/>
+    <text class="mono" x="840" y="208">distribution N+2</text>
+    <text class="label" x="1120" y="208">require bytes(N+1) = bytes(N+2)</text>
+    <text class="small" x="50" y="254">Network and cache stay disabled inputs during bootstrap; HTTP is compiled from official package sources after the seed compiler exists.</text>
+  </g>
+</svg>
