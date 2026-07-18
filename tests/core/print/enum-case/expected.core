@@ -1,0 +1,16 @@
+(core 0
+  (types
+    (enum example::Choice
+      (ctor example::Choice::Left (field value Int))
+      (ctor example::Choice::Right (field value Int))))
+  (defs
+    (def example::answer Int (int 0))
+    (def example::pick
+      (fn (named example::Choice) Int)
+      (lam
+        (bind v0 (named example::Choice))
+        (case
+          (local v0)
+          Int
+          (alt example::Choice::Left (bind v1 Int) (local v1))
+          (alt example::Choice::Right (bind v2 Int) (local v2)))))))

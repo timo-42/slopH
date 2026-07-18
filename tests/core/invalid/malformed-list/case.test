@@ -1,0 +1,6 @@
+format: 0
+name: core/invalid/malformed-list
+kind: core-check
+input: input.core
+expect-exit: 1
+expect-diagnostics: expected.jsonl

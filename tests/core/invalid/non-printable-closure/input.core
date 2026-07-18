@@ -1,0 +1,5 @@
+(core 0
+  (types)
+  (defs
+    (def example::identity (fn Int Int)
+      (lam (bind value Int) (local value)))))

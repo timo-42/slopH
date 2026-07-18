@@ -1,0 +1,5 @@
+(core 0 (types) (defs
+  (def example::a (fn Int Int)
+    (lam (bind x Int) (global example::b)))
+  (def example::b (fn Int Int)
+    (lam (bind y Int) (global example::a)))))

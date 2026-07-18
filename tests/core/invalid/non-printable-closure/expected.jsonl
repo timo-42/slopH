@@ -1,0 +1,1 @@
+{"code":"core.eval.non_printable_result","details":{"symbol":"example::identity"},"message":"the selected symbol evaluates to a function","message_id":"core.eval.non_printable_result","phase":"eval","schema":"sloph.diagnostic","severity":"error","span":{"end":111,"start":0},"version":0}

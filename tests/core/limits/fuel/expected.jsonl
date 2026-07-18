@@ -1,0 +1,1 @@
+{"code":"core.eval.limit_exceeded","details":{"configured":1,"limit":"fuel"},"message":"fuel limit exceeded (configured 1)","message_id":"core.eval.limit_exceeded","phase":"eval","schema":"sloph.diagnostic","severity":"error","span":{"end":53,"start":22},"version":0}

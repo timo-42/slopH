@@ -234,6 +234,12 @@ A B0 program implements a validator and lowerer for a restricted profile of the
 canonical typed Core described in [CORE.md](../language/CORE.md). It consumes canonical
 textual Core and emits the portable RV32IM bootstrap image.
 
+The currently implemented [experimental Core v0](../language/CORE_V0.md) is
+not this Bootstrap-Core profile. It has no ownership, memory operations,
+effects, layout, or backend semantics and cannot compile the compiler. It is a
+hosted experiment whose corpus may later inform a separately versioned
+Bootstrap-Core contract.
+
 Bootstrap Core is a profile, not another semantic language. It uses exactly the
 meaning of the corresponding public Core forms and primitives but may reject
 features unnecessary for compiling the compiler itself. The profile must be

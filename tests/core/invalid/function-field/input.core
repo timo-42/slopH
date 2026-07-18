@@ -1,0 +1,5 @@
+(core 0
+  (types
+    (enum example::Bad
+      (ctor example::Bad::Bad (field callback (fn Int Int)))))
+  (defs))

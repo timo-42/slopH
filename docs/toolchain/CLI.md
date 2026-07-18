@@ -66,6 +66,53 @@ Stable exit codes:
 4  internal compiler failure
 ```
 
+## Experimental Core v0 Tools
+
+The first executable milestone is the experimental Core v0 profile defined in
+[CORE_V0.md](../language/CORE_V0.md). It is intentionally placed below
+`unstable`: it is useful for testing the representation, but it is not the
+eventual stable `core` interface described later in this document.
+
+The Python 3.11+ implementation has no third-party runtime dependencies and
+provides:
+
+```text
+sloph unstable core check INPUT
+
+sloph unstable core print INPUT
+    [-o PATH]
+
+sloph unstable core eval INPUT
+    --symbol GLOBAL_ID
+    [--fuel NUMBER]
+```
+
+`INPUT` is a Core v0 tagged S-expression text file, or `-` for standard input.
+No format detection is performed. `core check` parses and independently
+validates the document. `core print` validates it and writes canonical Core v0
+text to standard output, or to `-o PATH`. `core eval` validates the document,
+evaluates the selected fully qualified global under the specified fuel bound,
+and prints a canonical data value. A final function closure is not a printable
+Core v0 result.
+
+These commands use the general output separation and exit-code conventions
+above, but their syntax and diagnostics may change while the profile remains
+under `unstable`. Resource limits and evaluation behavior are part of the Core
+v0 profile rather than ambient Python behavior.
+
+The experimental profile does **not** provide:
+
+- JSON or binary Core input or output;
+- a Core structural or textual `diff` command;
+- source-language parsing, elaboration, macro expansion, or type inference;
+- optimization passes or optimized-Core output;
+- C, native, WebAssembly, object, assembly, or executable backends;
+- the stable public Core API and compatibility guarantees proposed below.
+
+Requests for an unsupported format, operation, or backend are rejected rather
+than silently approximated. New semantic forms require a later Core format
+version; Core v0 readers reject unknown tags, sections, and fields.
+
 ## Library-First Implementation
 
 The CLI is a thin frontend over reusable toolchain libraries. Command handlers
@@ -315,8 +362,8 @@ schema compatibility promise. It remains deterministic within one compiler
 build so compiler tests can use snapshots.
 
 Use `internal`, rather than `unstable`, for compiler-private facilities.
-`unstable` remains available for a future experimental public feature intended
-to graduate into the supported interface.
+`unstable` is for experimental public features that may later graduate into a
+supported interface; the current Core v0 tools are the first such profile.
 
 ### Pass-by-Pass Core
 
@@ -589,7 +636,20 @@ future services without compiler changes.
 
 ## Conformance Requirements
 
-The CLI conformance suite must verify:
+For the current experimental Core v0 milestone, conformance is limited to:
+
+- parsing and validating canonical tagged S-expression Core v0 text;
+- canonical text printing and parse-print idempotence;
+- deterministic, fuel-bounded evaluation of the selected global;
+- deterministic rejection of malformed, invalid, cyclic, over-limit, and
+  unsupported inputs;
+- standard-input/output separation and the documented process exit classes;
+- identical results from the CLI and the Python library operation it invokes.
+
+JSON, binary, diff, optimizer, source-language, and backend cases are outside
+the Core v0 profile and must not be reported as passing Core v0 conformance.
+
+The eventual supported CLI conformance suite must verify:
 
 - AST JSON round-trips through `ast print` and `ast check`;
 - Core JSON round-trips through `core print` and `core check`;

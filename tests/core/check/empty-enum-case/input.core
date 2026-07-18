@@ -1,0 +1,6 @@
+(core 0
+  (types (enum example::Never))
+  (defs
+    (def example::absurd (fn (named example::Never) Int)
+      (lam (bind impossible (named example::Never))
+        (case (local impossible) Int)))))

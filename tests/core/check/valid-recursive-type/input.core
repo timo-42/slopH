@@ -1,0 +1,8 @@
+(core 0
+  (types
+    (enum example::List
+      (ctor example::List::Nil)
+      (ctor example::List::Cons
+        (field head Int)
+        (field tail (named example::List)))))
+  (defs))
