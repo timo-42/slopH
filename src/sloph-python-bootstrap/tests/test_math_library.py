@@ -10,7 +10,7 @@ from sloph.project import load_project
 
 
 class MathLibraryTests(unittest.TestCase):
-    def _project(self, expression: str) -> Path:
+    def _project(self, expression: str, result_type: str = "Int") -> Path:
         temporary = tempfile.TemporaryDirectory(prefix="sloph-math-library-")
         self.addCleanup(temporary.cleanup)
         root = Path(temporary.name)
@@ -22,14 +22,15 @@ class MathLibraryTests(unittest.TestCase):
         )
         (root / "src" / "main.sloph").write_text(
             "module demo::main;\n"
-            "import math::int::{absolute, minimum, maximum};\n"
-            f"const main: Int {{ {expression} }}\n",
+            "import math::int::{absolute, minimum, maximum, sign, distance, "
+            "is_negative, is_positive};\n"
+            f"const main: {result_type} {{ {expression} }}\n",
             encoding="ascii",
         )
         return root
 
-    def _run(self, expression: str) -> bytes:
-        project = self._project(expression)
+    def _run(self, expression: str, result_type: str = "Int") -> bytes:
+        project = self._project(expression, result_type)
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "program"
             compile_project(project, output, source_version=1)
@@ -53,6 +54,12 @@ class MathLibraryTests(unittest.TestCase):
             ("minimum(9, 3)", 3),
             ("maximum(3, 9)", 9),
             ("maximum(9, 3)", 9),
+            ("sign(0 - 7)", -1),
+            ("sign(0)", 0),
+            ("sign(7)", 1),
+            ("distance(3, 9)", 6),
+            ("distance(9, 3)", 6),
+            ("distance(4, 4)", 0),
         )
         for expression, expected in cases:
             with self.subTest(expression=expression):
@@ -60,6 +67,21 @@ class MathLibraryTests(unittest.TestCase):
                     f"(value 0 (int {expected}))\n".encode("ascii"),
                     self._run(expression),
                 )
+
+    def test_integer_predicates(self) -> None:
+        true = b"(value 0 (con core::Bool::True))\n"
+        false = b"(value 0 (con core::Bool::False))\n"
+        cases = (
+            ("is_negative(0 - 1)", true),
+            ("is_negative(0)", false),
+            ("is_negative(1)", false),
+            ("is_positive(0 - 1)", false),
+            ("is_positive(0)", false),
+            ("is_positive(1)", true),
+        )
+        for expression, expected in cases:
+            with self.subTest(expression=expression):
+                self.assertEqual(expected, self._run(expression, "Bool"))
 
 
 if __name__ == "__main__":
