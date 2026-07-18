@@ -145,12 +145,14 @@ class _Validator:
             primitives |= {
                 "int.equal",
                 "int.less",
+                "int.to_bytes",
                 "bytes.length",
                 "runtime.trap",
             }
         foreign = self.version == 1 and node.name.startswith("foreign.")
         if node.name not in primitives and not foreign: _bad("invalid_primitive", "unknown source primitive", node, name=node.name)
         expected = {
+            "int.to_bytes": 1,
             "bytes.length": 1,
             "runtime.trap": 1,
         }.get(node.name, 2)

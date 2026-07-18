@@ -40,6 +40,8 @@ jobs:
       - run: test "$(uname -m)" = "${{ matrix.arch }}"
       - name: Run unit, conformance, and example tests
         run: uv run --no-project --python "$(command -v python)" --directory src/sloph-python-bootstrap python -m unittest discover -s tests -t .
+      - name: Run portable library tests
+        run: uv run --no-project --python "$(command -v python)" --directory src/sloph-python-bootstrap ../libraries/run-tests.sh python -m sloph
       - run: uv run --no-project --python "$(command -v python)" --directory src/sloph-python-bootstrap python -m sloph unstable core check ../../tests/core/evaluate/integer-add/input.core
       - run: uv run --no-project --python "$(command -v python)" --directory src/sloph-python-bootstrap python -m sloph unstable core print ../../tests/core/evaluate/integer-add/input.core
       - run: uv run --no-project --python "$(command -v python)" --directory src/sloph-python-bootstrap python -m sloph unstable core eval ../../tests/core/evaluate/integer-add/input.core --symbol example::main

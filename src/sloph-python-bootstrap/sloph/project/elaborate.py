@@ -621,6 +621,7 @@ def _infer_lowered_type(
         return _infer_lowered_type(scope, expression.body, locals_ | {expression.binder.name: expression.binder.type})
     if isinstance(expression, PrimExpr):
         if expression.name in ("int.equal", "int.less"): return NamedType("core::Bool")
+        if expression.name == "int.to_bytes": return NamedType("core::Bytes")
         if expression.name == "bytes.length": return INT
         if expression.name == "runtime.trap": return NamedType("core::Unit")
         binding = scope.foreign_bindings.get(expression.name)

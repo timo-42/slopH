@@ -41,6 +41,7 @@ PRIMITIVES: dict[str, tuple[tuple[CoreType, ...], CoreType]] = {
 V1_PRIMITIVES: dict[str, tuple[tuple[CoreType, ...], CoreType]] = PRIMITIVES | {
     "int.equal": ((INT, INT), NamedType("core::Bool")),
     "int.less": ((INT, INT), NamedType("core::Bool")),
+    "int.to_bytes": ((INT,), NamedType("core::Bytes")),
     "bytes.length": ((NamedType("core::Bytes"),), INT),
     "runtime.trap": ((NamedType("core::Bytes"),), NamedType("core::Unit")),
 }

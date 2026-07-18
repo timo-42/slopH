@@ -295,6 +295,7 @@ class _Parser:
                 primitives |= {
                     "int.equal",
                     "int.less",
+                    "int.to_bytes",
                     "bytes.length",
                     "runtime.trap",
                 }

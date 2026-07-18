@@ -498,6 +498,28 @@ static SlValue *sl_bytes(const unsigned char *data, size_t len) {
     value->as.bytes.data=len?(unsigned char *)sl_alloc(len):NULL;if(len)memcpy(value->as.bytes.data,data,len);return value;
 }
 
+static SlValue *sl_int_to_bytes(SlValue *value) {
+    if(value->kind!=0u)sl_die("int.to_bytes received non-integer value");
+    const SlBig *integer=value->as.integer;
+    unsigned char buffer[SL_DECIMAL_CHUNKS*9u+2u];size_t size=0u;
+    if(!integer->sign){buffer[size++]='0';return sl_bytes(buffer,size);}
+    uint32_t work[SL_MAX_LIMBS],chunks[SL_DECIMAL_CHUNKS];size_t len=integer->len,count=0u;
+    memcpy(work,integer->limb,len*4u);
+    while(len){
+        sl_charge(1u+len);uint64_t remainder=0u;
+        for(size_t i=len;i-- >0u;){uint64_t current=(remainder<<32u)|work[i];work[i]=(uint32_t)(current/1000000000u);remainder=current%1000000000u;}
+        chunks[count++]=(uint32_t)remainder;while(len&&!work[len-1u])--len;
+    }
+    if(integer->sign<0)buffer[size++]='-';
+    int written=snprintf((char *)buffer+size,sizeof(buffer)-size,"%" PRIu32,chunks[--count]);
+    if(written<0||(size_t)written>=sizeof(buffer)-size)sl_die("integer formatting failed");size+=(size_t)written;
+    while(count){
+        written=snprintf((char *)buffer+size,sizeof(buffer)-size,"%09" PRIu32,chunks[--count]);
+        if(written!=9||(size_t)written>=sizeof(buffer)-size)sl_die("integer formatting failed");size+=(size_t)written;
+    }
+    return sl_bytes(buffer,size);
+}
+
 static SlValue *sl_dispatch(uint32_t function, size_t count, SlValue **argument, size_t environment_count, SlValue **environment);
 
 static SlValue *sl_closure(uint32_t function, size_t arity, size_t count, SlValue **argument, size_t environment_count, SlValue **environment) {
@@ -600,7 +622,7 @@ class _Emitter:
             if definition.name not in self.functions:
                 output.append(self._global(definition))
         entry = self._gid(self.symbol)
-        keep = "(void)&sl_int_literal;(void)&sl_int_add;(void)&sl_int_sub;(void)&sl_int_mul;(void)&sl_int_compare;(void)&sl_con;(void)&sl_bytes;(void)&sl_closure;(void)&sl_apply;(void)&sl_int_u64;(void)&sl_int_u64_value;(void)&sl_trap_bytes;(void)&sl_exit_code;(void)&sl_print_value;"
+        keep = "(void)&sl_int_literal;(void)&sl_int_add;(void)&sl_int_sub;(void)&sl_int_mul;(void)&sl_int_compare;(void)&sl_int_to_bytes;(void)&sl_con;(void)&sl_bytes;(void)&sl_closure;(void)&sl_apply;(void)&sl_int_u64;(void)&sl_int_u64_value;(void)&sl_trap_bytes;(void)&sl_exit_code;(void)&sl_print_value;"
         if self.symbol in self.functions:
             unit = self.constructor_ids["core::Unit::Unit"]
             success = self.constructor_ids["os::process::Exit::Success"]
@@ -749,6 +771,8 @@ class _Emitter:
             if expression.name == "bytes.length":
                 lines.append(f'{indent}if({values[0]}->kind!=2u)sl_die("bytes.length received non-Bytes value");')
                 lines.append(f"{indent}SlValue *{result}=sl_int_u64((uint64_t){values[0]}->as.bytes.len);")
+            elif expression.name == "int.to_bytes":
+                lines.append(f"{indent}SlValue *{result}=sl_int_to_bytes({values[0]});")
             elif expression.name == "runtime.trap":
                 lines.append(f"{indent}sl_trap_bytes({values[0]});")
                 lines.append(f"{indent}SlValue *{result}=NULL;")

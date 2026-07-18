@@ -81,6 +81,18 @@ uv run --no-project --directory src/sloph-python-bootstrap \
   python -m unittest discover -s tests -t .
 ```
 
+Bundled-library behavior is tested beside each library rather than through a
+compiler implementation's unit tests. Each source module has an independently
+compilable project under that library's `tests/` directory, using the source
+module's filename. The project prints deterministic results to standard output,
+and its library test runner compares those bytes exactly with `expected.txt`.
+Run all bundled-library tests against the hosted bootstrap with:
+
+```text
+uv run --no-project --directory src/sloph-python-bootstrap \
+  ../libraries/run-tests.sh python -m sloph
+```
+
 Core cases cover text parsing, validation, canonical printing, evaluation,
 resource limits, diagnostics, and CLI behavior. Source cases use either a
 single `.sloph` input for formatting and AST output or a project directory for
