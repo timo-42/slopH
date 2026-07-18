@@ -42,6 +42,13 @@ class _Function:
     body: Expr
 
 
+@dataclass(frozen=True, slots=True)
+class _Lambda:
+    identity: int
+    expression: LamExpr
+    captures: tuple[str, ...]
+
+
 def validate_profile(unit: CoreUnit, symbol: str) -> None:
     """Validate *unit* and the restrictions of the C11 first-order profile.
 
@@ -188,6 +195,9 @@ def _check_expression(
             )
         return
     if isinstance(expression, LamExpr):
+        if allow_higher_order:
+            _check_expression(expression.body, definitions, functions, allow_higher_order=True)
+            return
         fail(
             "backend.c11.nested_lambda",
             "backend",
@@ -249,6 +259,31 @@ def _check_expression(
     raise AssertionError(f"unsupported expression {type(expression)!r}")
 
 
+def _expression_children(expression: Expr) -> tuple[Expr, ...]:
+    if isinstance(expression, LamExpr): return (expression.body,)
+    if isinstance(expression, AppExpr): return (expression.function, expression.argument)
+    if isinstance(expression, LetExpr): return (expression.value, expression.body)
+    if isinstance(expression, PrimExpr): return expression.arguments
+    if isinstance(expression, ConExpr): return expression.fields
+    if isinstance(expression, CaseExpr): return (expression.scrutinee, *(item.body for item in expression.alternatives))
+    return ()
+
+
+def _free_locals(expression: Expr, bound: frozenset[str]) -> set[str]:
+    if isinstance(expression, LocalExpr): return set() if expression.name in bound else {expression.name}
+    if isinstance(expression, LamExpr): return _free_locals(expression.body, bound | {expression.binder.name})
+    if isinstance(expression, LetExpr):
+        return _free_locals(expression.value, bound) | _free_locals(expression.body, bound | {expression.binder.name})
+    if isinstance(expression, CaseExpr):
+        result = _free_locals(expression.scrutinee, bound)
+        for alternative in expression.alternatives:
+            result |= _free_locals(alternative.body, bound | {item.name for item in alternative.binders})
+        return result
+    result: set[str] = set()
+    for child in _expression_children(expression): result |= _free_locals(child, bound)
+    return result
+
+
 _RUNTIME = r'''#include <inttypes.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -271,7 +306,7 @@ typedef struct SlChunk SlChunk;
 struct SlBig { int sign; size_t len; uint32_t limb[]; };
 typedef struct { uint32_t tag; size_t count; SlValue **field; } SlCon;
 typedef struct { size_t len; unsigned char *data; } SlBytes;
-typedef struct { uint32_t function; size_t arity; size_t count; SlValue **argument; } SlClosure;
+typedef struct { uint32_t function; size_t arity; size_t count; SlValue **argument; size_t environment_count; SlValue **environment; } SlClosure;
 struct SlValue { uint32_t kind; union { SlBig *integer; SlCon con; SlBytes bytes; SlClosure closure; } as; };
 struct SlChunk { SlChunk *next; size_t used; size_t cap; max_align_t align; unsigned char data[]; };
 
@@ -457,12 +492,13 @@ static SlValue *sl_bytes(const unsigned char *data, size_t len) {
     value->as.bytes.data=len?(unsigned char *)sl_alloc(len):NULL;if(len)memcpy(value->as.bytes.data,data,len);return value;
 }
 
-static SlValue *sl_dispatch(uint32_t function, size_t count, SlValue **argument);
+static SlValue *sl_dispatch(uint32_t function, size_t count, SlValue **argument, size_t environment_count, SlValue **environment);
 
-static SlValue *sl_closure(uint32_t function, size_t arity, size_t count, SlValue **argument) {
+static SlValue *sl_closure(uint32_t function, size_t arity, size_t count, SlValue **argument, size_t environment_count, SlValue **environment) {
     if (++sl_value_count > SL_MAX_VALUES) sl_die("value-node limit exceeded (100000)");
-    SlValue *value=(SlValue *)sl_alloc(sizeof(SlValue));value->kind=3u;value->as.closure.function=function;value->as.closure.arity=arity;value->as.closure.count=count;
-    value->as.closure.argument=count?(SlValue **)sl_alloc(count*sizeof(SlValue *)):NULL;if(count)memcpy(value->as.closure.argument,argument,count*sizeof(SlValue *));return value;
+    SlValue *value=(SlValue *)sl_alloc(sizeof(SlValue));value->kind=3u;value->as.closure.function=function;value->as.closure.arity=arity;value->as.closure.count=count;value->as.closure.environment_count=environment_count;
+    value->as.closure.argument=count?(SlValue **)sl_alloc(count*sizeof(SlValue *)):NULL;if(count)memcpy(value->as.closure.argument,argument,count*sizeof(SlValue *));
+    value->as.closure.environment=environment_count?(SlValue **)sl_alloc(environment_count*sizeof(SlValue *)):NULL;if(environment_count)memcpy(value->as.closure.environment,environment,environment_count*sizeof(SlValue *));return value;
 }
 
 static SlValue *sl_apply(SlValue *function, SlValue *argument) {
@@ -470,7 +506,7 @@ static SlValue *sl_apply(SlValue *function, SlValue *argument) {
     SlClosure *closure=&function->as.closure;if(closure->count>=closure->arity)sl_die("invalid saturated closure");
     size_t count=closure->count+1u;SlValue **arguments=(SlValue **)sl_alloc(count*sizeof(SlValue *));
     if(closure->count)memcpy(arguments,closure->argument,closure->count*sizeof(SlValue *));arguments[count-1u]=argument;
-    return count==closure->arity?sl_dispatch(closure->function,count,arguments):sl_closure(closure->function,closure->arity,count,arguments);
+    return count==closure->arity?sl_dispatch(closure->function,count,arguments,closure->environment_count,closure->environment):sl_closure(closure->function,closure->arity,count,arguments,closure->environment_count,closure->environment);
 }
 
 static void sl_print_big(const SlBig *value) {
@@ -498,6 +534,24 @@ class _Emitter:
             for constructor in enum.constructors
         )
         self.constructor_ids = {name: index for index, name in enumerate(constructors)}
+        self.lambdas: dict[int, _Lambda] = {}
+        next_lambda = len(self.global_ids)
+
+        def collect(expression: Expr) -> None:
+            nonlocal next_lambda
+            if isinstance(expression, LamExpr):
+                self.lambdas[id(expression)] = _Lambda(
+                    next_lambda,
+                    expression,
+                    tuple(sorted(_free_locals(expression.body, frozenset({expression.binder.name})))),
+                )
+                next_lambda += 1
+            for child in _expression_children(expression):
+                collect(child)
+
+        for definition in sorted(unit.definitions, key=lambda item: item.name):
+            expression = self.functions[definition.name].body if definition.name in self.functions else definition.value
+            collect(expression)
         self.temp = 0
 
     def emit(self) -> str:
@@ -507,6 +561,8 @@ class _Emitter:
         output.append(self._printer())
         for name in sorted(self.functions):
             output.append(self._function(self.functions[name]))
+        for item in sorted(self.lambdas.values(), key=lambda value: value.identity):
+            output.append(self._lambda_function(item))
         for definition in sorted(self.unit.definitions, key=lambda item: item.name):
             if definition.name not in self.functions:
                 output.append(self._global(definition))
@@ -523,18 +579,22 @@ class _Emitter:
                 f"SlValue *a{i}" for i, _ in enumerate(self.functions[name].parameters)
             ) or "void"
             lines.append(f"static SlValue *sl_f{self._gid(name)}({parameters});")
+        for item in sorted(self.lambdas.values(), key=lambda value: value.identity):
+            lines.append(f"static SlValue *sl_l{item.identity}(SlValue **environment, SlValue *argument);")
         for name in sorted(self.definitions):
             if name not in self.functions:
                 lines.append(f"static SlValue *sl_g{self._gid(name)}(void);")
         return "\n".join(lines) + "\n"
 
     def _dispatch(self) -> str:
-        lines = ["static SlValue *sl_dispatch(uint32_t function, size_t count, SlValue **argument) {", "  (void)count;", "  (void)argument;"]
+        lines = ["static SlValue *sl_dispatch(uint32_t function, size_t count, SlValue **argument, size_t environment_count, SlValue **environment) {", "  (void)count;", "  (void)argument;", "  (void)environment_count;", "  (void)environment;"]
         lines.append("  switch(function){")
         for name in sorted(self.functions):
             function = self.functions[name]
             arguments = ", ".join(f"argument[{index}u]" for index in range(len(function.parameters)))
-            lines.append(f"  case {self._gid(name)}u: if(count!={len(function.parameters)}u)sl_die(\"closure arity mismatch\");return sl_f{self._gid(name)}({arguments});")
+            lines.append(f"  case {self._gid(name)}u: if(count!={len(function.parameters)}u||environment_count!=0u)sl_die(\"closure arity mismatch\");return sl_f{self._gid(name)}({arguments});")
+        for item in sorted(self.lambdas.values(), key=lambda value: value.identity):
+            lines.append(f"  case {item.identity}u: if(count!=1u||environment_count!={len(item.captures)}u)sl_die(\"lambda closure mismatch\");return sl_l{item.identity}(environment,argument[0]);")
         lines.append("  default:sl_die(\"unknown closure function\");}")
         lines.append("  return NULL;\n}\n")
         return "\n".join(lines)
@@ -574,6 +634,14 @@ class _Emitter:
         lines.append(f"  return {result};")
         return f"static SlValue *sl_f{self._gid(function.definition.name)}({parameters}) {{\n" + "\n".join(lines) + "\n}\n"
 
+    def _lambda_function(self, item: _Lambda) -> str:
+        environment = {name: f"environment[{index}u]" for index, name in enumerate(item.captures)}
+        environment[item.expression.binder.name] = "argument"
+        lines = ["  sl_eval_enter();", "  sl_charge(1u);", "  (void)environment;", "  (void)argument;"]
+        result = self._expr(item.expression.body, environment, lines, "  ")
+        lines.extend(("  sl_eval_leave();", f"  return {result};"))
+        return f"static SlValue *sl_l{item.identity}(SlValue **environment, SlValue *argument) {{\n" + "\n".join(lines) + "\n}\n"
+
     def _global(self, definition: Definition) -> str:
         gid = self._gid(definition.name)
         lines: list[str] = []
@@ -612,7 +680,7 @@ class _Emitter:
         if isinstance(expression, GlobalExpr):
             result=self._new()
             if expression.name in self.functions:
-                lines.append(f"{indent}SlValue *{result}=sl_closure({self._gid(expression.name)}u,{len(self.functions[expression.name].parameters)}u,0u,NULL);")
+                lines.append(f"{indent}SlValue *{result}=sl_closure({self._gid(expression.name)}u,{len(self.functions[expression.name].parameters)}u,0u,NULL,0u,NULL);")
             else:
                 lines.append(f"{indent}SlValue *{result}=sl_g{self._gid(expression.name)}();")
             return result
@@ -622,6 +690,15 @@ class _Emitter:
                 result=self._new(); lines.append(f"{indent}SlValue *{result}=sl_f{self._gid(target.name)}({', '.join(values)});"); return result
             function=self._expr(expression.function,environment,lines,indent); argument=self._expr(expression.argument,environment,lines,indent)
             result=self._new(); lines.append(f"{indent}SlValue *{result}=sl_apply({function},{argument});"); return result
+        if isinstance(expression, LamExpr):
+            item=self.lambdas[id(expression)]; result=self._new()
+            if item.captures:
+                captured=self._new(); values=", ".join(environment[name] for name in item.captures)
+                lines.append(f"{indent}SlValue *{captured}[]={{ {values} }};")
+                lines.append(f"{indent}SlValue *{result}=sl_closure({item.identity}u,1u,0u,NULL,{len(item.captures)}u,{captured});")
+            else:
+                lines.append(f"{indent}SlValue *{result}=sl_closure({item.identity}u,1u,0u,NULL,0u,NULL);")
+            return result
         if isinstance(expression, LetExpr):
             value=self._expr(expression.value,environment,lines,indent); lines.append(f"{indent}(void){value};"); local=dict(environment); local[expression.binder.name]=value; return self._expr(expression.body,local,lines,indent)
         if isinstance(expression, PrimExpr):

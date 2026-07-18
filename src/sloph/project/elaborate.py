@@ -371,6 +371,19 @@ def _lower_expr(
                 result, _lower_expr(scope, argument, locals_, used), span
             )
         return result
+    if kind == "LambdaExpr":
+        active = dict(locals_)
+        binders: list[Binder] = []
+        parameters = _sequence(expression, "parameters")
+        if not parameters:
+            unit = NamedType("core::Unit")
+            binders.append(Binder("_unit", unit, span))
+        for parameter in parameters:
+            binders.append(_new_binder(scope, parameter, active, used))
+        body = _lower_body(scope, expression.body, active, used)
+        for binder in reversed(binders):
+            body = LamExpr(binder, body, span)
+        return body
     if kind == "ConstructorExpr":
         source_constructor = getattr(expression, "constructor", None)
         if isinstance(source_constructor, str):

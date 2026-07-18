@@ -146,6 +146,22 @@ value main: Int { apply(add(1), 41) }
         self.assertEqual(0, completed.returncode)
         self.assertEqual(b"(value 0 (int 42))\n", completed.stdout)
 
+    def test_anonymous_closure_captures_outer_value(self) -> None:
+        project = self._project(
+            """module demo::main;
+fn make_adder(base: Int) -> fn(Int) -> Int {
+  fn(item: Int) -> Int { base + item }
+}
+value main: Int { make_adder(40)(2) }
+"""
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "closure"
+            compile_project(project, output, source_version=1)
+            completed = subprocess.run([output], check=False, capture_output=True)
+        self.assertEqual(0, completed.returncode)
+        self.assertEqual(b"(value 0 (int 42))\n", completed.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()
