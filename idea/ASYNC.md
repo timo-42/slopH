@@ -133,6 +133,11 @@ Core and compiled interfaces must retain the distinction. Indirect function
 values must either include a `may_suspend` effect in their type or be treated
 conservatively as potentially suspending.
 
+The broader proposed model is recorded in
+[Purity and a Small Function Effect System](./EFFECTS.md). Suspension should be
+one independently propagated effect rather than forcing separate synchronous
+and asynchronous variants of every higher-order API.
+
 Inference must be bounded and deterministic. Recursive call groups can compute
 their suspension property as a finite fixed point over a Boolean effect. An
 unknown external or indirect call is suspending unless its interface proves
@@ -162,4 +167,3 @@ structured resource ownership, and caller control.
 - Which async details remain observable across native and future managed
   execution targets.
 - The minimal primitive catalog needed by a single-threaded first executor.
-
