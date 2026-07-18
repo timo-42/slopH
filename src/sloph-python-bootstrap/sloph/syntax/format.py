@@ -4,7 +4,7 @@ from sloph.core.diagnostics import fail
 from sloph.core.limits import Limits
 from sloph.syntax._integer import format_decimal
 from sloph.syntax.model import (
-    AppliedType, Block, BytesExpr, CallExpr, CaseExpr, ConditionalImportDecl, ConstructorExpr, Expr, FunctionType, GlobalExpr, IfExpr, InferredType, IntExpr, LambdaExpr,
+    AppliedType, BinaryExpr, Block, BytesExpr, CallExpr, CaseExpr, ConditionalImportDecl, ConstructorExpr, Expr, ForeignFunctionDecl, FunctionType, GlobalExpr, IfExpr, InferredType, IntExpr, IntrinsicFunctionDecl, IntrinsicTypeDecl, LambdaExpr,
     IntType, LocalExpr, Module, NamedType, PrimitiveExpr, TargetConstantPattern,
     TargetPattern, TargetTuplePattern, TypeRef,
 )
@@ -34,6 +34,8 @@ def _expr(value: Expr, indent: int) -> str:
     if isinstance(value, CallExpr):
         types = f"[{', '.join(_type(a) for a in value.type_arguments)}]" if value.type_arguments else ""
         return f"{_expr(value.function, indent)}{types}({', '.join(_expr(a, indent) for a in value.arguments)})"
+    if isinstance(value, BinaryExpr):
+        return f"({_expr(value.left, indent)} {value.operator} {_expr(value.right, indent)})"
     if isinstance(value, LambdaExpr):
         parameters = ", ".join(f"{item.name}: {_type(item.type)}" for item in value.parameters)
         return f"fn({parameters}) -> {_type(value.result_type)} " + _block(value.body, indent)
@@ -111,10 +113,14 @@ def format_source(
                     )
                 lines.append("}")
             else:
-                lines.append(f"import {item.module}::{{{', '.join(item.names)}}};")
+                prefix = "public " if item.public else ""
+                lines.append(f"{prefix}import {item.module}::{{{', '.join(item.names)}}};")
     declarations: list[str] = []
     for declaration in module.types:
         prefix = "public " if declaration.public else ""
+        if isinstance(declaration, IntrinsicTypeDecl):
+            declarations.append(f"{prefix}intrinsic type {declaration.name};")
+            continue
         type_parameters = f"[{', '.join(declaration.type_parameters)}]" if declaration.type_parameters else ""
         body = [f"{prefix}type {declaration.name}{type_parameters} {{"]
         for constructor in declaration.constructors:
@@ -124,8 +130,14 @@ def format_source(
         declarations.append("\n".join(body))
     for declaration in module.functions:
         prefix = "public " if declaration.public else ""
-        type_parameters = f"[{', '.join(declaration.type_parameters)}]" if declaration.type_parameters else ""
         params = ", ".join(f"{p.name}: {_type(p.type)}" for p in declaration.parameters)
+        if isinstance(declaration, IntrinsicFunctionDecl):
+            declarations.append(f"{prefix}intrinsic fn {declaration.name}({params}) -> {_type(declaration.result_type)} = {declaration.intrinsic};")
+            continue
+        if isinstance(declaration, ForeignFunctionDecl):
+            declarations.append(f"{prefix}foreign fn {declaration.name}({params}) -> {_type(declaration.result_type)} = {declaration.binding};")
+            continue
+        type_parameters = f"[{', '.join(declaration.type_parameters)}]" if declaration.type_parameters else ""
         declarations.append(
             f"{prefix}fn {declaration.name}{type_parameters}({params}) -> {_type(declaration.result_type)} "
             + _block(declaration.body, 0)

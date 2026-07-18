@@ -182,13 +182,13 @@ semantics.
 ## Compiler-Shipped Packages
 
 The compiler distribution supplies a final bundled-package root containing the
-mandatory library, official standard packages, and any public toolchain
-libraries shipped for offline use. Except for the compiler-coupled `core`
-package, these are normal packages. A project or CLI root may provide a
+mandatory packages, official standard packages, and any public toolchain
+libraries shipped for offline use. Except for the compiler-coupled `sloph`,
+`core`, and `prelude` packages, these are normal packages. A project or CLI root may provide a
 compatible replacement earlier in the search order.
 
-The mandatory `core` package is resolved outside ordinary shadowing. The
-compiler loads only the `core` identity and content hash it was built to use,
+The mandatory packages are resolved outside ordinary shadowing. The compiler
+loads only the identities and content hashes it was built to use,
 from its installation. An earlier root cannot replace it. Compiler-development
 experiments that change `core` require a deliberately different compiler build
 or a future explicitly unsafe internal command, not normal project resolution.

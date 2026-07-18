@@ -1,0 +1,5 @@
+module core::bytes;
+
+import core::{Bytes};
+
+public intrinsic fn length(bytes: Bytes) -> Int = bytes.length;

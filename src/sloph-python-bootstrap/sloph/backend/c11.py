@@ -654,7 +654,7 @@ class _Emitter:
         entry = self._gid(self.symbol)
         keep = "(void)&sl_int_literal;(void)&sl_int_add;(void)&sl_int_sub;(void)&sl_int_mul;(void)&sl_int_compare;(void)&sl_int_to_bytes;(void)&sl_con;(void)&sl_bytes;(void)&sl_closure;(void)&sl_apply;(void)&sl_int_u64;(void)&sl_int_u64_value;(void)&sl_trap_bytes;(void)&sl_exit_code;(void)&sl_print_value;"
         if self.symbol in self.functions:
-            unit = self.constructor_ids["core::Unit::Unit"]
+            unit = self.constructor_ids["sloph::Unit::Unit"]
             success = self.constructor_ids["os::process::Exit::Success"]
             failure = self.constructor_ids["os::process::Exit::Failure"]
             output.append(
@@ -816,11 +816,11 @@ class _Emitter:
                 binding=self.foreign_bindings[expression.name]
                 if binding.adapter != "borrowed_bytes_write":
                     fail("backend.c11.foreign_adapter", "backend", f"unsupported foreign adapter {binding.adapter!r}", expression.span, binding=expression.name)
-                if not isinstance(binding.result, AppliedType) or binding.result.constructor != "core::Result" or len(binding.result.arguments) != 2 or binding.result.arguments[0] != INT or not isinstance(binding.result.arguments[1], NamedType):
+                if not isinstance(binding.result, AppliedType) or binding.result.constructor != "sloph::Result" or len(binding.result.arguments) != 2 or binding.result.arguments[0] != INT or not isinstance(binding.result.arguments[1], NamedType):
                     fail("backend.c11.foreign_adapter", "backend", "borrowed-bytes write result must be Result[Int, NativeWriteError]", expression.span, binding=expression.name)
                 error_type=binding.result.arguments[1].name
-                ok_tag=self.constructor_ids["core::Result::Ok"]
-                err_tag=self.constructor_ids["core::Result::Err"]
+                ok_tag=self.constructor_ids["sloph::Result::Ok"]
+                err_tag=self.constructor_ids["sloph::Result::Err"]
                 interrupted_tag=self.constructor_ids[f"{error_type}::Interrupted"]
                 native_error_tag=self.constructor_ids[f"{error_type}::Native"]
                 fd=self._new(); offset=self._new(); count=self._new(); native=self._new(); error=self._new(); field=self._new(); wrapped=self._new(); error_value=self._new()
@@ -834,8 +834,8 @@ class _Emitter:
                 lines.append(f"{indent}SlValue *{result}=NULL;")
                 lines.append(f"{indent}if({native}>=0){{SlValue *{field}[]={{sl_int_u64((uint64_t){native})}};{result}=sl_con({ok_tag}u,1u,{field});}}else if({error}==EINTR){{SlValue *{error_value}=sl_con({interrupted_tag}u,0u,NULL);SlValue *{wrapped}[]={{{error_value}}};{result}=sl_con({err_tag}u,1u,{wrapped});}}else{{SlValue *{field}[]={{sl_int_u64((uint64_t)(unsigned){error})}};SlValue *{error_value}=sl_con({native_error_tag}u,1u,{field});SlValue *{wrapped}[]={{{error_value}}};{result}=sl_con({err_tag}u,1u,{wrapped});}}")
             elif expression.name in ("int.equal", "int.less"):
-                false_tag=self.constructor_ids["core::Bool::False"]
-                true_tag=self.constructor_ids["core::Bool::True"]
+                false_tag=self.constructor_ids["sloph::Bool::False"]
+                true_tag=self.constructor_ids["sloph::Bool::True"]
                 operator="==0" if expression.name == "int.equal" else "<0"
                 lines.append(f"{indent}SlValue *{result}=sl_con(sl_int_compare({values[0]}, {values[1]}){operator}?{true_tag}u:{false_tag}u,0u,NULL);")
             elif expression.name in ("int.add", "int.sub", "int.mul"):

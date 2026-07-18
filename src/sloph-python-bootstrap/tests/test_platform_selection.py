@@ -147,7 +147,7 @@ public fn main() -> Exit {
         )
         self.assertIsInstance(feature.value, LamExpr)
         self.assertIsInstance(feature.value.body, ConExpr)
-        self.assertEqual("core::Bool::False", feature.value.body.constructor)
+        self.assertEqual("sloph::Bool::False", feature.value.body.constructor)
 
     def _project(self, dependencies: str, source: str):
         temporary = tempfile.TemporaryDirectory()

@@ -1,13 +1,15 @@
 module std::io;
 
+import core::bytes::{length};
+import core::runtime::{trap};
 import syscall::posix::{write_once, WriteError};
 
 fn write_from(bytes: Bytes, offset: Int) -> Result[Unit, WriteError] {
-  let length = primitive bytes.length(bytes);
-  if offset == length {
+  let byte_count = length(bytes);
+  if offset == byte_count {
     Result::Ok[Unit, WriteError](Unit::Unit())
   } else {
-    let result = write_once(1, bytes, offset, length - offset);
+    let result = write_once(1, bytes, offset, byte_count - offset);
     case result -> Result[Unit, WriteError] {
       Result::Ok(count) => {
         if count < 1 {
@@ -44,7 +46,7 @@ public fn write(bytes: Bytes) -> Unit {
       Unit::Unit()
     }
     Result::Err(error) => {
-      primitive runtime.trap("POSIX write failed")
+      trap("POSIX write failed")
     }
   }
 }

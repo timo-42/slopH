@@ -1,0 +1,6 @@
+module core::runtime;
+
+import core::{Bytes};
+import sloph::{Unit};
+
+public intrinsic fn trap(message: Bytes) -> Unit = runtime.trap;

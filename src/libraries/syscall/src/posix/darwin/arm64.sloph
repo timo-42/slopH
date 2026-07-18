@@ -2,16 +2,9 @@ module syscall::posix::darwin::arm64;
 
 import syscall::posix::native::{NativeWriteError};
 
-public fn native_write_once(
+public foreign fn native_write_once(
   descriptor: Int,
   bytes: Bytes,
   offset: Int,
   count: Int
-) -> Result[Int, NativeWriteError] {
-  primitive foreign.syscall.posix.darwin.arm64.write(
-    descriptor,
-    bytes,
-    offset,
-    count
-  )
-}
+) -> Result[Int, NativeWriteError] = foreign.syscall.posix.darwin.arm64.write;

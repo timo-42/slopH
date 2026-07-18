@@ -38,7 +38,7 @@ def compile_project(
     start = perf_counter_ns()
     if source_version == 1:
         manifest = load_manifest(project)
-        packages = resolve_bundled_packages(("core", *manifest.dependencies))
+        packages = resolve_bundled_packages(("prelude", *manifest.dependencies))
         _run_package_build_scripts(packages)
     dependencies_built = perf_counter_ns()
     loaded = load_project(project, source_version=source_version)

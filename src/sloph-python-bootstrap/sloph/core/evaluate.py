@@ -340,7 +340,7 @@ class _Machine:
         if name in ("int.equal", "int.less"):
             self._consume(1 + left_limbs + right_limbs, span)
             truth = left.value == right.value if name == "int.equal" else left.value < right.value
-            return ConValue(f"core::Bool::{'True' if truth else 'False'}", (), 1)
+            return ConValue(f"sloph::Bool::{'True' if truth else 'False'}", (), 1)
         if name == "int.mul":
             self._consume(1 + left_limbs * right_limbs, span)
             maximum_bits = _bits(left.value) + _bits(right.value)

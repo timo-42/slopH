@@ -1,7 +1,7 @@
 module std_tests::int;
 
 import os::process::{Exit};
-import std::int::{to_bytes};
+import core::int::{to_bytes};
 import std::io::{write};
 
 fn print(item: Int) -> Unit {

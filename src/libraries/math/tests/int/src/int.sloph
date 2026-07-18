@@ -2,7 +2,7 @@ module math_tests::int;
 
 import math::int::{absolute, minimum, maximum, sign, distance, is_negative, is_positive};
 import os::process::{Exit};
-import std::int::{to_bytes};
+import core::int::{to_bytes};
 import std::io::{write};
 
 fn report_int(label: Bytes, item: Int) -> Unit {

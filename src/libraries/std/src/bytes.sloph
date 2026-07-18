@@ -1,8 +1,6 @@
 module std::bytes;
 
-public fn length(bytes: Bytes) -> Int {
-  primitive bytes.length(bytes)
-}
+import core::bytes::{length};
 
 public fn is_empty(bytes: Bytes) -> Bool {
   length(bytes) == 0

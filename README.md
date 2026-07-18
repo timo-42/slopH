@@ -9,8 +9,10 @@ source language, runtime, or native backend.
 In project terminology, **SlopH** is the user-facing language and **SlopH
 Core** (or **Core**) is its canonical typed intermediate language. “Source v0”
 and “Source v1” name versioned implementation profiles rather than separate
-languages. The lowercase `core` name refers to the mandatory library package.
-See the normative [v1 terminology](docs/language/V1.md#terminology).
+languages. The lowercase `sloph` package owns ordinary language-level data,
+the lowercase `core` package exposes fixed Core types and primitives, and the
+mandatory `prelude` re-exports their fundamental types. See the normative
+[v1 terminology](docs/language/V1.md#terminology).
 
 The design prioritizes code that AI systems can generate and reason about,
 human reviewability, a specification small enough to fit in an AI context
@@ -45,7 +47,7 @@ sloph run examples/hello-world
 Core v0 is a monomorphic, pure subset used to test the typed Core
 representation before the full source language is fixed. The Python 3.11+
 implementation also supports explicit Source v1 generics in canonical Core v2,
-with generic `Option` and `Result` in `core` and recoverable
+with generic `Option` and `Result` in `sloph` and recoverable
 `std::io::try_write`. It has no third-party runtime dependencies and exposes:
 
 ```text

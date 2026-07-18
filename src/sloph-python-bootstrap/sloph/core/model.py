@@ -15,6 +15,14 @@ INT = IntType()
 
 
 @dataclass(frozen=True, slots=True)
+class BytesType:
+    pass
+
+
+BYTES = BytesType()
+
+
+@dataclass(frozen=True, slots=True)
 class NamedType:
     name: str
 
@@ -42,7 +50,7 @@ class ForAllType:
     body: "CoreType"
 
 
-CoreType: TypeAlias = IntType | NamedType | TypeVariable | AppliedType | FunctionType | ForAllType
+CoreType: TypeAlias = IntType | BytesType | NamedType | TypeVariable | AppliedType | FunctionType | ForAllType
 
 
 @dataclass(frozen=True, slots=True)

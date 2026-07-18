@@ -7,6 +7,7 @@ from urllib.parse import unquote
 from sloph.core.diagnostics import Span, fail, limit_fail
 from sloph.core.limits import Limits
 from sloph.core.model import (
+    BYTES,
     INT,
     Alternative,
     AppliedType,
@@ -297,6 +298,8 @@ def _decode_type(node: SExpr) -> CoreType:
     if isinstance(node, Atom):
         if node.value == "Int":
             return INT
+        if node.value == "Bytes":
+            return BYTES
         fail(
             "core.parse.unknown_type",
             "parse",

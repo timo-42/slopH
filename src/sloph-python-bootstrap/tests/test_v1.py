@@ -38,7 +38,7 @@ const main: Int { answer() }
         project = self._project(source)
         unit = elaborate_project_v1(project)
         rendered = format_core(unit)
-        self.assertIn("core::Unit", rendered)
+        self.assertIn("sloph::Unit", rendered)
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "answer"
             compile_project(project, output, source_version=1)
@@ -57,7 +57,7 @@ fn count(item: Nat) -> Int {
   case item -> Int {
     Nat::Zero() => { 0 }
     Nat::Next(rest: Nat) => {
-      primitive int.add(1, count(rest))
+      1 + count(rest)
     }
   }
 }
@@ -75,12 +75,7 @@ const main: Int { count(Nat::Next(Nat::Next(Nat::Zero()))) }
         project = self._project(
             """module demo::main;
 fn factorial(n: Int) -> Int {
-  case primitive int.less(n, 2) -> Int {
-    Bool::False() => {
-      primitive int.mul(n, factorial(primitive int.sub(n, 1)))
-    }
-    Bool::True() => { 1 }
-  }
+  if n < 2 { 1 } else { n * factorial(n - 1) }
 }
 const main: Int { factorial(6) }
 """
@@ -155,14 +150,14 @@ const main: Int { sum(List::Cons(2, List::Cons(3, List::Nil()))) }
 
     def test_standard_bytes_library_wraps_core_operations(self) -> None:
         cases = (
-            ("length", '"abc"', "Int", "(value 0 (int 3))\n"),
-            ("is_empty", '""', "Bool", "(value 0 (con core::Bool::True))\n"),
+            ("core::bytes", "length", '"abc"', "Int", "(value 0 (int 3))\n"),
+            ("std::bytes", "is_empty", '""', "Bool", "(value 0 (con sloph::Bool::True))\n"),
         )
-        for function, literal, result_type, expected in cases:
+        for module, function, literal, result_type, expected in cases:
             with self.subTest(function=function):
                 project = self._project(
                     f"""module demo::main;
-import std::bytes::{{length, is_empty}};
+import {module}::{{{function}}};
 const main: {result_type} {{ {function}({literal}) }}
 """
                 )
@@ -194,6 +189,27 @@ const main: Int {
         self.assertIn("(types Int)", core)
         self.assertEqual(
             "(value 0 (int 42))\n",
+            format_value(evaluate(unit, "demo::main::main")),
+        )
+
+    def test_selected_public_import_reexports_original_identity(self) -> None:
+        project = self._project("module demo::main; const main: Int { 0 }")
+        (project / "src" / "defs.sloph").write_text(
+            "module demo::defs; public type Answer { Answer(item: Int); }",
+            encoding="ascii",
+        )
+        (project / "src" / "facade.sloph").write_text(
+            "module demo::facade; public import demo::defs::{Answer};",
+            encoding="ascii",
+        )
+        (project / "src" / "main.sloph").write_text(
+            "module demo::main; import demo::facade::{Answer}; "
+            "const main: Answer { Answer::Answer(42) }",
+            encoding="ascii",
+        )
+        unit = elaborate_project_v1(project)
+        self.assertEqual(
+            "(value 0 (con demo::defs::Answer::Answer (int 42)))\n",
             format_value(evaluate(unit, "demo::main::main")),
         )
 

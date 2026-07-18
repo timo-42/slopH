@@ -5,6 +5,7 @@ import re
 
 from sloph.core.diagnostics import Span, fail
 from sloph.core.model import (
+    BYTES,
     INT,
     Alternative,
     AppliedType,
@@ -23,6 +24,7 @@ from sloph.core.model import (
     GlobalExpr,
     IntExpr,
     IntType,
+    BytesType,
     LamExpr,
     LetExpr,
     LocalExpr,
@@ -38,18 +40,7 @@ SEGMENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
 FOREIGN_RE = re.compile(r"foreign(?:\.[A-Za-z_][A-Za-z0-9_]*)+\Z")
 PROVIDER_RE = re.compile(r"[a-z_][A-Za-z0-9_]*(?:::[a-z_][A-Za-z0-9_]*)+\Z")
 HEADER_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_.-]*\Z")
-PRIMITIVES: dict[str, tuple[tuple[CoreType, ...], CoreType]] = {
-    "int.add": ((INT, INT), INT),
-    "int.sub": ((INT, INT), INT),
-    "int.mul": ((INT, INT), INT),
-}
-V1_PRIMITIVES: dict[str, tuple[tuple[CoreType, ...], CoreType]] = PRIMITIVES | {
-    "int.equal": ((INT, INT), NamedType("core::Bool")),
-    "int.less": ((INT, INT), NamedType("core::Bool")),
-    "int.to_bytes": ((INT,), NamedType("core::Bytes")),
-    "bytes.length": ((NamedType("core::Bytes"),), INT),
-    "runtime.trap": ((NamedType("core::Bytes"),), NamedType("core::Unit")),
-}
+from sloph.core.primitives import FIXED_PRIMITIVES, V0_PRIMITIVES
 
 
 class _Context:
@@ -161,7 +152,9 @@ def _well_formed_type(context: _Context, type_: CoreType, span: Span, type_varia
     pending: list[tuple[CoreType, set[str]]] = [(type_, set(type_variables))]
     while pending:
         current, scope = pending.pop()
-        if isinstance(current, IntType):
+        if isinstance(current, BytesType) and context.unit.version == 0:
+            fail("core.validate.bytes_version", "validate", "Bytes requires Core version 1 or later", span)
+        if isinstance(current, (IntType, BytesType)):
             continue
         if isinstance(current, NamedType):
             _global_id(current.name, span, "type reference")
@@ -348,7 +341,7 @@ def _infer(
     if isinstance(expression, BytesExpr):
         if context.unit.version < 1:
             fail("core.validate.expression_form", "validate", "byte literals require Core version 1 or later", expression.span)
-        return NamedType("core::Bytes")
+        return BYTES
     if isinstance(expression, LocalExpr):
         if expression.name not in environment:
             fail(
@@ -415,7 +408,7 @@ def _infer(
         local_environment[expression.binder.name] = expression.binder.type
         return _infer(context, expression.body, local_environment, all_binders, type_variables)
     if isinstance(expression, PrimExpr):
-        catalog = V1_PRIMITIVES if context.unit.version >= 1 else PRIMITIVES
+        catalog = FIXED_PRIMITIVES if context.unit.version >= 1 else V0_PRIMITIVES
         signature = catalog.get(expression.name)
         if signature is None and context.unit.version >= 1:
             binding = context.foreign_bindings.get(expression.name)
@@ -609,6 +602,8 @@ def _type_mismatch(span: Span, expected: CoreType, actual: CoreType) -> None:
 def _type_text(type_: CoreType) -> str:
     if isinstance(type_, IntType):
         return "Int"
+    if isinstance(type_, BytesType):
+        return "Bytes"
     if isinstance(type_, NamedType):
         return f"(named {type_.name})"
     if isinstance(type_, TypeVariable):
