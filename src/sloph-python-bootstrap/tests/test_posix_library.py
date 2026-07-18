@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import platform
 import subprocess
 import tempfile
 import unittest
@@ -15,6 +16,8 @@ COMPONENT = Path(__file__).resolve().parents[1]
 ROOT = COMPONENT.parents[1]
 LIBRARY = COMPONENT.parent / "libraries" / "syscall"
 CC = "/usr/bin/cc"
+PLATFORM = "macos" if platform.system() == "Darwin" else "linux"
+PLATFORM_ROOT = LIBRARY / "platform" / PLATFORM
 
 
 class PosixLibraryTests(unittest.TestCase):
@@ -35,8 +38,8 @@ class PosixLibraryTests(unittest.TestCase):
         self.assertEqual("project.resolve.trusted_primitive", caught.exception.diagnostic.code)
 
     def test_platform_provider_exposes_read_and_write(self) -> None:
-        platform_source = "macos" if __import__("platform").system() == "Darwin" else "linux"
         harness = r'''#include "syscall.h"
+#include <errno.h>
 #include <string.h>
 #include <unistd.h>
 int main(void) {
@@ -44,7 +47,12 @@ int main(void) {
   if (pipe(descriptors) != 0) return 1;
   if (sloph_syscall_write(descriptors[1], "abc", 3) != 3) return 2;
   if (sloph_syscall_read(descriptors[0], result, 3) != 3) return 3;
-  return memcmp(result, "abc", 3) != 0;
+  if (memcmp(result, "abc", 3) != 0) return 4;
+  errno = 0;
+  if (sloph_syscall_write(-1, "x", 1) != -1 || errno != EBADF) return 5;
+  errno = 0;
+  if (sloph_syscall_read(-1, result, 1) != -1 || errno != EBADF) return 6;
+  return 0;
 }
 '''
         with tempfile.TemporaryDirectory() as directory:
@@ -53,7 +61,7 @@ int main(void) {
             output = root / "harness"
             source.write_text(harness, encoding="ascii")
             subprocess.run(
-                [CC, "-std=c11", "-Wall", "-Wextra", "-Werror", "-I", str(LIBRARY / "include"), str(source), str(LIBRARY / "platform" / platform_source / "syscall.c"), "-o", str(output)],
+                [CC, "-std=c11", "-Wall", "-Wextra", "-Werror", "-I", str(PLATFORM_ROOT), str(source), str(PLATFORM_ROOT / "syscall.S"), "-o", str(output)],
                 check=True, capture_output=True,
             )
             completed = subprocess.run([output], check=False)
@@ -112,7 +120,7 @@ ssize_t sloph_syscall_write(int fd, const void *buffer, size_t count) { (void)fd
             program.write_text(generated, encoding="ascii")
             boundary.write_text(provider, encoding="ascii")
             subprocess.run(
-                [CC, "-std=c11", "-Wall", "-Wextra", "-Werror", "-I", str(LIBRARY / "include"), str(program), str(boundary), "-o", str(output)],
+                [CC, "-std=c11", "-Wall", "-Wextra", "-Werror", "-I", str(PLATFORM_ROOT), str(program), str(boundary), "-o", str(output)],
                 check=True, capture_output=True,
             )
             return subprocess.run([output], check=False, capture_output=True)

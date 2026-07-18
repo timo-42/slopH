@@ -10,10 +10,10 @@ application.
 
 ## Layers
 
-1. `syscall.h` declares stable compiler-owned C symbols.
-2. A target-specific `syscall.c` implements those symbols with one call to the
-   POSIX/libc `read` or `write` function. It deliberately does not embed raw
-   kernel syscall numbers.
+1. Each supported target has a `syscall.h` declaring the same stable,
+   compiler-owned C symbols.
+2. A target-specific `syscall.S` implements those symbols. The capital `.S`
+   suffix selects assembler source with C preprocessing in GCC and Clang.
 3. `syscall::posix::write_once` exposes one write attempt as `Written`,
    `Interrupted`, or `Error`.
 4. `std::io::write` retries interruption and short writes until all bytes have
@@ -21,8 +21,16 @@ application.
    `Result` type.
 
 The currently supported native providers are macOS ARM64 and Linux AMD64.
-Their source files are separate even though their implementations are now the
-same, so target divergence remains explicit and reviewable.
+Linux AMD64 enters the kernel with the `syscall` instruction and translates
+raw negative kernel errors into the public `-1` plus `errno` contract. macOS
+ARM64 tail-calls the public libSystem `read` and `write` symbols from assembly;
+it deliberately does not depend on private Darwin kernel trap numbers. The
+compiler selects both the provider and its matching header from the target
+directory.
+
+The complete generated C runtime still depends on libc. This boundary only
+makes descriptor I/O target-specific and keeps raw kernel details out of Core
+and ordinary packages.
 
 ## Binding metadata and capabilities
 
