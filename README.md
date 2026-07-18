@@ -23,6 +23,17 @@ a primary goal.
 5. Read the [infrastructure requirements](docs/toolchain/INFRASTRUCTURE.md) and
    [bootstrap plan](docs/toolchain/BOOTSTRAP.md).
 
+## Try SlopH
+
+The stable v1 vertical slice can check, format, inspect, compile, and run Source
+projects. The [examples](examples/README.md) are executable documentation and
+are verified on every supported CI platform. After installing the checkout,
+run Hello World with:
+
+```text
+sloph run examples/hello-world
+```
+
 ## Experimental Tools
 
 Core v0 is a monomorphic, pure subset used to test the typed Core
@@ -70,6 +81,7 @@ python -m unittest discover -s tests -t .
 │   ├── toolchain/        Compiler, CLI, testing, and bootstrap design
 │   └── research/         Academic and practitioner research
 ├── src/sloph/            Experimental Python toolchain libraries and thin CLI
+├── examples/             CI-verified stable v1 projects
 ├── tests/                Shared corpus, runner, and implementation tests
 ├── .github/workflows/    Linux and macOS CI
 ├── pyproject.toml        Python package and console entry point

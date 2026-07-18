@@ -1,0 +1,6 @@
+module hello::main;
+
+public fn main() -> Exit {
+  let written = primitive io.write("Hello, world!\n");
+  Exit::Success()
+}
