@@ -1,0 +1,13 @@
+module math::int;
+
+public fn absolute(item: Int) -> Int {
+  if item < 0 { 0 - item } else { item }
+}
+
+public fn minimum(left: Int, right: Int) -> Int {
+  if left < right { left } else { right }
+}
+
+public fn maximum(left: Int, right: Int) -> Int {
+  if left < right { right } else { left }
+}
