@@ -214,7 +214,7 @@ def load_project(
     foreign_bindings: list[ForeignBinding] = []
     if source_version == 1:
         _load_bundled_dependencies(
-            manifest.dependencies,
+            ("core", *manifest.dependencies),
             by_name,
             sources,
             foreign_bindings,
@@ -306,7 +306,7 @@ def _load_bundled_dependencies(
         source_root = package_root / "src"
         for source_path in sorted(source_root.rglob("*.sloph")):
             relative = source_path.relative_to(source_root).with_suffix("")
-            expected = "::".join((package, *relative.parts))
+            expected = _library_module_name(package, relative)
             data = _read_bounded(source_path, limits.input_bytes, "project.source.limit")
             actual, imports = _scan_header(data, source_path, source_version=1)
             if actual != expected:
@@ -327,6 +327,14 @@ def _load_bundled_dependencies(
                 _decode_foreign_binding(item, binding_path) for item in bindings
             )
         loaded.add(package)
+
+
+def _library_module_name(package: str, relative: Path) -> str:
+    """Map root.sloph to the package module and other files below it."""
+
+    if relative.parts == ("root",):
+        return package
+    return "::".join((package, *relative.parts))
 
 
 def _decode_foreign_binding(raw: object, path: Path) -> ForeignBinding:

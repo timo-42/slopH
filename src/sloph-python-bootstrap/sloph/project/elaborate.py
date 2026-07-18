@@ -81,13 +81,6 @@ def _elaborate(project: Project, *, version: int) -> CoreUnit:
         enums.extend(
             (
                 EnumDecl(
-                    "core::Bool",
-                    (
-                        ConstructorDecl("core::Bool::False", ()),
-                        ConstructorDecl("core::Bool::True", ()),
-                    ),
-                ),
-                EnumDecl(
                     "core::Bytes",
                     (),
                 ),
