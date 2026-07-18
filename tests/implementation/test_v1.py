@@ -165,6 +165,24 @@ const main: Int { make_adder(40)(2) }
         self.assertEqual(0, completed.returncode)
         self.assertEqual(b"(value 0 (int 42))\n", completed.stdout)
 
+    def test_if_is_inferred_and_lowered_to_bool_case(self) -> None:
+        project = self._project(
+            """module demo::main;
+fn factorial(n: Int) -> Int {
+  if n < 2 { 1 } else { n * factorial(n - 1) }
+}
+const main: Int { factorial(6) }
+"""
+        )
+        core = format_core(elaborate_project_v1(project))
+        self.assertIn("(case", core)
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "if"
+            compile_project(project, output, source_version=1)
+            completed = subprocess.run([output], check=False, capture_output=True)
+        self.assertEqual(0, completed.returncode)
+        self.assertEqual(b"(value 0 (int 720))\n", completed.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

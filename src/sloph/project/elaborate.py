@@ -391,6 +391,28 @@ def _lower_expr(
         for binder in reversed(binders):
             body = LamExpr(binder, body, span)
         return body
+    if kind == "IfExpr":
+        condition = _lower_expr(scope, expression.condition, locals_, used)
+        then_body = _lower_body(scope, expression.then_body, dict(locals_), used)
+        else_body = _lower_body(scope, expression.else_body, dict(locals_), used)
+        then_type = _infer_lowered_type(scope, then_body, locals_)
+        else_type = _infer_lowered_type(scope, else_body, locals_)
+        if then_type != else_type:
+            fail(
+                "project.type.if_branches",
+                "type",
+                "if branches must return the same type",
+                span,
+            )
+        return CaseExpr(
+            condition,
+            then_type,
+            (
+                Alternative("core::Bool::False", (), else_body, span),
+                Alternative("core::Bool::True", (), then_body, span),
+            ),
+            span,
+        )
     if kind == "ConstructorExpr":
         source_constructor = getattr(expression, "constructor", None)
         if isinstance(source_constructor, str):

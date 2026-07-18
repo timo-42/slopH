@@ -4,7 +4,7 @@ from sloph.core.diagnostics import fail
 from sloph.core.limits import Limits
 from sloph.syntax._integer import format_decimal
 from sloph.syntax.model import (
-    Block, BytesExpr, CallExpr, CaseExpr, ConstructorExpr, Expr, FunctionType, GlobalExpr, InferredType, IntExpr, LambdaExpr,
+    Block, BytesExpr, CallExpr, CaseExpr, ConstructorExpr, Expr, FunctionType, GlobalExpr, IfExpr, InferredType, IntExpr, LambdaExpr,
     IntType, LocalExpr, Module, NamedType, PrimitiveExpr, TypeRef,
 )
 
@@ -26,6 +26,8 @@ def _expr(value: Expr, indent: int) -> str:
     if isinstance(value, LambdaExpr):
         parameters = ", ".join(f"{item.name}: {_type(item.type)}" for item in value.parameters)
         return f"fn({parameters}) -> {_type(value.result_type)} " + _block(value.body, indent)
+    if isinstance(value, IfExpr):
+        return f"if {_expr(value.condition, indent)} {_block(value.then_body, indent)} else {_block(value.else_body, indent)}"
     if isinstance(value, ConstructorExpr):
         return f"{value.constructor}({', '.join(_expr(a, indent) for a in value.arguments)})"
     if isinstance(value, PrimitiveExpr):

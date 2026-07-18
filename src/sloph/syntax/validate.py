@@ -59,7 +59,7 @@ class _Validator:
         self.visit(node)
 
     def expr(self, node: Any) -> None:
-        if not isinstance(node, (IntExpr, BytesExpr, LocalExpr, GlobalExpr, CallExpr, LambdaExpr, ConstructorExpr, PrimitiveExpr, CaseExpr)):
+        if not isinstance(node, (IntExpr, BytesExpr, LocalExpr, GlobalExpr, CallExpr, LambdaExpr, IfExpr, ConstructorExpr, PrimitiveExpr, CaseExpr)):
             _bad("wrong_node", "expected source expression", node)
         self.visit(node)
 
@@ -103,6 +103,9 @@ class _Validator:
         if self.version == 0: _bad("wrong_node", "lambda expressions require Source v1", node)
         for x in node.parameters: self.binder(x)
         self.typ(node.result_type); self.block(node.body)
+    def v_IfExpr(self, node):
+        if self.version == 0: _bad("wrong_node", "if expressions require Source v1", node)
+        self.expr(node.condition); self.block(node.then_body); self.block(node.else_body)
     def v_ConstructorExpr(self, node):
         parts = node.constructor.split("::")
         if len(parts) < 2 or not _upper(parts[-1]) or not _upper(parts[-2]) or not all(_lower(x) for x in parts[:-2]): _bad("invalid_name", "constructor must be qualified through an uppercase type", node, name=node.constructor)

@@ -79,6 +79,14 @@ class LambdaExpr:
 
 
 @dataclass(frozen=True, slots=True)
+class IfExpr:
+    condition: "Expr"
+    then_body: "Block"
+    else_body: "Block"
+    span: Span = UNKNOWN_SPAN
+
+
+@dataclass(frozen=True, slots=True)
 class ConstructorExpr:
     constructor: str
     arguments: tuple["Expr", ...]
@@ -123,7 +131,7 @@ class CaseExpr:
 
 
 Expr: TypeAlias = (
-    IntExpr | BytesExpr | LocalExpr | GlobalExpr | CallExpr | LambdaExpr | ConstructorExpr | PrimitiveExpr | CaseExpr
+    IntExpr | BytesExpr | LocalExpr | GlobalExpr | CallExpr | LambdaExpr | IfExpr | ConstructorExpr | PrimitiveExpr | CaseExpr
 )
 
 
