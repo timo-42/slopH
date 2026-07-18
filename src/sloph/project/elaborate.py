@@ -469,8 +469,21 @@ def _lower_expr(
                     _span(alternative),
                     constructor=constructor,
                 )
-            for source_binder in source_binders:
-                binders.append(_new_binder(scope, source_binder, active, used))
+            for source_binder, field in zip(source_binders, fields, strict=True):
+                inferred = (
+                    _resolve_type(scope, field.type)
+                    if _class(source_binder.type) == "InferredType"
+                    else None
+                )
+                binders.append(
+                    _new_binder(
+                        scope,
+                        source_binder,
+                        active,
+                        used,
+                        inferred_type=inferred,
+                    )
+                )
             alternatives.append(
                 Alternative(
                     constructor,
