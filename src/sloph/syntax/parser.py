@@ -8,7 +8,7 @@ from sloph.syntax._integer import parse_decimal
 from sloph.syntax.model import (
     Binder, Block, BytesExpr, CallExpr, CaseAlternative, CaseExpr, ConstructorDecl,
     ConstructorExpr, FieldDecl, FunctionDecl, GlobalExpr, ImportDecl, IntExpr,
-    FunctionType, IntType, LetBinding, LocalExpr, Module, NamedType, PrimitiveExpr, TypeDecl,
+    FunctionType, IntType, LambdaExpr, LetBinding, LocalExpr, Module, NamedType, PrimitiveExpr, TypeDecl,
     TypeRef, ValueDecl,
 )
 
@@ -253,6 +253,14 @@ class _Parser:
 
     def atom(self):
         token = self.token
+        if self.version == 1 and self.peek("fn"):
+            start = self.take("fn").start
+            self.take("(")
+            parameters = self.comma_list(self.binder)
+            self.take("->")
+            result = self.type_ref()
+            body = self.block()
+            return LambdaExpr(parameters, result, body, self.node(start, body.span.end))
         if self.version == 1 and token.text.startswith('"'):
             self.take()
             return BytesExpr(_decode_bytes(token, self.error), self.node(token.start, token.end))

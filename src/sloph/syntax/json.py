@@ -22,6 +22,7 @@ def _encode(value: Any) -> dict[str, Any]:
     if isinstance(value, BytesExpr): return common | {"hex": value.value.hex()}
     if isinstance(value, (LocalExpr, GlobalExpr)): return common | {"name": value.name}
     if isinstance(value, CallExpr): return common | {"function": _encode(value.function), "arguments": [_encode(x) for x in value.arguments]}
+    if isinstance(value, LambdaExpr): return common | {"parameters": [_encode(x) for x in value.parameters], "result_type": _encode(value.result_type), "body": _encode(value.body)}
     if isinstance(value, ConstructorExpr): return common | {"constructor": value.constructor, "arguments": [_encode(x) for x in value.arguments]}
     if isinstance(value, PrimitiveExpr): return common | {"name": value.name, "arguments": [_encode(x) for x in value.arguments]}
     if isinstance(value, LetBinding): return common | {"binder": _encode(value.binder), "value": _encode(value.value)}
@@ -94,7 +95,7 @@ class _Decoder:
             kind = value["kind"]
             fields: dict[str, set[str]] = {
                 "IntType": set(), "NamedType": {"name"}, "FunctionType": {"parameter", "result"}, "Binder": {"name", "type"}, "IntExpr": {"value"}, "BytesExpr": {"hex"},
-                "LocalExpr": {"name"}, "GlobalExpr": {"name"}, "CallExpr": {"function", "arguments"},
+                "LocalExpr": {"name"}, "GlobalExpr": {"name"}, "CallExpr": {"function", "arguments"}, "LambdaExpr": {"parameters", "result_type", "body"},
                 "ConstructorExpr": {"constructor", "arguments"}, "PrimitiveExpr": {"name", "arguments"},
                 "LetBinding": {"binder", "value"}, "Block": {"bindings", "result"},
                 "CaseAlternative": {"constructor", "binders", "body"}, "CaseExpr": {"scrutinee", "result_type", "alternatives"},
@@ -126,6 +127,7 @@ class _Decoder:
             if kind == "LocalExpr": return LocalExpr(s(obj["name"], "name"), span)
             if kind == "GlobalExpr": return GlobalExpr(s(obj["name"], "name"), span)
             if kind == "CallExpr": return CallExpr(n(obj["function"]), a(obj["arguments"], n), span)
+            if kind == "LambdaExpr": return LambdaExpr(a(obj["parameters"], n), n(obj["result_type"]), n(obj["body"]), span)
             if kind == "ConstructorExpr": return ConstructorExpr(s(obj["constructor"], "constructor"), a(obj["arguments"], n), span)
             if kind == "PrimitiveExpr": return PrimitiveExpr(s(obj["name"], "name"), a(obj["arguments"], n), span)
             if kind == "LetBinding": return LetBinding(n(obj["binder"]), n(obj["value"]), span)
