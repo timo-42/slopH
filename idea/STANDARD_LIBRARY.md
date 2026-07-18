@@ -76,6 +76,12 @@ networking   json       http         cli
 logging      testing
 ```
 
+The official testing packages should provide the bundled framework, typed
+fixtures, protocol interceptors, deterministic simulation, and failure
+injection described in
+[Bundled Testing, Interceptors, and Fault Injection](./TEST_FRAMEWORK.md). They
+remain outside mandatory runtime `core` and enter only selected test targets.
+
 Inclusion in the distribution does not imply implicit availability to every
 program. Unused packages must not be parsed, typechecked, compiled, linked, or
 downloaded as part of a build. This is necessary to preserve fast clean builds
