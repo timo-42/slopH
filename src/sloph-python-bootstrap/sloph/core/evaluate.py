@@ -312,6 +312,13 @@ class _Machine:
                 fail("core.eval.primitive_value", "eval", "bytes.length received a non-Bytes value", span)
             self._consume(1, span)
             return IntValue(len(value.value))
+        if name == "int.to_bytes":
+            value = values[0]
+            if not isinstance(value, IntValue):
+                fail("core.eval.primitive_value", "eval", "int.to_bytes received a non-integer", span)
+            rendered = decimal_string(value.value).encode("ascii")
+            self._consume(1 + _limbs(value.value) + len(rendered), span)
+            return BytesValue(rendered)
         left, right = values
         if not isinstance(left, IntValue) or not isinstance(right, IntValue):
             fail(

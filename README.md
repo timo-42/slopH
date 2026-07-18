@@ -70,6 +70,8 @@ its complete test suite directly from a checkout without installing a project:
 uv run --no-project --directory src/sloph-python-bootstrap python -m sloph --help
 uv run --no-project --directory src/sloph-python-bootstrap \
   python -m unittest discover -s tests -t .
+uv run --no-project --directory src/sloph-python-bootstrap \
+  ../libraries/run-tests.sh python -m sloph
 ```
 
 Bootstrap `compile` and `run` commands currently execute package-root

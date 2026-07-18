@@ -1,0 +1,5 @@
+module std::int;
+
+public fn to_bytes(item: Int) -> Bytes {
+  primitive int.to_bytes(item)
+}
