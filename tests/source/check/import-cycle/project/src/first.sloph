@@ -1,0 +1,3 @@
+module cycle::first;
+import cycle::second::{second};
+public value first: Int { second }

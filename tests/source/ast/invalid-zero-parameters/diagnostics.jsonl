@@ -1,0 +1,1 @@
+{"code":"syntax.validate.function_arity","details":{},"message":"Source v0 functions require at least one parameter","message_id":"syntax.validate.function_arity","phase":"validate","schema":"sloph.diagnostic","severity":"error","span":{"end":38,"start":16},"version":0}

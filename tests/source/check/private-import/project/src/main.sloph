@@ -1,0 +1,3 @@
+module private::main;
+import private::hidden::{secret};
+value main: Int { secret }

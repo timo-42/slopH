@@ -1,0 +1,6 @@
+format: 0
+name: source/ast/invalid-dynamic-call
+kind: source-ast
+input: input.sloph
+expect-exit: 1
+expect-diagnostics: diagnostics.jsonl

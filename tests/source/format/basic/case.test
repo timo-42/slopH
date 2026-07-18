@@ -1,0 +1,7 @@
+format: 0
+name: source/format/basic
+kind: source-format
+input: input.sloph
+expect-exit: 0
+expect-output: expected.sloph
+

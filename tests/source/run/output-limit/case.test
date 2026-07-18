@@ -1,0 +1,6 @@
+format: 0
+name: source/run/output-limit
+kind: source-run
+input: project
+expect-exit: 1
+expect-diagnostics: diagnostics.jsonl

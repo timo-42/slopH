@@ -1,0 +1,1 @@
+{"code":"syntax.validate.dynamic_call","details":{},"message":"calls must directly name a function","message_id":"syntax.validate.dynamic_call","phase":"validate","schema":"sloph.diagnostic","severity":"error","span":{"end":41,"start":34},"version":0}

@@ -1,0 +1,1 @@
+{"code":"project.resolve.private_import","details":{"declaration":"private::hidden::secret"},"message":"declaration 'private::hidden::secret' is private","message_id":"project.resolve.private_import","phase":"resolve","schema":"sloph.diagnostic","severity":"error","span":{"end":55,"start":22},"version":0}

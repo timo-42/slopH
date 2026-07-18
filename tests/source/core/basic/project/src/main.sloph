@@ -1,0 +1,6 @@
+module example::main;
+
+value main: Int {
+  primitive int.add(20, 22)
+}
+

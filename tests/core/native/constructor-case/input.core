@@ -1,0 +1,9 @@
+(core 0
+  (types
+    (enum example::Pair
+      (ctor example::Pair::Pair (field first Int) (field second Int))))
+  (defs
+    (def example::main Int
+      (case (con example::Pair::Pair (int 4) (int 5)) Int
+        (alt example::Pair::Pair (bind a Int) (bind b Int)
+          (prim int.add (local a) (local b)))))))

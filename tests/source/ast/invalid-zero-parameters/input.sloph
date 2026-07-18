@@ -1,0 +1,2 @@
+module invalid;
+fn zero() -> Int { 0 }

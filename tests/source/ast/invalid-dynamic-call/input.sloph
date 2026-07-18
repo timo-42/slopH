@@ -1,0 +1,2 @@
+module invalid;
+value main: Int { f(1)(2) }

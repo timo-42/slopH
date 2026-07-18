@@ -21,20 +21,28 @@ define language behavior.
 - Treat resource-limit, malformed-input, and determinism tests as conformance
   requirements rather than optional robustness tests.
 
-## Experimental Core v0 Test Profile
+## Experimental v0 Test Profile
 
 The first implemented profile tests the tagged S-expression text format in
-[CORE_V0.md](../language/CORE_V0.md). It covers only the three operations
-exposed by the experimental CLI:
+[CORE_V0.md](../language/CORE_V0.md), the authored profile in
+[SOURCE_V0.md](../language/SOURCE_V0.md), and the direct C11 bridge in
+[C_BACKEND_V0.md](./C_BACKEND_V0.md). Its operations are:
 
 ```text
 sloph unstable core check
 sloph unstable core print
 sloph unstable core eval
+sloph unstable check
+sloph unstable format
+sloph unstable ast print
+sloph unstable core print --input-format source
+sloph unstable compile
+sloph unstable run
 ```
 
-Shared cases live under `tests/core/**/case.test`. They are data, not Python
-test programs, and use these exact manifest keys:
+Shared cases live under `tests/core/**/case.test` and
+`tests/source/**/case.test`. They are data, not Python test programs, and use
+these exact manifest keys:
 
 ```text
 format: 0
@@ -51,10 +59,12 @@ expect-diagnostics: diagnostics.txt
 The fixed field catalog is:
 
 - `format`, `name`, `kind`, `input`, and `expect-exit` are required;
-- `symbol` is permitted for `core-eval` and selects the fully qualified global;
-- `fuel` is permitted for `core-eval` and sets its evaluation bound;
+- `symbol` is permitted for `core-eval` and `core-run` and selects the fully
+  qualified global;
+- `fuel` is permitted only for `core-eval` and sets its evaluation bound;
 - `expect-output` and `expect-diagnostics` optionally name golden files;
-- `kind` is exactly `core-check`, `core-print`, or `core-eval`.
+- `kind` is exactly `core-check`, `core-print`, `core-eval`, `core-run`, `source-check`,
+  `source-format`, `source-ast`, `source-core`, or `source-run`.
 
 Unknown or duplicate fields, missing required fields, invalid values, and fields
 not permitted for the selected kind are case-format errors. Referenced paths are
@@ -69,11 +79,13 @@ and shared cases run together with:
 python -m unittest discover -s tests -t .
 ```
 
-Core v0 cases cover text parsing, validation, canonical printing, evaluation,
-resource limits, diagnostics, and CLI behavior. They do not cover JSON or
-binary serialization, Core diffing, source elaboration, optimization, ownership,
-effects, or C, native, WebAssembly, or other backends. Such a case is outside
-the advertised profile, not a skipped or passing Core v0 case.
+Core cases cover text parsing, validation, canonical printing, evaluation,
+resource limits, diagnostics, and CLI behavior. Source cases use either a
+single `.sloph` input for formatting and AST output or a project directory for
+checking, elaborated Core, and native execution. The profile does not cover
+binary serialization, Core diffing, optimization, ownership, effects,
+WebAssembly, or other backends. Such a case is outside the advertised profile,
+not a skipped or passing v0 case.
 
 This narrow profile is experimental. It does not make the broader future test
 layout or stable Core boundaries below part of the current implementation.
@@ -348,8 +360,8 @@ The manifest is deliberately simpler than TOML, YAML, or general JSON:
   permits them.
 
 The complete cross-profile key catalog and escaping rules remain to be
-specified. The implemented Core v0 subset is fixed in
-[Experimental Core v0 Test Profile](#experimental-core-v0-test-profile). Any
+specified. The implemented v0 subset is fixed in
+[Experimental v0 Test Profile](#experimental-v0-test-profile). Any
 future additions must remain small enough to implement in Python, the
 self-hosted language, B0, or Bootstrap Core without a general-purpose data
 format dependency.

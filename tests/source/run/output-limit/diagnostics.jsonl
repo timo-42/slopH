@@ -1,0 +1,1 @@
+{"code":"compiler.runtime.failed","details":{"exit_code":2,"stderr":"sloph C11 runtime error: output exceeds 1048576 bytes\n"},"message":"compiled program failed","message_id":"compiler.runtime.failed","phase":"runtime","schema":"sloph.diagnostic","severity":"error","span":{"end":0,"start":0},"version":0}

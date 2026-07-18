@@ -1,0 +1,4 @@
+format = 0
+package = "private"
+source-root = "src"
+entry = "private::main::main"

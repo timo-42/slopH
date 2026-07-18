@@ -1,0 +1,7 @@
+format: 0
+name: core/native/integer-add
+kind: core-run
+input: input.core
+symbol: example::main
+expect-exit: 0
+expect-output: expected.core-value
