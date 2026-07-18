@@ -1,0 +1,4 @@
+format = 0
+package = "hello"
+source-root = "src"
+entry = "hello::main::main"
