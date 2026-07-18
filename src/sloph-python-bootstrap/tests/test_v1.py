@@ -6,7 +6,7 @@ import tempfile
 import unittest
 
 from sloph.compiler import compile_project
-from sloph.core import format_core, parse_core
+from sloph.core import evaluate, format_core, format_value, parse_core
 from sloph.project import elaborate_project_v1
 from sloph.syntax import parse_source_v1
 
@@ -152,6 +152,28 @@ const main: Int { sum(List::Cons(2, List::Cons(3, List::Nil()))) }
         self.assertEqual(
             b"(value 0 (bytes x68656c6c6f0a00ff))\n", completed.stdout
         )
+
+    def test_standard_bytes_library_wraps_core_operations(self) -> None:
+        cases = (
+            ("length", '"abc"', "Int", "(value 0 (int 3))\n"),
+            ("is_empty", '""', "Bool", "(value 0 (con core::Bool::True))\n"),
+        )
+        for function, literal, result_type, expected in cases:
+            with self.subTest(function=function):
+                project = self._project(
+                    f"""module demo::main;
+import std::bytes::{{length, is_empty}};
+const main: {result_type} {{ {function}({literal}) }}
+"""
+                )
+                (project / "sloph.toml").write_text(
+                    MANIFEST + 'dependencies = ["std"]\n', encoding="utf-8"
+                )
+                unit = elaborate_project_v1(project)
+                self.assertEqual(
+                    expected,
+                    format_value(evaluate(unit, "demo::main::main")),
+                )
 
     def test_named_functions_are_first_class_and_partially_applied(self) -> None:
         project = self._project(
