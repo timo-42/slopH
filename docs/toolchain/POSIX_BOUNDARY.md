@@ -11,7 +11,7 @@ application.
 ## Layers
 
 1. `syscall::posix` selects one public platform module with a Source v1
-   `SPECIAL_PLATFORM` conditional import.
+   typed `compiler::target::platform` conditional import.
 2. `syscall::posix::linux::amd64` and
    `syscall::posix::darwin::arm64` each own their binding metadata,
    `syscall.h`, and `syscall.S` resources.

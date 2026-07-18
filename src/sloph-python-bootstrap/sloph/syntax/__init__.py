@@ -11,7 +11,8 @@ __all__ = [
     "format_source", "syntax_to_json", "syntax_from_json", "validate_syntax",
     "IntType", "NamedType", "FunctionType", "InferredType", "TypeRef", "Binder", "IntExpr", "BytesExpr", "LocalExpr",
     "GlobalExpr", "CallExpr", "LambdaExpr", "IfExpr", "ConstructorExpr", "PrimitiveExpr", "LetBinding",
-    "Block", "CaseAlternative", "CaseExpr", "Expr", "ImportDecl", "Availability",
+    "Block", "CaseAlternative", "CaseExpr", "Expr", "ImportDecl", "TargetConstantPattern",
+    "TargetTuplePattern", "TargetPattern", "Availability",
     "ConditionalImportAlternative", "ConditionalImportDecl", "Import", "FieldDecl",
     "ConstructorDecl", "TypeDecl", "FunctionDecl", "ValueDecl", "Module",
 ]

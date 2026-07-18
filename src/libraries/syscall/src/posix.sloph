@@ -1,9 +1,9 @@
 module syscall::posix;
 
 import syscall::posix::native::{NativeWriteResult};
-import case SPECIAL_PLATFORM {
-  linux, amd64 => syscall::posix::linux::amd64::{native_write_once};
-  darwin, arm64 => syscall::posix::darwin::arm64::{native_write_once};
+import case compiler::target::platform {
+  (os::linux, arch::amd64) => syscall::posix::linux::amd64::{native_write_once};
+  (os::darwin, arch::arm64) => syscall::posix::darwin::arm64::{native_write_once};
 }
 
 public type WriteResult {

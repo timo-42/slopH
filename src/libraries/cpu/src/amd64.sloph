@@ -1,4 +1,4 @@
-module cpu::amd64 when SPECIAL_ARCH amd64;
+module cpu::amd64 when compiler::target::arch is arch::amd64;
 
 public fn avx512() -> Bool {
   Bool::False()

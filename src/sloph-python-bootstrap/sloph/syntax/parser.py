@@ -9,7 +9,7 @@ from sloph.syntax.model import (
     Availability, Binder, Block, BytesExpr, CallExpr, CaseAlternative, CaseExpr, ConditionalImportAlternative, ConditionalImportDecl, ConstructorDecl,
     ConstructorExpr, FieldDecl, FunctionDecl, GlobalExpr, ImportDecl, IntExpr,
     FunctionType, IfExpr, InferredType, IntType, LambdaExpr, LetBinding, LocalExpr, Module, NamedType, PrimitiveExpr, TypeDecl,
-    TypeRef, ValueDecl,
+    TargetConstantPattern, TargetPattern, TargetTuplePattern, TypeRef, ValueDecl,
 )
 
 
@@ -21,7 +21,7 @@ class _Token:
 
 
 _PUNCT = frozenset("{}(),;:=|")
-_KEYWORDS = frozenset({"module", "import", "when", "public", "type", "fn", "value", "const", "let", "case", "if", "else", "primitive"})
+_KEYWORDS = frozenset({"module", "import", "when", "is", "public", "type", "fn", "value", "const", "let", "case", "if", "else", "primitive"})
 
 
 def _limit(name: str, configured: int, span: Span = Span(0, 0)) -> None:
@@ -347,27 +347,31 @@ class _Parser:
             type_ = InferredType(self.node(name.start, name.end))
         return Binder(name.text, type_, self.node(start, type_.span.end))
 
-    def selector(self) -> tuple[str, int]:
-        token = self.ident()
-        arities = {"SPECIAL_PLATFORM": 2, "SPECIAL_ARCH": 1}
-        if token.text not in arities:
+    def selector(self) -> str:
+        selector, span = self.path()
+        if selector not in {"compiler::target::platform", "compiler::target::arch"}:
             fail(
-                "syntax.parse.unknown_special",
+                "syntax.parse.unknown_target_selector",
                 "parse",
-                f"unknown compiler special {token.text!r}",
-                Span(token.start, token.end),
-                special=token.text,
+                f"unknown compiler target selector {selector!r}",
+                span,
+                selector=selector,
             )
-        return token.text, arities[token.text]
+        return selector
 
-    def selector_values(self, arity: int) -> tuple[str, ...]:
-        values = [self.lower_ident("compiler-special value").text]
-        while self.peek(","):
-            self.take(",")
-            values.append(self.lower_ident("compiler-special value").text)
-        if len(values) != arity:
-            self.error(f"compiler-special pattern requires exactly {arity} value(s)")
-        return tuple(values)
+    def target_pattern(self) -> TargetPattern:
+        start = self.token.start
+        if self.peek("("):
+            self.take("(")
+            items = self.comma_list(self.target_pattern)
+            return TargetTuplePattern(items, self.node(start, self.tokens[self.i - 1].end))
+        name, span = self.path()
+        return TargetConstantPattern(name, self.node(span.start, span.end))
+
+    def target_pattern_key(self, pattern: TargetPattern):
+        if isinstance(pattern, TargetConstantPattern):
+            return pattern.name
+        return tuple(self.target_pattern_key(item) for item in pattern.items)
 
     def selected_import(self) -> ImportDecl:
         start = self.token.start
@@ -385,22 +389,23 @@ class _Parser:
         start = self.take("import").start
         if self.version == 1 and self.peek("case"):
             self.take("case")
-            selector, arity = self.selector()
+            selector = self.selector()
             self.take("{")
             alternatives = []
             seen = set()
             while not self.peek("}"):
                 alternative_start = self.token.start
-                values = self.selector_values(arity)
-                if values in seen:
-                    self.error("duplicate compiler-special import pattern")
-                seen.add(values)
+                pattern = self.target_pattern()
+                pattern_key = self.target_pattern_key(pattern)
+                if pattern_key in seen:
+                    self.error("duplicate compiler-target import pattern")
+                seen.add(pattern_key)
                 self.take("=>")
                 import_ = self.selected_import()
                 end = self.take(";").end
                 alternatives.append(
                     ConditionalImportAlternative(
-                        values, import_, self.node(alternative_start, end)
+                        pattern, import_, self.node(alternative_start, end)
                     )
                 )
             end = self.take("}").end
@@ -556,10 +561,11 @@ class _Parser:
         availability = None
         if self.version == 1 and self.peek("when"):
             availability_start = self.take("when").start
-            selector, arity = self.selector()
-            values = self.selector_values(arity)
+            selector = self.selector()
+            self.take("is")
+            pattern = self.target_pattern()
             availability = Availability(
-                selector, values, self.node(availability_start, self.token.start)
+                selector, pattern, self.node(availability_start, self.token.start)
             )
         self.take(";")
         imports = []

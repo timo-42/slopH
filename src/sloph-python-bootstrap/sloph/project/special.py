@@ -1,30 +1,45 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import Enum
 import platform
 
 from sloph.core.diagnostics import fail
 
 
 @dataclass(frozen=True, slots=True)
-class CompilerSpecials:
-    os: str
-    arch: str
+class CompilerTarget:
+    os: "OS"
+    arch: "Arch"
 
-    def values(self, selector: str) -> tuple[str, ...]:
-        if selector == "SPECIAL_PLATFORM":
+    def __post_init__(self) -> None:
+        try:
+            object.__setattr__(self, "os", OS(self.os))
+            object.__setattr__(self, "arch", Arch(self.arch))
+        except ValueError as error:
+            fail(
+                "compiler.target.invalid",
+                "environment",
+                "unknown compiler target value",
+                os=str(self.os),
+                arch=str(self.arch),
+                error=str(error),
+            )
+
+    def value(self, selector: str) -> OS | Arch | tuple[OS, Arch]:
+        if selector == "compiler::target::platform":
             return (self.os, self.arch)
-        if selector == "SPECIAL_ARCH":
-            return (self.arch,)
+        if selector == "compiler::target::arch":
+            return self.arch
         fail(
-            "project.special.unknown",
+            "project.target.unknown_selector",
             "resolve",
-            f"unknown compiler special {selector!r}",
-            special=selector,
+            f"unknown compiler target selector {selector!r}",
+            selector=selector,
         )
 
     @classmethod
-    def host(cls) -> "CompilerSpecials":
+    def host(cls) -> "CompilerTarget":
         system = platform.system()
         machine = platform.machine().lower()
         os_name = {"Linux": "linux", "Darwin": "darwin"}.get(system)
@@ -45,4 +60,14 @@ class CompilerSpecials:
         return cls(os_name, arch)
 
 
-__all__ = ["CompilerSpecials"]
+class OS(str, Enum):
+    LINUX = "linux"
+    DARWIN = "darwin"
+
+
+class Arch(str, Enum):
+    AMD64 = "amd64"
+    ARM64 = "arm64"
+
+
+__all__ = ["Arch", "CompilerTarget", "OS"]
