@@ -9,20 +9,25 @@ permissions:
 
 jobs:
   test:
+    name: test (${{ matrix.context }}, ${{ matrix.python }})
     timeout-minutes: 10
     strategy:
       matrix:
         include:
           - os: ubuntu-24.04
+            context: ubuntu-latest
             arch: x86_64
             python: "3.11"
           - os: ubuntu-24.04
+            context: ubuntu-latest
             arch: x86_64
             python: "3.13"
           - os: macos-15
+            context: macos-latest
             arch: arm64
             python: "3.11"
           - os: macos-15
+            context: macos-latest
             arch: arm64
             python: "3.13"
     runs-on: ${{ matrix.os }}
