@@ -183,6 +183,35 @@ const main: Int { factorial(6) }
         self.assertEqual(0, completed.returncode)
         self.assertEqual(b"(value 0 (int 720))\n", completed.stdout)
 
+    def test_function_main_writes_bytes_and_returns_exit(self) -> None:
+        project = self._project(
+            """module demo::main;
+public fn main() -> Exit {
+  let written = primitive io.write("hello\\n");
+  Exit::Success()
+}
+"""
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "application"
+            compile_project(project, output, source_version=1)
+            completed = subprocess.run([output], check=False, capture_output=True)
+        self.assertEqual(0, completed.returncode)
+        self.assertEqual(b"hello\n", completed.stdout)
+
+    def test_function_main_failure_sets_process_status(self) -> None:
+        project = self._project(
+            """module demo::main;
+public fn main() -> Exit { Exit::Failure(7) }
+"""
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "failure"
+            compile_project(project, output, source_version=1)
+            completed = subprocess.run([output], check=False, capture_output=True)
+        self.assertEqual(7, completed.returncode)
+        self.assertEqual(b"", completed.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

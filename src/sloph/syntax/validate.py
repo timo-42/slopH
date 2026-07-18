@@ -113,9 +113,10 @@ class _Validator:
     def v_PrimitiveExpr(self, node):
         primitives = {"int.add", "int.sub", "int.mul"}
         if self.version == 1:
-            primitives |= {"int.equal", "int.less"}
+            primitives |= {"int.equal", "int.less", "io.write"}
         if node.name not in primitives: _bad("invalid_primitive", "unknown source primitive", node, name=node.name)
-        if len(node.arguments) != 2: _bad("primitive_arity", "integer primitive requires exactly two arguments", node, name=node.name)
+        expected = 1 if node.name == "io.write" else 2
+        if len(node.arguments) != expected: _bad("primitive_arity", f"primitive requires exactly {expected} arguments", node, name=node.name)
         for x in node.arguments: self.expr(x)
     def v_LetBinding(self, node): self.binder(node.binder); self.expr(node.value)
     def v_Block(self, node):

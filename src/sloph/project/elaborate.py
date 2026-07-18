@@ -32,6 +32,8 @@ from sloph.core.validate import validate
 from sloph.core.limits import Limits
 from sloph.project.load import load_project
 from sloph.project.model import Project, ProjectModule
+from sloph.syntax.model import FieldDecl as SourceFieldDecl
+from sloph.syntax.model import IntType as SourceIntType
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,6 +90,16 @@ def _elaborate(project: Project, *, version: int) -> CoreUnit:
                 EnumDecl(
                     "core::Bytes",
                     (),
+                ),
+                EnumDecl(
+                    "core::Exit",
+                    (
+                        ConstructorDecl("core::Exit::Success", ()),
+                        ConstructorDecl(
+                            "core::Exit::Failure",
+                            (FieldDecl("code", INT),),
+                        ),
+                    ),
                 ),
                 EnumDecl(
                     "core::Unit",
@@ -487,6 +499,8 @@ def _resolve_type(scope: _Scope, source_type: Any) -> CoreType:
             return NamedType("core::Unit")
         if source_type.name in ("Bytes", "core::Bytes"):
             return NamedType("core::Bytes")
+        if source_type.name in ("Exit", "core::Exit"):
+            return NamedType("core::Exit")
         symbol = _resolve_symbol(scope, source_type.name, _span(source_type))
         if symbol.kind != "type":
             fail(
@@ -537,6 +551,10 @@ def _resolve_constructor(scope: _Scope, name: str, span: Span) -> tuple[str, Any
         "core::Bool::True": ("core::Bool::True", ()),
         "Unit::Unit": ("core::Unit::Unit", ()),
         "core::Unit::Unit": ("core::Unit::Unit", ()),
+        "Exit::Success": ("core::Exit::Success", ()),
+        "Exit::Failure": ("core::Exit::Failure", (SourceFieldDecl("code", SourceIntType()),)),
+        "core::Exit::Success": ("core::Exit::Success", ()),
+        "core::Exit::Failure": ("core::Exit::Failure", (SourceFieldDecl("code", SourceIntType()),)),
     }
     if name in builtins:
         global_name, fields = builtins[name]
@@ -605,7 +623,9 @@ def _infer_lowered_type(
     if isinstance(expression, LetExpr):
         return _infer_lowered_type(scope, expression.body, locals_ | {expression.binder.name: expression.binder.type})
     if isinstance(expression, PrimExpr):
-        return NamedType("core::Bool") if expression.name in ("int.equal", "int.less") else INT
+        if expression.name in ("int.equal", "int.less"): return NamedType("core::Bool")
+        if expression.name == "io.write": return NamedType("core::Unit")
+        return INT
     if isinstance(expression, ConExpr):
         return NamedType(expression.constructor.rsplit("::", 1)[0])
     if isinstance(expression, CaseExpr): return expression.result_type
@@ -623,12 +643,14 @@ def _validate_entry(project: Project, unit: CoreUnit) -> None:
             entry=project.manifest.entry,
         )
     if isinstance(entry.type, FunctionType):
-        fail(
-            "project.entry.function",
-            "resolve",
-            "project entry must have a printable data type, not a function type",
-            entry=project.manifest.entry,
-        )
+        expected = FunctionType(NamedType("core::Unit"), NamedType("core::Exit"))
+        if unit.version != 1 or entry.type != expected:
+            fail(
+                "project.entry.function",
+                "resolve",
+                "v1 function entry must have type fn() -> Exit",
+                entry=project.manifest.entry,
+            )
 
 
 def _sequence(value: Any, *names: str) -> tuple[Any, ...]:

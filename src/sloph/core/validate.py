@@ -38,6 +38,7 @@ PRIMITIVES: dict[str, tuple[tuple[CoreType, ...], CoreType]] = {
 V1_PRIMITIVES: dict[str, tuple[tuple[CoreType, ...], CoreType]] = PRIMITIVES | {
     "int.equal": ((INT, INT), NamedType("core::Bool")),
     "int.less": ((INT, INT), NamedType("core::Bool")),
+    "io.write": ((NamedType("core::Bytes"),), NamedType("core::Unit")),
 }
 
 

@@ -68,7 +68,7 @@ def validate_profile(unit: CoreUnit, symbol: str) -> None:
             symbol=symbol,
         )
     functions = _functions(unit)
-    if symbol in functions:
+    if symbol in functions and unit.version == 0:
         fail(
             "backend.c11.function_entry",
             "backend",
@@ -331,6 +331,7 @@ static void sl_write(const char *data, size_t size) {
 
 static void sl_text(const char *text) { sl_write(text, strlen(text)); }
 static void sl_char(char value) { sl_write(&value, 1u); }
+static void sl_io_write(SlValue *value) { if(value->kind!=2u)sl_die("io.write received non-Bytes value");sl_write((const char *)value->as.bytes.data,value->as.bytes.len); }
 
 static void sl_print_u32(uint32_t value, int padded) {
     char buffer[16];
@@ -479,6 +480,11 @@ static SlValue *sl_int_mul(SlValue *av, SlValue *bv) {
     SlBig *r=sl_big(len);r->sign=a->sign*b->sign;if(len)memcpy(r->limb,out,len*4u);return sl_int_wrap(r);
 }
 
+static int sl_exit_code(SlValue *value) {
+    if(value->kind!=0u||value->as.integer->sign<0||value->as.integer->len>1u||(value->as.integer->len&&value->as.integer->limb[0]>255u))sl_die("exit code must be in 0..255");
+    return value->as.integer->len?(int)value->as.integer->limb[0]:0;
+}
+
 static SlValue *sl_con(uint32_t tag, size_t count, SlValue **fields) {
     if (++sl_value_count > SL_MAX_VALUES) sl_die("value-node limit exceeded (100000)");
     SlValue *value=(SlValue *)sl_alloc(sizeof(SlValue));value->kind=1u;value->as.con.tag=tag;value->as.con.count=count;
@@ -567,9 +573,18 @@ class _Emitter:
             if definition.name not in self.functions:
                 output.append(self._global(definition))
         entry = self._gid(self.symbol)
-        output.append(
-            f"int main(void) {{ (void)&sl_int_literal; (void)&sl_int_add; (void)&sl_int_sub; (void)&sl_int_mul; (void)&sl_int_compare; (void)&sl_con; (void)&sl_bytes; (void)&sl_closure; (void)&sl_apply; SlValue *result=sl_g{entry}(); sl_print_value(result); sl_char('\\n'); if(fflush(stdout)!=0||ferror(stdout))sl_die(\"stdout write failed\"); sl_destroy(); return 0; }}\n"
-        )
+        keep = "(void)&sl_int_literal;(void)&sl_int_add;(void)&sl_int_sub;(void)&sl_int_mul;(void)&sl_int_compare;(void)&sl_con;(void)&sl_bytes;(void)&sl_closure;(void)&sl_apply;(void)&sl_io_write;(void)&sl_exit_code;(void)&sl_print_value;"
+        if self.symbol in self.functions:
+            unit = self.constructor_ids["core::Unit::Unit"]
+            success = self.constructor_ids["core::Exit::Success"]
+            failure = self.constructor_ids["core::Exit::Failure"]
+            output.append(
+                f"int main(void){{{keep}SlValue *argument=sl_con({unit}u,0u,NULL);SlValue *result=sl_f{entry}(argument);if(result->kind!=1u)sl_die(\"main did not return Exit\");int status=2;if(result->as.con.tag=={success}u)status=0;else if(result->as.con.tag=={failure}u&&result->as.con.count==1u)status=sl_exit_code(result->as.con.field[0]);else sl_die(\"main returned invalid Exit\");if(fflush(stdout)!=0||ferror(stdout))sl_die(\"stdout write failed\");sl_destroy();return status;}}\n"
+            )
+        else:
+            output.append(
+                f"int main(void){{{keep}SlValue *result=sl_g{entry}();sl_print_value(result);sl_char('\\n');if(fflush(stdout)!=0||ferror(stdout))sl_die(\"stdout write failed\");sl_destroy();return 0;}}\n"
+            )
         return "\n".join(output)
 
     def _declarations(self) -> str:
@@ -704,7 +719,11 @@ class _Emitter:
         if isinstance(expression, PrimExpr):
             values=[self._expr(item,environment,lines,indent) for item in expression.arguments]
             result=self._new()
-            if expression.name in ("int.equal", "int.less"):
+            if expression.name == "io.write":
+                unit_tag=self.constructor_ids["core::Unit::Unit"]
+                lines.append(f"{indent}sl_io_write({values[0]});")
+                lines.append(f"{indent}SlValue *{result}=sl_con({unit_tag}u,0u,NULL);")
+            elif expression.name in ("int.equal", "int.less"):
                 false_tag=self.constructor_ids["core::Bool::False"]
                 true_tag=self.constructor_ids["core::Bool::True"]
                 operator="==0" if expression.name == "int.equal" else "<0"
