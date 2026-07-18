@@ -6,6 +6,12 @@ experimental Core v0 tools and a deliberately small Source v0 to native C11
 vertical slice. These are executable design experiments, not yet the final
 source language, runtime, or native backend.
 
+In project terminology, **SlopH** is the user-facing language and **SlopH
+Core** (or **Core**) is its canonical typed intermediate language. “Source v0”
+and “Source v1” name versioned implementation profiles rather than separate
+languages. The lowercase `core` name refers to the mandatory library package.
+See the normative [v1 terminology](docs/language/V1.md#terminology).
+
 The design prioritizes code that AI systems can generate and reason about,
 human reviewability, a specification small enough to fit in an AI context
 window, and fast compilation. Easy manual authoring by humans is explicitly not
