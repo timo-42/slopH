@@ -63,8 +63,9 @@ class _Validator:
             Module: ("imports", "types", "functions", "values"),
             ImportDecl: ("names",), ConstructorDecl: ("fields",),
             TargetTuplePattern: ("items",), ConditionalImportDecl: ("alternatives",),
-            TypeDecl: ("constructors",), FunctionDecl: ("parameters",),
-            CallExpr: ("arguments",), LambdaExpr: ("parameters",), ConstructorExpr: ("arguments",),
+            TypeDecl: ("constructors", "type_parameters"), FunctionDecl: ("parameters", "type_parameters"),
+            CallExpr: ("arguments", "type_arguments"), LambdaExpr: ("parameters",), ConstructorExpr: ("arguments", "type_arguments"),
+            AppliedType: ("arguments",),
             PrimitiveExpr: ("arguments",), Block: ("bindings",),
             CaseAlternative: ("binders",), CaseExpr: ("alternatives",),
         }.get(type(node), ())
@@ -84,7 +85,7 @@ class _Validator:
         finally: self.depth -= 1
 
     def typ(self, node: Any) -> None:
-        if not isinstance(node, (IntType, NamedType, FunctionType, InferredType)): _bad("wrong_node", "expected source type", node)
+        if not isinstance(node, (IntType, NamedType, AppliedType, FunctionType, InferredType)): _bad("wrong_node", "expected source type", node)
         self.visit(node)
 
     def expr(self, node: Any) -> None:
@@ -104,6 +105,11 @@ class _Validator:
     def v_NamedType(self, node):
         parts = node.name.split("::")
         if not parts or not _upper(parts[-1]) or not all(_lower(x) for x in parts[:-1]): _bad("invalid_name", "named type must have lowercase module components and an uppercase type name", node, name=node.name)
+    def v_AppliedType(self, node):
+        if self.version == 0: _bad("wrong_node", "generic types require Source v1", node)
+        parts = node.constructor.split("::")
+        if not node.arguments or not parts or not _upper(parts[-1]) or not all(_lower(x) for x in parts[:-1]): _bad("invalid_name", "applied type must name an uppercase type and contain arguments", node, name=node.constructor)
+        for argument in node.arguments: self.typ(argument)
     def v_FunctionType(self, node): self.typ(node.parameter); self.typ(node.result)
     def v_InferredType(self, node):
         if self.version == 0: _bad("wrong_node", "inferred types require Source v1", node)
@@ -122,11 +128,13 @@ class _Validator:
         parts = node.name.split("::")
         if len(parts) < 2 or not all(_lower(x) for x in parts): _bad("invalid_name", "global name must be qualified and lowercase", node, name=node.name)
     def v_CallExpr(self, node):
+        if self.version == 0 and node.type_arguments: _bad("wrong_node", "generic calls require Source v1", node)
         if self.version == 0 and not isinstance(node.function, (LocalExpr, GlobalExpr)):
             _bad("dynamic_call", "calls must directly name a function", node)
         if self.version == 0 and not node.arguments:
             _bad("call_arity", "Source v0 calls require at least one argument", node)
         self.expr(node.function)
+        for x in node.type_arguments: self.typ(x)
         for x in node.arguments: self.expr(x)
     def v_LambdaExpr(self, node):
         if self.version == 0: _bad("wrong_node", "lambda expressions require Source v1", node)
@@ -136,8 +144,10 @@ class _Validator:
         if self.version == 0: _bad("wrong_node", "if expressions require Source v1", node)
         self.expr(node.condition); self.block(node.then_body); self.block(node.else_body)
     def v_ConstructorExpr(self, node):
+        if self.version == 0 and node.type_arguments: _bad("wrong_node", "generic constructors require Source v1", node)
         parts = node.constructor.split("::")
         if len(parts) < 2 or not _upper(parts[-1]) or not _upper(parts[-2]) or not all(_lower(x) for x in parts[:-2]): _bad("invalid_name", "constructor must be qualified through an uppercase type", node, name=node.constructor)
+        for x in node.type_arguments: self.typ(x)
         for x in node.arguments: self.expr(x)
     def v_PrimitiveExpr(self, node):
         primitives = {"int.add", "int.sub", "int.mul"}
@@ -227,11 +237,15 @@ class _Validator:
             self.visit(x)
     def v_TypeDecl(self, node):
         if not isinstance(node.public, bool) or not _upper(node.name): _bad("invalid_declaration", "type must have boolean visibility and uppercase name", node)
+        if len(set(node.type_parameters)) != len(node.type_parameters) or not all(_upper(x) for x in node.type_parameters): _bad("invalid_type_parameters", "type parameters must be unique uppercase identifiers", node)
+        if self.version == 0 and node.type_parameters: _bad("wrong_node", "generic declarations require Source v1", node)
         for x in node.constructors:
             if not isinstance(x, ConstructorDecl): _bad("wrong_node", "type constructors must be ConstructorDecl nodes", node)
             self.visit(x)
     def v_FunctionDecl(self, node):
         if not isinstance(node.public, bool) or not _lower(node.name): _bad("invalid_declaration", "function must have boolean visibility and lowercase name", node)
+        if len(set(node.type_parameters)) != len(node.type_parameters) or not all(_upper(x) for x in node.type_parameters): _bad("invalid_type_parameters", "type parameters must be unique uppercase identifiers", node)
+        if self.version == 0 and node.type_parameters: _bad("wrong_node", "generic declarations require Source v1", node)
         if self.version == 0 and not node.parameters: _bad("function_arity", "Source v0 functions require at least one parameter", node)
         for x in node.parameters:
             if isinstance(x.type, InferredType): _bad("missing_type", "function parameters require explicit types", x)

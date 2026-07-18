@@ -1,15 +1,15 @@
 module syscall::posix;
 
-import syscall::posix::native::{NativeWriteResult};
+import syscall::posix::native::{NativeWriteError};
 import case compiler::target::platform {
   (os::linux, arch::amd64) => syscall::posix::linux::amd64::{native_write_once};
   (os::darwin, arch::arm64) => syscall::posix::darwin::arm64::{native_write_once};
 }
 
-public type WriteResult {
-  Written(count: Int);
+public type WriteError {
   Interrupted();
-  Error(native_code: Int);
+  Native(native_code: Int);
+  NoProgress();
 }
 
 public fn write_once(
@@ -17,17 +17,21 @@ public fn write_once(
   bytes: Bytes,
   offset: Int,
   count: Int
-) -> WriteResult {
+) -> Result[Int, WriteError] {
   let result = native_write_once(descriptor, bytes, offset, count);
-  case result -> WriteResult {
-    NativeWriteResult::Written(written) => {
-      WriteResult::Written(written)
+  case result -> Result[Int, WriteError] {
+    Result::Ok(written) => {
+      Result::Ok[Int, WriteError](written)
     }
-    NativeWriteResult::Interrupted() => {
-      WriteResult::Interrupted()
-    }
-    NativeWriteResult::Error(native_code) => {
-      WriteResult::Error(native_code)
+    Result::Err(error) => {
+      case error -> Result[Int, WriteError] {
+        NativeWriteError::Interrupted() => {
+          Result::Err[Int, WriteError](WriteError::Interrupted())
+        }
+        NativeWriteError::Native(native_code) => {
+          Result::Err[Int, WriteError](WriteError::Native(native_code))
+        }
+      }
     }
   }
 }

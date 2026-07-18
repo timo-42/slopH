@@ -101,6 +101,44 @@ class CoreLibraryTests(unittest.TestCase):
             evaluate(parse_core(MINIMAL), "example::missing")
         self.assertEqual("core.eval.unknown_symbol", raised.exception.diagnostic.code)
 
+    def test_core_v2_parametric_function_constructor_and_case(self) -> None:
+        source = b"""(core 2
+          (types
+            (enum example::Box (params T)
+              (ctor example::Box::Box (field item (var T)))))
+          (defs
+            (def example::identity (forall T (fn (var T) (var T)))
+              (lam (type-bind T) (lam (bind item (var T)) (local item))))
+            (def example::main Int
+              (case
+                (con example::Box::Box (types Int)
+                  (app (app (global example::identity) (type Int)) (int 42)))
+                Int
+                (alt example::Box::Box (bind item Int) (local item))))))"""
+        unit = parse_core(source)
+        rendered = format_core(unit)
+        self.assertEqual(rendered, format_core(parse_core(rendered)))
+        self.assertEqual(
+            "(value 0 (int 42))\n",
+            format_value(evaluate(unit, "example::main")),
+        )
+
+    def test_core_v2_requires_explicit_type_application(self) -> None:
+        source = b"""(core 2 (types) (defs
+          (def example::identity (forall T (fn (var T) (var T)))
+            (lam (type-bind T) (lam (bind item (var T)) (local item))))
+          (def example::main Int
+            (app (global example::identity) (int 42)))))"""
+        with self.assertRaises(DiagnosticError) as raised:
+            validate(parse_core(source))
+        self.assertEqual("core.validate.not_function", raised.exception.diagnostic.code)
+
+    def test_core_v2_rejects_free_type_variables(self) -> None:
+        source = b"(core 2 (types) (defs (def example::bad (var T) (int 0))))"
+        with self.assertRaises(DiagnosticError) as raised:
+            validate(parse_core(source))
+        self.assertEqual("core.validate.free_type_variable", raised.exception.diagnostic.code)
+
 
 class CoreCliTests(unittest.TestCase):
     def test_jsonl_usage_error(self) -> None:

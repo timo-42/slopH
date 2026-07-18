@@ -84,6 +84,28 @@ class StableV1CliTests(unittest.TestCase):
         self.assertEqual("sloph.syntax", document["schema"])
         self.assertEqual(1, document["version"])
 
+    def test_core_source_prints_and_rechecks_version_two(self) -> None:
+        output = io.StringIO()
+        with patch("sys.stdout", output):
+            result = main(
+                [
+                    "core",
+                    "print",
+                    str(ROOT / "examples" / "hello-world"),
+                    "--input-format",
+                    "source",
+                ]
+            )
+        self.assertEqual(0, result)
+        self.assertTrue(output.getvalue().startswith("(core 2"))
+        with tempfile.TemporaryDirectory() as directory:
+            core = Path(directory) / "output.core"
+            core.write_text(output.getvalue(), encoding="ascii")
+            self.assertEqual(
+                0,
+                main(["core", "check", str(core), "--input-format", "text"]),
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

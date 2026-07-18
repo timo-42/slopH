@@ -16,16 +16,17 @@ def _encode(value: Any) -> dict[str, Any]:
     common = {"kind": type(value).__name__, "span": _span(value.span)}
     if isinstance(value, IntType): return common
     if isinstance(value, NamedType): return common | {"name": value.name}
+    if isinstance(value, AppliedType): return common | {"constructor": value.constructor, "arguments": [_encode(x) for x in value.arguments]}
     if isinstance(value, FunctionType): return common | {"parameter": _encode(value.parameter), "result": _encode(value.result)}
     if isinstance(value, InferredType): return common
     if isinstance(value, Binder): return common | {"name": value.name, "type": _encode(value.type)}
     if isinstance(value, IntExpr): return common | {"value": format_decimal(value.value)}
     if isinstance(value, BytesExpr): return common | {"hex": value.value.hex()}
     if isinstance(value, (LocalExpr, GlobalExpr)): return common | {"name": value.name}
-    if isinstance(value, CallExpr): return common | {"function": _encode(value.function), "arguments": [_encode(x) for x in value.arguments]}
+    if isinstance(value, CallExpr): return common | {"function": _encode(value.function), "arguments": [_encode(x) for x in value.arguments], "type_arguments": [_encode(x) for x in value.type_arguments]}
     if isinstance(value, LambdaExpr): return common | {"parameters": [_encode(x) for x in value.parameters], "result_type": _encode(value.result_type), "body": _encode(value.body)}
     if isinstance(value, IfExpr): return common | {"condition": _encode(value.condition), "then_body": _encode(value.then_body), "else_body": _encode(value.else_body)}
-    if isinstance(value, ConstructorExpr): return common | {"constructor": value.constructor, "arguments": [_encode(x) for x in value.arguments]}
+    if isinstance(value, ConstructorExpr): return common | {"constructor": value.constructor, "arguments": [_encode(x) for x in value.arguments], "type_arguments": [_encode(x) for x in value.type_arguments]}
     if isinstance(value, PrimitiveExpr): return common | {"name": value.name, "arguments": [_encode(x) for x in value.arguments]}
     if isinstance(value, LetBinding): return common | {"binder": _encode(value.binder), "value": _encode(value.value)}
     if isinstance(value, Block): return common | {"bindings": [_encode(x) for x in value.bindings], "result": _encode(value.result)}
@@ -39,8 +40,8 @@ def _encode(value: Any) -> dict[str, Any]:
     if isinstance(value, ConditionalImportDecl): return common | {"selector": value.selector, "alternatives": [_encode(x) for x in value.alternatives]}
     if isinstance(value, FieldDecl): return common | {"name": value.name, "type": _encode(value.type)}
     if isinstance(value, ConstructorDecl): return common | {"name": value.name, "fields": [_encode(x) for x in value.fields]}
-    if isinstance(value, TypeDecl): return common | {"name": value.name, "constructors": [_encode(x) for x in value.constructors], "public": value.public}
-    if isinstance(value, FunctionDecl): return common | {"name": value.name, "parameters": [_encode(x) for x in value.parameters], "result_type": _encode(value.result_type), "body": _encode(value.body), "public": value.public}
+    if isinstance(value, TypeDecl): return common | {"name": value.name, "constructors": [_encode(x) for x in value.constructors], "public": value.public, "type_parameters": list(value.type_parameters)}
+    if isinstance(value, FunctionDecl): return common | {"name": value.name, "parameters": [_encode(x) for x in value.parameters], "result_type": _encode(value.result_type), "body": _encode(value.body), "public": value.public, "type_parameters": list(value.type_parameters)}
     if isinstance(value, ValueDecl): return common | {"name": value.name, "type": _encode(value.type), "value": _encode(value.value), "public": value.public}
     if isinstance(value, Module):
         result = common | {"name": value.name, "imports": [_encode(x) for x in value.imports], "types": [_encode(x) for x in value.types], "functions": [_encode(x) for x in value.functions], "values": [_encode(x) for x in value.values]}
@@ -105,9 +106,9 @@ class _Decoder:
             if not isinstance(value, dict) or not isinstance(value.get("kind"), str): self.bad("node must have a string kind")
             kind = value["kind"]
             fields: dict[str, set[str]] = {
-                "IntType": set(), "NamedType": {"name"}, "FunctionType": {"parameter", "result"}, "InferredType": set(), "Binder": {"name", "type"}, "IntExpr": {"value"}, "BytesExpr": {"hex"},
-                "LocalExpr": {"name"}, "GlobalExpr": {"name"}, "CallExpr": {"function", "arguments"}, "LambdaExpr": {"parameters", "result_type", "body"}, "IfExpr": {"condition", "then_body", "else_body"},
-                "ConstructorExpr": {"constructor", "arguments"}, "PrimitiveExpr": {"name", "arguments"},
+                "IntType": set(), "NamedType": {"name"}, "AppliedType": {"constructor", "arguments"}, "FunctionType": {"parameter", "result"}, "InferredType": set(), "Binder": {"name", "type"}, "IntExpr": {"value"}, "BytesExpr": {"hex"},
+                "LocalExpr": {"name"}, "GlobalExpr": {"name"}, "CallExpr": {"function", "arguments", "type_arguments"}, "LambdaExpr": {"parameters", "result_type", "body"}, "IfExpr": {"condition", "then_body", "else_body"},
+                "ConstructorExpr": {"constructor", "arguments", "type_arguments"}, "PrimitiveExpr": {"name", "arguments"},
                 "LetBinding": {"binder", "value"}, "Block": {"bindings", "result"},
                 "CaseAlternative": {"constructor", "binders", "body"}, "CaseExpr": {"scrutinee", "result_type", "alternatives"},
                 "ImportDecl": {"module", "names"}, "FieldDecl": {"name", "type"},
@@ -115,8 +116,8 @@ class _Decoder:
                 "Availability": {"selector", "pattern"},
                 "ConditionalImportAlternative": {"pattern", "import"},
                 "ConditionalImportDecl": {"selector", "alternatives"},
-                "ConstructorDecl": {"name", "fields"}, "TypeDecl": {"name", "constructors", "public"},
-                "FunctionDecl": {"name", "parameters", "result_type", "body", "public"},
+                "ConstructorDecl": {"name", "fields"}, "TypeDecl": {"name", "constructors", "public", "type_parameters"},
+                "FunctionDecl": {"name", "parameters", "result_type", "body", "public", "type_parameters"},
                 "ValueDecl": {"name", "type", "value", "public"},
                 "Module": {"name", "imports", "types", "functions", "values", "availability"},
             }
@@ -128,6 +129,7 @@ class _Decoder:
             s, n, a = self.string, self.node, self.array
             if kind == "IntType": return IntType(span)
             if kind == "NamedType": return NamedType(s(obj["name"], "name"), span)
+            if kind == "AppliedType": return AppliedType(s(obj["constructor"], "constructor"), a(obj["arguments"], n), span)
             if kind == "FunctionType": return FunctionType(n(obj["parameter"]), n(obj["result"]), span)
             if kind == "InferredType": return InferredType(span)
             if kind == "Binder": return Binder(s(obj["name"], "name"), n(obj["type"]), span)
@@ -145,10 +147,10 @@ class _Decoder:
                 return BytesExpr(bytes.fromhex(raw), span)
             if kind == "LocalExpr": return LocalExpr(s(obj["name"], "name"), span)
             if kind == "GlobalExpr": return GlobalExpr(s(obj["name"], "name"), span)
-            if kind == "CallExpr": return CallExpr(n(obj["function"]), a(obj["arguments"], n), span)
+            if kind == "CallExpr": return CallExpr(n(obj["function"]), a(obj["arguments"], n), span, a(obj["type_arguments"], n))
             if kind == "LambdaExpr": return LambdaExpr(a(obj["parameters"], n), n(obj["result_type"]), n(obj["body"]), span)
             if kind == "IfExpr": return IfExpr(n(obj["condition"]), n(obj["then_body"]), n(obj["else_body"]), span)
-            if kind == "ConstructorExpr": return ConstructorExpr(s(obj["constructor"], "constructor"), a(obj["arguments"], n), span)
+            if kind == "ConstructorExpr": return ConstructorExpr(s(obj["constructor"], "constructor"), a(obj["arguments"], n), span, a(obj["type_arguments"], n))
             if kind == "PrimitiveExpr": return PrimitiveExpr(s(obj["name"], "name"), a(obj["arguments"], n), span)
             if kind == "LetBinding": return LetBinding(n(obj["binder"]), n(obj["value"]), span)
             if kind == "Block": return Block(a(obj["bindings"], n), n(obj["result"]), span)
@@ -162,8 +164,8 @@ class _Decoder:
             if kind == "ConditionalImportDecl": return ConditionalImportDecl(s(obj["selector"], "selector"), a(obj["alternatives"], n), span)
             if kind == "FieldDecl": return FieldDecl(s(obj["name"], "name"), n(obj["type"]), span)
             if kind == "ConstructorDecl": return ConstructorDecl(s(obj["name"], "name"), a(obj["fields"], n), span)
-            if kind == "TypeDecl": return TypeDecl(s(obj["name"], "name"), a(obj["constructors"], n), self.boolean(obj["public"], "public"), span)
-            if kind == "FunctionDecl": return FunctionDecl(s(obj["name"], "name"), a(obj["parameters"], n), n(obj["result_type"]), n(obj["body"]), self.boolean(obj["public"], "public"), span)
+            if kind == "TypeDecl": return TypeDecl(s(obj["name"], "name"), a(obj["constructors"], n), self.boolean(obj["public"], "public"), span, a(obj["type_parameters"], lambda x: s(x, "type parameter")))
+            if kind == "FunctionDecl": return FunctionDecl(s(obj["name"], "name"), a(obj["parameters"], n), n(obj["result_type"]), n(obj["body"]), self.boolean(obj["public"], "public"), span, a(obj["type_parameters"], lambda x: s(x, "type parameter")))
             if kind == "ValueDecl": return ValueDecl(s(obj["name"], "name"), n(obj["type"]), n(obj["value"]), self.boolean(obj["public"], "public"), span)
             if kind == "Module":
                 availability = None if "availability" not in obj or obj["availability"] is None else n(obj["availability"])

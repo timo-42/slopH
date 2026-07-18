@@ -4,7 +4,7 @@ from sloph.core.diagnostics import fail
 from sloph.core.limits import Limits
 from sloph.syntax._integer import format_decimal
 from sloph.syntax.model import (
-    Block, BytesExpr, CallExpr, CaseExpr, ConditionalImportDecl, ConstructorExpr, Expr, FunctionType, GlobalExpr, IfExpr, InferredType, IntExpr, LambdaExpr,
+    AppliedType, Block, BytesExpr, CallExpr, CaseExpr, ConditionalImportDecl, ConstructorExpr, Expr, FunctionType, GlobalExpr, IfExpr, InferredType, IntExpr, LambdaExpr,
     IntType, LocalExpr, Module, NamedType, PrimitiveExpr, TargetConstantPattern,
     TargetPattern, TargetTuplePattern, TypeRef,
 )
@@ -13,6 +13,7 @@ from sloph.syntax.model import (
 def _type(value: TypeRef) -> str:
     if isinstance(value, IntType): return "Int"
     if isinstance(value, NamedType): return value.name
+    if isinstance(value, AppliedType): return f"{value.constructor}[{', '.join(_type(item) for item in value.arguments)}]"
     if isinstance(value, FunctionType): return f"fn({_type(value.parameter)}) -> {_type(value.result)}"
     if isinstance(value, InferredType): return "_"
     raise TypeError(f"unknown syntax type: {type(value).__name__}")
@@ -31,14 +32,16 @@ def _expr(value: Expr, indent: int) -> str:
     if isinstance(value, BytesExpr): return _bytes(value.value)
     if isinstance(value, (LocalExpr, GlobalExpr)): return value.name
     if isinstance(value, CallExpr):
-        return f"{_expr(value.function, indent)}({', '.join(_expr(a, indent) for a in value.arguments)})"
+        types = f"[{', '.join(_type(a) for a in value.type_arguments)}]" if value.type_arguments else ""
+        return f"{_expr(value.function, indent)}{types}({', '.join(_expr(a, indent) for a in value.arguments)})"
     if isinstance(value, LambdaExpr):
         parameters = ", ".join(f"{item.name}: {_type(item.type)}" for item in value.parameters)
         return f"fn({parameters}) -> {_type(value.result_type)} " + _block(value.body, indent)
     if isinstance(value, IfExpr):
         return f"if {_expr(value.condition, indent)} {_block(value.then_body, indent)} else {_block(value.else_body, indent)}"
     if isinstance(value, ConstructorExpr):
-        return f"{value.constructor}({', '.join(_expr(a, indent) for a in value.arguments)})"
+        types = f"[{', '.join(_type(a) for a in value.type_arguments)}]" if value.type_arguments else ""
+        return f"{value.constructor}{types}({', '.join(_expr(a, indent) for a in value.arguments)})"
     if isinstance(value, PrimitiveExpr):
         return f"primitive {value.name}({', '.join(_expr(a, indent) for a in value.arguments)})"
     if isinstance(value, CaseExpr):
@@ -112,7 +115,8 @@ def format_source(
     declarations: list[str] = []
     for declaration in module.types:
         prefix = "public " if declaration.public else ""
-        body = [f"{prefix}type {declaration.name} {{"]
+        type_parameters = f"[{', '.join(declaration.type_parameters)}]" if declaration.type_parameters else ""
+        body = [f"{prefix}type {declaration.name}{type_parameters} {{"]
         for constructor in declaration.constructors:
             fields = ", ".join(f"{f.name}: {_type(f.type)}" for f in constructor.fields)
             body.append(f"  {constructor.name}({fields});")
@@ -120,9 +124,10 @@ def format_source(
         declarations.append("\n".join(body))
     for declaration in module.functions:
         prefix = "public " if declaration.public else ""
+        type_parameters = f"[{', '.join(declaration.type_parameters)}]" if declaration.type_parameters else ""
         params = ", ".join(f"{p.name}: {_type(p.type)}" for p in declaration.parameters)
         declarations.append(
-            f"{prefix}fn {declaration.name}({params}) -> {_type(declaration.result_type)} "
+            f"{prefix}fn {declaration.name}{type_parameters}({params}) -> {_type(declaration.result_type)} "
             + _block(declaration.body, 0)
         )
     for declaration in module.values:

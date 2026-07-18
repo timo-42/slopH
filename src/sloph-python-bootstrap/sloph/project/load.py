@@ -11,7 +11,7 @@ from typing import Any
 from sloph._resources import libraries_root
 from sloph.core.diagnostics import DiagnosticError, fail
 from sloph.core.limits import Limits
-from sloph.core.model import INT, ForeignBinding, NamedType
+from sloph.core.model import INT, AppliedType, ForeignBinding, NamedType
 from sloph.project.model import Project, ProjectManifest, ProjectModule
 from sloph.project.special import Arch, CompilerTarget, OS
 from sloph.syntax.model import ConditionalImportDecl, ImportDecl, TargetConstantPattern, TargetPattern, TargetTuplePattern
@@ -573,12 +573,53 @@ def _binding_string(value: object, path: Path) -> str:
 
 
 def _binding_type(value: object, path: Path):
-    name = _binding_string(value, path)
-    if name == "Int":
-        return INT
-    if name in {"Bytes", "Unit", "Bool"}:
-        return NamedType(f"core::{name}")
-    return NamedType(name)
+    text = _binding_string(value, path)
+    index = 0
+
+    def bad() -> None:
+        fail("project.foreign_binding.adapter", "project", f"invalid SlopH type {text!r}", path=str(path))
+
+    def space() -> None:
+        nonlocal index
+        while index < len(text) and text[index] in " \t\r\n":
+            index += 1
+
+    def parse():
+        nonlocal index
+        space()
+        start = index
+        while index < len(text) and (text[index].isalnum() or text[index] in "_:"):
+            index += 1
+        name = text[start:index]
+        if not name or any(not segment for segment in name.split("::")):
+            bad()
+        space()
+        arguments = []
+        if index < len(text) and text[index] == "[":
+            index += 1
+            while True:
+                arguments.append(parse())
+                space()
+                if index < len(text) and text[index] == ",":
+                    index += 1
+                    continue
+                if index >= len(text) or text[index] != "]":
+                    bad()
+                index += 1
+                break
+        if name == "Int":
+            if arguments:
+                bad()
+            return INT
+        if name in {"Bytes", "Unit", "Bool", "Option", "Result"}:
+            name = f"core::{name}"
+        return AppliedType(name, tuple(arguments)) if arguments else NamedType(name)
+
+    result = parse()
+    space()
+    if index != len(text):
+        bad()
+    return result
 
 
 def _read_bounded(path: Path, maximum: int, code: str) -> bytes:

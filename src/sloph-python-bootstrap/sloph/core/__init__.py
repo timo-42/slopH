@@ -1,4 +1,4 @@
-"""Library-first API for the experimental Core v0 profile."""
+"""Library-first API for the implemented Core v0, v1, and v2 profiles."""
 
 from sloph.core.canonical import canonicalize, format_core
 from sloph.core.diagnostics import Diagnostic, DiagnosticError

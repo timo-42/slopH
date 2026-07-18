@@ -130,12 +130,12 @@ def _parser() -> argparse.ArgumentParser:
     stable_ast_check.add_argument("input", metavar="INPUT")
     stable_ast_check.add_argument("--input-format", choices=("source", "json"), default="source")
 
-    stable_core = commands.add_parser("core", help="public Core v1 tools")
+    stable_core = commands.add_parser("core", help="public Core v2 tools")
     stable_core_commands = stable_core.add_subparsers(dest="core_command", required=True)
-    stable_core_check = stable_core_commands.add_parser("check", help="validate Core v1")
+    stable_core_check = stable_core_commands.add_parser("check", help="validate Core v2")
     stable_core_check.add_argument("input", metavar="INPUT")
     stable_core_check.add_argument("--input-format", choices=("text", "source"), default="text")
-    stable_core_print = stable_core_commands.add_parser("print", help="print canonical Core v1")
+    stable_core_print = stable_core_commands.add_parser("print", help="print canonical Core v2")
     stable_core_print.add_argument("input", metavar="INPUT")
     stable_core_print.add_argument("--input-format", choices=("text", "source"), default="source")
     stable_core_print.add_argument("-o", "--output", default="-")
@@ -345,11 +345,11 @@ def _run_v1(args: argparse.Namespace) -> int:
             unit = elaborate_project_v1(args.input, limits)
         else:
             unit = parse_core(_read_input(args.input, limits), limits)
-            if unit.version != 1:
+            if unit.version != 2:
                 fail(
                     "core.validate.unsupported_version",
                     "validate",
-                    "stable Core commands require Core version 1",
+                    "stable Core commands require Core version 2",
                     unit.span,
                     version=unit.version,
                 )

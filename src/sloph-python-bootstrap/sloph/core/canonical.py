@@ -6,6 +6,7 @@ from urllib.parse import quote
 
 from sloph.core.model import (
     Alternative,
+    AppliedType,
     AppExpr,
     Binder,
     BytesExpr,
@@ -17,6 +18,7 @@ from sloph.core.model import (
     EnumDecl,
     Expr,
     FunctionType,
+    ForAllType,
     ForeignBinding,
     GlobalExpr,
     IntExpr,
@@ -26,6 +28,9 @@ from sloph.core.model import (
     LocalExpr,
     NamedType,
     PrimExpr,
+    TypeBinder,
+    TypeExpr,
+    TypeVariable,
 )
 from sloph.core.diagnostics import limit_fail
 from sloph.core.limits import Limits
@@ -62,8 +67,8 @@ def format_core(unit: CoreUnit, limits: Limits | None = None) -> str:
     items: tuple[Form, ...] = (
         "core",
         str(canonical.version),
-        ("types", *(_enum_form(enum) for enum in canonical.types)),
-        ("defs", *(_definition_form(definition) for definition in canonical.definitions)),
+        ("types", *(_enum_form(enum, canonical.version) for enum in canonical.types)),
+        ("defs", *(_definition_form(definition, canonical.version) for definition in canonical.definitions)),
     )
     if canonical.foreign_bindings:
         items += (("foreign", *(_foreign_form(item) for item in canonical.foreign_bindings)),)
@@ -119,7 +124,7 @@ def _foreign_size(binding: ForeignBinding) -> int:
 
 def _enum_size(enum: EnumDecl) -> int:
     return _list_size(
-        (len("enum"), len(enum.name), *(_constructor_size(item) for item in enum.constructors))
+        (len("enum"), len(enum.name), len(str(enum.type_parameters)) * 2, *(_constructor_size(item) for item in enum.constructors))
     )
 
 
@@ -152,12 +157,20 @@ def _type_size(type_: CoreType) -> int:
         return len("Int")
     if isinstance(type_, NamedType):
         return _list_size((len("named"), len(type_.name)))
+    if isinstance(type_, TypeVariable):
+        return _list_size((len("var"), len(type_.name)))
+    if isinstance(type_, AppliedType):
+        return _list_size((len("apply"), len(type_.constructor), *(_type_size(item) for item in type_.arguments)))
     if isinstance(type_, FunctionType):
         return _list_size((len("fn"), _type_size(type_.parameter), _type_size(type_.result)))
+    if isinstance(type_, ForAllType):
+        return _list_size((len("forall"), len(type_.parameter), _type_size(type_.body)))
     raise AssertionError(f"unsupported type {type(type_)!r}")
 
 
-def _binder_size(binder: Binder) -> int:
+def _binder_size(binder: Binder | TypeBinder) -> int:
+    if isinstance(binder, TypeBinder):
+        return _list_size((len("type-bind"), len(binder.name)))
     return _list_size((len("bind"), len(binder.name), _type_size(binder.type)))
 
 
@@ -170,6 +183,8 @@ def _expression_size(expression: Expr) -> int:
         return _list_size((len("local"), len(expression.name)))
     if isinstance(expression, GlobalExpr):
         return _list_size((len("global"), len(expression.name)))
+    if isinstance(expression, TypeExpr):
+        return _list_size((len("type"), _type_size(expression.type)))
     if isinstance(expression, LamExpr):
         return _list_size((len("lam"), _binder_size(expression.binder), _expression_size(expression.body)))
     if isinstance(expression, AppExpr):
@@ -189,7 +204,7 @@ def _expression_size(expression: Expr) -> int:
         )
     if isinstance(expression, ConExpr):
         return _list_size(
-            (len("con"), len(expression.constructor), *(_expression_size(item) for item in expression.fields))
+            (len("con"), len(expression.constructor), *(_type_size(item) for item in expression.type_arguments), *(_expression_size(item) for item in expression.fields))
         )
     if isinstance(expression, CaseExpr):
         return _list_size(
@@ -250,11 +265,16 @@ def _rename_expr(
     counter: list[int],
     constructors: dict[str, EnumDecl],
 ) -> Expr:
-    if isinstance(expression, (IntExpr, BytesExpr, GlobalExpr)):
+    if isinstance(expression, (IntExpr, BytesExpr, GlobalExpr, TypeExpr)):
         return expression
     if isinstance(expression, LocalExpr):
         return replace(expression, name=environment[expression.name])
     if isinstance(expression, LamExpr):
+        if isinstance(expression.binder, TypeBinder):
+            return replace(
+                expression,
+                body=_rename_expr(expression.body, environment, counter, constructors),
+            )
         new_name = _fresh(counter)
         local_environment = dict(environment)
         local_environment[expression.binder.name] = new_name
@@ -329,10 +349,11 @@ def _rename_expr(
     raise AssertionError(f"unsupported expression {type(expression)!r}")
 
 
-def _enum_form(enum: EnumDecl) -> Form:
-    return (
-        "enum",
-        enum.name,
+def _enum_form(enum: EnumDecl, version: int) -> Form:
+    prefix: tuple[Form, ...] = ("enum", enum.name)
+    if version == 2:
+        prefix += (("params", *enum.type_parameters),)
+    return prefix + (
         *(
             (
                 "ctor",
@@ -347,8 +368,8 @@ def _enum_form(enum: EnumDecl) -> Form:
     )
 
 
-def _definition_form(definition: Definition) -> Form:
-    return ("def", definition.name, _type_form(definition.type), _expr_form(definition.value))
+def _definition_form(definition: Definition, version: int) -> Form:
+    return ("def", definition.name, _type_form(definition.type), _expr_form(definition.value, version))
 
 
 def _type_form(type_: CoreType) -> Form:
@@ -356,16 +377,24 @@ def _type_form(type_: CoreType) -> Form:
         return "Int"
     if isinstance(type_, NamedType):
         return ("named", type_.name)
+    if isinstance(type_, TypeVariable):
+        return ("var", type_.name)
+    if isinstance(type_, AppliedType):
+        return ("apply", type_.constructor, *(_type_form(item) for item in type_.arguments))
     if isinstance(type_, FunctionType):
         return ("fn", _type_form(type_.parameter), _type_form(type_.result))
+    if isinstance(type_, ForAllType):
+        return ("forall", type_.parameter, _type_form(type_.body))
     raise AssertionError(f"unsupported type {type(type_)!r}")
 
 
-def _binder_form(binder: Binder) -> Form:
+def _binder_form(binder: Binder | TypeBinder) -> Form:
+    if isinstance(binder, TypeBinder):
+        return ("type-bind", binder.name)
     return ("bind", binder.name, _type_form(binder.type))
 
 
-def _expr_form(expression: Expr) -> Form:
+def _expr_form(expression: Expr, version: int) -> Form:
     if isinstance(expression, IntExpr):
         return ("int", decimal_string(expression.value))
     if isinstance(expression, BytesExpr):
@@ -374,40 +403,41 @@ def _expr_form(expression: Expr) -> Form:
         return ("local", expression.name)
     if isinstance(expression, GlobalExpr):
         return ("global", expression.name)
+    if isinstance(expression, TypeExpr):
+        return ("type", _type_form(expression.type))
     if isinstance(expression, LamExpr):
-        return ("lam", _binder_form(expression.binder), _expr_form(expression.body))
+        return ("lam", _binder_form(expression.binder), _expr_form(expression.body, version))
     if isinstance(expression, AppExpr):
-        return ("app", _expr_form(expression.function), _expr_form(expression.argument))
+        return ("app", _expr_form(expression.function, version), _expr_form(expression.argument, version))
     if isinstance(expression, LetExpr):
         return (
             "let",
             _binder_form(expression.binder),
-            _expr_form(expression.value),
-            _expr_form(expression.body),
+            _expr_form(expression.value, version),
+            _expr_form(expression.body, version),
         )
     if isinstance(expression, PrimExpr):
         return (
             "prim",
             expression.name,
-            *(_expr_form(item) for item in expression.arguments),
+            *(_expr_form(item, version) for item in expression.arguments),
         )
     if isinstance(expression, ConExpr):
-        return (
-            "con",
-            expression.constructor,
-            *(_expr_form(item) for item in expression.fields),
-        )
+        prefix: tuple[Form, ...] = ("con", expression.constructor)
+        if version == 2:
+            prefix += (("types", *(_type_form(item) for item in expression.type_arguments)),)
+        return prefix + tuple(_expr_form(item, version) for item in expression.fields)
     if isinstance(expression, CaseExpr):
         return (
             "case",
-            _expr_form(expression.scrutinee),
+            _expr_form(expression.scrutinee, version),
             _type_form(expression.result_type),
             *(
                 (
                     "alt",
                     alternative.constructor,
                     *(_binder_form(item) for item in alternative.binders),
-                    _expr_form(alternative.body),
+                    _expr_form(alternative.body, version),
                 )
                 for alternative in expression.alternatives
             ),

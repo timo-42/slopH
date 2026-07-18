@@ -18,6 +18,13 @@ class NamedType:
 
 
 @dataclass(frozen=True, slots=True)
+class AppliedType:
+    constructor: str
+    arguments: tuple["TypeRef", ...]
+    span: Span = UNKNOWN_SPAN
+
+
+@dataclass(frozen=True, slots=True)
 class FunctionType:
     parameter: "TypeRef"
     result: "TypeRef"
@@ -29,7 +36,7 @@ class InferredType:
     span: Span = UNKNOWN_SPAN
 
 
-TypeRef: TypeAlias = IntType | NamedType | FunctionType | InferredType
+TypeRef: TypeAlias = IntType | NamedType | AppliedType | FunctionType | InferredType
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,6 +75,7 @@ class CallExpr:
     function: "Expr"
     arguments: tuple["Expr", ...]
     span: Span = UNKNOWN_SPAN
+    type_arguments: tuple[TypeRef, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,6 +99,7 @@ class ConstructorExpr:
     constructor: str
     arguments: tuple["Expr", ...]
     span: Span = UNKNOWN_SPAN
+    type_arguments: tuple[TypeRef, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -201,6 +210,7 @@ class TypeDecl:
     constructors: tuple[ConstructorDecl, ...]
     public: bool = False
     span: Span = UNKNOWN_SPAN
+    type_parameters: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -211,6 +221,7 @@ class FunctionDecl:
     body: Block
     public: bool = False
     span: Span = UNKNOWN_SPAN
+    type_parameters: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

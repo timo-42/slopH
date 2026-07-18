@@ -8,6 +8,7 @@ from sloph.core.diagnostics import Span, UNKNOWN_SPAN, fail
 from sloph.core.model import (
     INT,
     Alternative,
+    AppliedType,
     AppExpr,
     Binder,
     BytesExpr,
@@ -20,6 +21,7 @@ from sloph.core.model import (
     EnumDecl,
     FieldDecl,
     FunctionType,
+    ForAllType,
     GlobalExpr,
     IntExpr,
     LamExpr,
@@ -27,6 +29,9 @@ from sloph.core.model import (
     LocalExpr,
     NamedType,
     PrimExpr,
+    TypeBinder,
+    TypeExpr,
+    TypeVariable,
 )
 from sloph.core.validate import validate
 from sloph.core.limits import Limits
@@ -52,6 +57,8 @@ class _Scope:
     constructors: dict[str, tuple[str, Any]]
     version: int
     foreign_bindings: dict[str, Any]
+    core_types: dict[str, _Symbol]
+    scopes: dict[str, "_Scope"]
 
 
 def elaborate_project(
@@ -66,17 +73,17 @@ def elaborate_project(
 def elaborate_project_v1(
     path: str | Path | Project, limits: Limits | None = None
 ) -> CoreUnit:
-    """Resolve Source v1 into independently validated Core v1."""
+    """Resolve Source v1 into independently validated parametric Core v2."""
     project = path if isinstance(path, Project) else load_project(
         path, limits, source_version=1
     )
-    return _elaborate(project, version=1)
+    return _elaborate(project, version=2)
 
 
 def _elaborate(project: Project, *, version: int) -> CoreUnit:
     scopes = _build_scopes(project, version=version)
     enums: list[EnumDecl] = []
-    if version == 1:
+    if version >= 1:
         enums.extend(
             (
                 EnumDecl(
@@ -153,8 +160,24 @@ def _build_scopes(project: Project, *, version: int = 0) -> dict[str, _Scope]:
                             constructor,
                         )
         scopes[module.name] = _Scope(
-            module, own, dict(own), constructors, version, foreign_bindings
+            module, own, dict(own), constructors, version, foreign_bindings, {}, {}
         )
+
+    core_scope = scopes.get("core")
+    for scope in scopes.values():
+        scope.scopes = scopes
+    if core_scope is not None:
+        core_types = {
+            name: symbol for name, symbol in core_scope.own.items() if symbol.kind == "type"
+        }
+        for scope in scopes.values():
+            scope.core_types = core_types
+            for name, symbol in core_types.items():
+                declaration = symbol.declaration
+                for constructor in _sequence(declaration, "constructors"):
+                    value = (f"core::{name}::{constructor.name}", constructor)
+                    scope.constructors.setdefault(f"{name}::{constructor.name}", value)
+                    scope.constructors.setdefault(f"core::{name}::{constructor.name}", value)
 
     for module in project.modules:
         scope = scopes[module.name]
@@ -204,7 +227,7 @@ def _lower_enum(scope: _Scope, declaration: Any) -> EnumDecl:
     constructors = []
     for constructor in _sequence(declaration, "constructors"):
         fields = tuple(
-            FieldDecl(field.name, _resolve_type(scope, field.type), _span(field))
+            FieldDecl(field.name, _resolve_type(scope, field.type, set(declaration.type_parameters)), _span(field))
             for field in _sequence(constructor, "fields")
         )
         constructors.append(
@@ -212,12 +235,14 @@ def _lower_enum(scope: _Scope, declaration: Any) -> EnumDecl:
                 f"{symbol.global_name}::{constructor.name}", fields, _span(constructor)
             )
         )
-    return EnumDecl(symbol.global_name, tuple(constructors), _span(declaration))
+    return EnumDecl(symbol.global_name, tuple(constructors), _span(declaration), tuple(declaration.type_parameters))
 
 
 def _lower_function(scope: _Scope, declaration: Any, *, version: int = 0) -> Definition:
     symbol = scope.own[declaration.name]
     parameters = _sequence(declaration, "parameters")
+    type_parameters = tuple(getattr(declaration, "type_parameters", ()))
+    type_variables = set(type_parameters)
     if not parameters and version == 0:
         fail(
             "project.resolve.zero_parameter_function",
@@ -226,10 +251,12 @@ def _lower_function(scope: _Scope, declaration: Any, *, version: int = 0) -> Def
             _span(declaration),
             function=symbol.global_name,
         )
-    result = _resolve_type(scope, declaration.result_type)
+    result = _resolve_type(scope, declaration.result_type, type_variables)
     type_: CoreType = result
     for parameter in reversed(parameters):
-        type_ = FunctionType(_resolve_type(scope, parameter.type), type_)
+        type_ = FunctionType(_resolve_type(scope, parameter.type, type_variables), type_)
+    for type_parameter in reversed(type_parameters):
+        type_ = ForAllType(type_parameter, type_)
     locals_: dict[str, CoreType] = {}
     used: set[str] = set()
     binders: list[Binder] = []
@@ -239,18 +266,20 @@ def _lower_function(scope: _Scope, declaration: Any, *, version: int = 0) -> Def
         binders.append(Binder("_unit", unit, _span(declaration)))
         used.add("_unit")
     for parameter in parameters:
-        binder = _new_binder(scope, parameter, locals_, used)
+        binder = _new_binder(scope, parameter, locals_, used, type_variables=type_variables)
         binders.append(binder)
-    expression = _lower_body(scope, declaration.body, locals_, used)
+    expression = _lower_body(scope, declaration.body, locals_, used, type_variables)
     for binder in reversed(binders):
         expression = LamExpr(binder, expression, _span(declaration))
+    for type_parameter in reversed(type_parameters):
+        expression = LamExpr(TypeBinder(type_parameter, _span(declaration)), expression, _span(declaration))
     return Definition(symbol.global_name, type_, expression, _span(declaration))
 
 
 def _lower_value(scope: _Scope, declaration: Any) -> Definition:
     symbol = scope.own[declaration.name]
     type_ = _resolve_type(scope, declaration.type)
-    expression = _lower_body(scope, declaration.value, {}, set())
+    expression = _lower_body(scope, declaration.value, {}, set(), set())
     return Definition(symbol.global_name, type_, expression, _span(declaration))
 
 
@@ -259,23 +288,24 @@ def _lower_body(
     body: Any,
     locals_: dict[str, CoreType],
     used: set[str],
+    type_variables: set[str],
 ):
     if _class(body) != "Block":
-        return _lower_expr(scope, body, locals_, used)
+        return _lower_expr(scope, body, locals_, used, type_variables)
     active = dict(locals_)
     lowered: list[tuple[Binder, Any]] = []
     for binding in _sequence(body, "bindings", "lets"):
-        value = _lower_expr(scope, binding.value, active, used)
+        value = _lower_expr(scope, binding.value, active, used, type_variables)
         inferred = (
             _infer_lowered_type(scope, value, active)
             if _class(binding.binder.type) == "InferredType"
             else None
         )
         binder = _new_binder(
-            scope, binding.binder, active, used, inferred_type=inferred
+            scope, binding.binder, active, used, inferred_type=inferred, type_variables=type_variables
         )
         lowered.append((binder, value))
-    result = _lower_expr(scope, body.result, active, used)
+    result = _lower_expr(scope, body.result, active, used, type_variables)
     for binder, value in reversed(lowered):
         result = LetExpr(binder, value, result, _span(body))
     return result
@@ -286,6 +316,7 @@ def _lower_expr(
     expression: Any,
     locals_: dict[str, CoreType],
     used: set[str],
+    type_variables: set[str],
 ):
     kind = _class(expression)
     span = _span(expression)
@@ -299,7 +330,7 @@ def _lower_expr(
             return LocalExpr(name, span)
         symbol = _resolve_symbol(scope, name, span)
         if symbol.kind == "function":
-            if scope.version == 1:
+            if scope.version >= 1:
                 return GlobalExpr(symbol.global_name, span)
             fail("project.resolve.escaping_function", "resolve", "Source v0 functions may only appear as the direct target of a saturated call", span, function=symbol.global_name)
         if symbol.kind != "value":
@@ -313,17 +344,37 @@ def _lower_expr(
         return GlobalExpr(symbol.global_name, span)
     if kind == "CallExpr":
         target = expression.function
-        if scope.version == 1:
+        if scope.version >= 1:
             if _class(target) in ("LocalExpr", "GlobalExpr") and target.name in locals_:
                 result = LocalExpr(target.name, _span(target))
             else:
-                result = _lower_expr(scope, target, locals_, used)
+                result = _lower_expr(scope, target, locals_, used, type_variables)
+            source_type_arguments = tuple(getattr(expression, "type_arguments", ()))
+            target_symbol = None
+            if _class(target) in ("LocalExpr", "GlobalExpr") and target.name not in locals_:
+                target_symbol = _resolve_symbol(scope, target.name, _span(target))
+            if target_symbol is not None:
+                expected_types = len(getattr(target_symbol.declaration, "type_parameters", ())) if target_symbol.kind == "function" else 0
+                if len(source_type_arguments) != expected_types:
+                    fail(
+                        "project.resolve.type_argument_arity",
+                        "resolve",
+                        f"function {target_symbol.global_name!r} expects {expected_types} type arguments, got {len(source_type_arguments)}",
+                        span,
+                        function=target_symbol.global_name,
+                        expected=expected_types,
+                        actual=len(source_type_arguments),
+                    )
+            elif source_type_arguments:
+                fail("project.resolve.dynamic_type_application", "resolve", "type arguments require a directly named generic function", span)
+            for source_type in source_type_arguments:
+                result = AppExpr(result, TypeExpr(_resolve_type(scope, source_type, type_variables), _span(source_type)), span)
             arguments = _sequence(expression, "arguments", "args")
             if not arguments:
                 lowered_arguments = (ConExpr("core::Unit::Unit", (), span),)
             else:
                 lowered_arguments = tuple(
-                    _lower_expr(scope, argument, locals_, used) for argument in arguments
+                    _lower_expr(scope, argument, locals_, used, type_variables) for argument in arguments
                 )
             for argument in lowered_arguments:
                 result = AppExpr(result, argument, span)
@@ -369,7 +420,7 @@ def _lower_expr(
             return AppExpr(result, ConExpr("core::Unit::Unit", (), span), span)
         for argument in arguments:
             result = AppExpr(
-                result, _lower_expr(scope, argument, locals_, used), span
+                result, _lower_expr(scope, argument, locals_, used, type_variables), span
             )
         return result
     if kind == "LambdaExpr":
@@ -380,15 +431,15 @@ def _lower_expr(
             unit = NamedType("core::Unit")
             binders.append(Binder("_unit", unit, span))
         for parameter in parameters:
-            binders.append(_new_binder(scope, parameter, active, used))
-        body = _lower_body(scope, expression.body, active, used)
+            binders.append(_new_binder(scope, parameter, active, used, type_variables=type_variables))
+        body = _lower_body(scope, expression.body, active, used, type_variables)
         for binder in reversed(binders):
             body = LamExpr(binder, body, span)
         return body
     if kind == "IfExpr":
-        condition = _lower_expr(scope, expression.condition, locals_, used)
-        then_body = _lower_body(scope, expression.then_body, dict(locals_), used)
-        else_body = _lower_body(scope, expression.else_body, dict(locals_), used)
+        condition = _lower_expr(scope, expression.condition, locals_, used, type_variables)
+        then_body = _lower_body(scope, expression.then_body, dict(locals_), used, type_variables)
+        else_body = _lower_body(scope, expression.else_body, dict(locals_), used, type_variables)
         then_type = _infer_lowered_type(scope, then_body, locals_)
         else_type = _infer_lowered_type(scope, else_body, locals_)
         if then_type != else_type:
@@ -413,14 +464,20 @@ def _lower_expr(
             constructor_name = source_constructor
         else:
             constructor_name = source_constructor.name
-        constructor, _ = _resolve_constructor(scope, constructor_name, span)
+        constructor, constructor_decl, owner_decl = _resolve_constructor(scope, constructor_name, span)
+        source_type_arguments = tuple(getattr(expression, "type_arguments", ()))
+        expected_types = len(getattr(owner_decl, "type_parameters", ()))
+        if len(source_type_arguments) != expected_types:
+            fail("project.resolve.constructor_type_arity", "resolve", f"constructor {constructor!r} expects {expected_types} type arguments, got {len(source_type_arguments)}", span, constructor=constructor, expected=expected_types, actual=len(source_type_arguments))
+        lowered_types = tuple(_resolve_type(scope, item, type_variables) for item in source_type_arguments)
         return ConExpr(
             constructor,
             tuple(
-                _lower_expr(scope, field, locals_, used)
+                _lower_expr(scope, field, locals_, used, type_variables)
                 for field in _sequence(expression, "arguments", "args")
             ),
             span,
+            lowered_types,
         )
     if kind == "PrimitiveExpr":
         if expression.name.startswith(("foreign.", "runtime.")) and not scope.module.bundled:
@@ -434,23 +491,27 @@ def _lower_expr(
         return PrimExpr(
             expression.name,
             tuple(
-                _lower_expr(scope, argument, locals_, used)
+                _lower_expr(scope, argument, locals_, used, type_variables)
                 for argument in _sequence(expression, "arguments", "args")
             ),
             span,
         )
     if kind == "CaseExpr":
-        scrutinee = _lower_expr(scope, expression.scrutinee, locals_, used)
-        result_type = _resolve_type(scope, expression.result_type)
+        scrutinee = _lower_expr(scope, expression.scrutinee, locals_, used, type_variables)
+        result_type = _resolve_type(scope, expression.result_type, type_variables)
+        scrutinee_type = _infer_lowered_type(scope, scrutinee, locals_)
         alternatives: list[Alternative] = []
         for alternative in _sequence(expression, "alternatives"):
-            constructor, constructor_decl = _resolve_constructor(
+            constructor, constructor_decl, owner_decl = _resolve_constructor(
                 scope, alternative.constructor, _span(alternative)
             )
             active = dict(locals_)
             binders: list[Binder] = []
             source_binders = _sequence(alternative, "binders")
             fields = _sequence(constructor_decl, "fields")
+            owner_parameters = tuple(getattr(owner_decl, "type_parameters", ()))
+            owner_arguments = scrutinee_type.arguments if isinstance(scrutinee_type, AppliedType) else ()
+            substitutions = dict(zip(owner_parameters, owner_arguments, strict=True)) if len(owner_parameters) == len(owner_arguments) else {}
             if len(source_binders) != len(fields):
                 fail(
                     "project.resolve.pattern_arity",
@@ -461,7 +522,7 @@ def _lower_expr(
                 )
             for source_binder, field in zip(source_binders, fields, strict=True):
                 inferred = (
-                    _resolve_type(scope, field.type)
+                    _substitute_type(_resolve_type(scope, field.type, set(owner_parameters)), substitutions)
                     if _class(source_binder.type) == "InferredType"
                     else None
                 )
@@ -472,13 +533,14 @@ def _lower_expr(
                         active,
                         used,
                         inferred_type=inferred,
+                        type_variables=type_variables,
                     )
                 )
             alternatives.append(
                 Alternative(
                     constructor,
                     tuple(binders),
-                    _lower_body(scope, alternative.body, active, used),
+                    _lower_body(scope, alternative.body, active, used, type_variables),
                     _span(alternative),
                 )
             )
@@ -492,17 +554,20 @@ def _lower_expr(
     )
 
 
-def _resolve_type(scope: _Scope, source_type: Any) -> CoreType:
+def _resolve_type(scope: _Scope, source_type: Any, type_variables: set[str] | None = None) -> CoreType:
+    type_variables = type_variables or set()
     if _class(source_type) == "IntType":
         return INT
     if _class(source_type) == "NamedType":
+        if source_type.name in type_variables:
+            return TypeVariable(source_type.name)
         if source_type.name in ("Bool", "core::Bool"):
             return NamedType("core::Bool")
         if source_type.name in ("Unit", "core::Unit"):
             return NamedType("core::Unit")
         if source_type.name in ("Bytes", "core::Bytes"):
             return NamedType("core::Bytes")
-        symbol = _resolve_symbol(scope, source_type.name, _span(source_type))
+        symbol = _resolve_type_symbol(scope, source_type.name, _span(source_type))
         if symbol.kind != "type":
             fail(
                 "project.resolve.expected_type",
@@ -511,11 +576,23 @@ def _resolve_type(scope: _Scope, source_type: Any) -> CoreType:
                 _span(source_type),
                 name=source_type.name,
             )
+        expected = len(getattr(symbol.declaration, "type_parameters", ()))
+        if expected:
+            fail("project.resolve.type_argument_arity", "resolve", f"type {symbol.global_name!r} expects {expected} type arguments, got 0", _span(source_type), type=symbol.global_name, expected=expected, actual=0)
         return NamedType(symbol.global_name)
+    if _class(source_type) == "AppliedType":
+        symbol = _resolve_type_symbol(scope, source_type.constructor, _span(source_type))
+        if symbol.kind != "type":
+            fail("project.resolve.expected_type", "resolve", f"{source_type.constructor!r} does not name a type", _span(source_type), name=source_type.constructor)
+        arguments = tuple(_resolve_type(scope, item, type_variables) for item in source_type.arguments)
+        expected = len(getattr(symbol.declaration, "type_parameters", ()))
+        if len(arguments) != expected:
+            fail("project.resolve.type_argument_arity", "resolve", f"type {symbol.global_name!r} expects {expected} type arguments, got {len(arguments)}", _span(source_type), type=symbol.global_name, expected=expected, actual=len(arguments))
+        return AppliedType(symbol.global_name, arguments)
     if _class(source_type) == "FunctionType":
         return FunctionType(
-            _resolve_type(scope, source_type.parameter),
-            _resolve_type(scope, source_type.result),
+            _resolve_type(scope, source_type.parameter, type_variables),
+            _resolve_type(scope, source_type.result, type_variables),
         )
     fail(
         "project.lower.type",
@@ -544,7 +621,16 @@ def _resolve_symbol(scope: _Scope, name: str, span: Span) -> _Symbol:
     )
 
 
-def _resolve_constructor(scope: _Scope, name: str, span: Span) -> tuple[str, Any]:
+def _resolve_type_symbol(scope: _Scope, name: str, span: Span) -> _Symbol:
+    short = name.removeprefix("core::")
+    if "::" not in name and short in scope.visible:
+        return scope.visible[short]
+    if ("::" not in name or name.startswith("core::")) and "::" not in short and short in scope.core_types:
+        return scope.core_types[short]
+    return _resolve_symbol(scope, name, span)
+
+
+def _resolve_constructor(scope: _Scope, name: str, span: Span) -> tuple[str, Any, Any]:
     builtins = {
         "Bool::False": ("core::Bool::False", ()),
         "Bool::True": ("core::Bool::True", ()),
@@ -555,12 +641,25 @@ def _resolve_constructor(scope: _Scope, name: str, span: Span) -> tuple[str, Any
     }
     if name in builtins:
         global_name, fields = builtins[name]
-        return global_name, type("BuiltinConstructor", (), {"fields": fields})()
+        owner_name = global_name.rsplit("::", 1)[0].rsplit("::", 1)[-1]
+        owner = scope.core_types.get(owner_name)
+        owner_decl = owner.declaration if owner is not None else type("BuiltinType", (), {"type_parameters": ()})()
+        return global_name, type("BuiltinConstructor", (), {"fields": fields})(), owner_decl
     if name in scope.constructors:
-        return scope.constructors[name]
+        global_name, constructor = scope.constructors[name]
+        owner_name = global_name.rsplit("::", 1)[0]
+        owner = next((symbol for symbol in (*scope.visible.values(), *scope.core_types.values()) if symbol.global_name == owner_name), None)
+        if owner is None:
+            raise AssertionError(f"missing owner for constructor {global_name}")
+        return global_name, constructor, owner.declaration
     for local_name, result in scope.constructors.items():
         if result[0] == name:
-            return result
+            global_name, constructor = result
+            owner_name = global_name.rsplit("::", 1)[0]
+            owner = next((symbol for symbol in (*scope.visible.values(), *scope.core_types.values()) if symbol.global_name == owner_name), None)
+            if owner is None:
+                raise AssertionError(f"missing owner for constructor {global_name}")
+            return global_name, constructor, owner.declaration
     fail(
         "project.resolve.unknown_constructor",
         "resolve",
@@ -576,6 +675,7 @@ def _new_binder(
     locals_: dict[str, CoreType],
     used: set[str],
     inferred_type: CoreType | None = None,
+    type_variables: set[str] | None = None,
 ) -> Binder:
     name = source_binder.name
     if name in used or name in scope.visible:
@@ -586,7 +686,7 @@ def _new_binder(
             _span(source_binder),
             name=name,
         )
-    type_ = inferred_type or _resolve_type(scope, source_binder.type)
+    type_ = inferred_type or _resolve_type(scope, source_binder.type, type_variables)
     used.add(name)
     locals_[name] = type_
     return Binder(name, type_, _span(source_binder))
@@ -602,18 +702,29 @@ def _infer_lowered_type(
         for symbol in scope.visible.values():
             if symbol.global_name == expression.name:
                 if symbol.kind == "function":
-                    result = _resolve_type(scope, symbol.declaration.result_type)
+                    defining_scope = scope.scopes[symbol.module]
+                    parameters = tuple(getattr(symbol.declaration, "type_parameters", ()))
+                    variables = set(parameters)
+                    result = _resolve_type(defining_scope, symbol.declaration.result_type, variables)
                     for parameter in reversed(_sequence(symbol.declaration, "parameters")):
-                        result = FunctionType(_resolve_type(scope, parameter.type), result)
+                        result = FunctionType(_resolve_type(defining_scope, parameter.type, variables), result)
                     if not _sequence(symbol.declaration, "parameters"):
                         result = FunctionType(NamedType("core::Unit"), result)
+                    for parameter in reversed(parameters):
+                        result = ForAllType(parameter, result)
                     return result
-                return _resolve_type(scope, symbol.declaration.type)
+                return _resolve_type(scope.scopes[symbol.module], symbol.declaration.type)
         raise AssertionError(f"unresolved global {expression.name}")
     if isinstance(expression, LamExpr):
+        if isinstance(expression.binder, TypeBinder):
+            return ForAllType(expression.binder.name, _infer_lowered_type(scope, expression.body, locals_))
         return FunctionType(expression.binder.type, _infer_lowered_type(scope, expression.body, locals_ | {expression.binder.name: expression.binder.type}))
     if isinstance(expression, AppExpr):
         function = _infer_lowered_type(scope, expression.function, locals_)
+        if isinstance(expression.argument, TypeExpr):
+            if not isinstance(function, ForAllType):
+                fail("project.infer.not_polymorphic", "type", "type application target is not polymorphic", expression.span)
+            return _substitute_type(function.body, {function.parameter: expression.argument.type})
         if not isinstance(function, FunctionType):
             fail("project.infer.not_function", "type", "application target is not a function", expression.span)
         return function.result
@@ -628,7 +739,8 @@ def _infer_lowered_type(
         if binding is not None: return binding.result
         return INT
     if isinstance(expression, ConExpr):
-        return NamedType(expression.constructor.rsplit("::", 1)[0])
+        owner = expression.constructor.rsplit("::", 1)[0]
+        return AppliedType(owner, expression.type_arguments) if expression.type_arguments else NamedType(owner)
     if isinstance(expression, CaseExpr): return expression.result_type
     raise AssertionError(f"cannot infer {type(expression).__name__}")
 
@@ -647,7 +759,7 @@ def _validate_entry(project: Project, unit: CoreUnit) -> None:
         expected = FunctionType(
             NamedType("core::Unit"), NamedType("os::process::Exit")
         )
-        if unit.version != 1 or entry.type != expected:
+        if unit.version != 2 or entry.type != expected:
             fail(
                 "project.entry.function",
                 "resolve",
@@ -674,3 +786,17 @@ def _span(value: Any) -> Span:
 
 def _class(value: Any) -> str:
     return type(value).__name__
+
+
+def _substitute_type(type_: CoreType, substitutions: dict[str, CoreType]) -> CoreType:
+    if isinstance(type_, TypeVariable):
+        return substitutions.get(type_.name, type_)
+    if isinstance(type_, AppliedType):
+        return AppliedType(type_.constructor, tuple(_substitute_type(item, substitutions) for item in type_.arguments))
+    if isinstance(type_, FunctionType):
+        return FunctionType(_substitute_type(type_.parameter, substitutions), _substitute_type(type_.result, substitutions))
+    if isinstance(type_, ForAllType):
+        nested = dict(substitutions)
+        nested.pop(type_.parameter, None)
+        return ForAllType(type_.parameter, _substitute_type(type_.body, nested))
+    return type_
