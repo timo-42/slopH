@@ -292,7 +292,7 @@ class _Parser:
             start = self.take().start; name = self.take()
             primitives = {"int.add", "int.sub", "int.mul"}
             if self.version == 1:
-                primitives |= {"int.equal", "int.less"}
+                primitives |= {"int.equal", "int.less", "io.write"}
             if name.text not in primitives:
                 self.error("expected a supported integer primitive", name)
             self.take("("); args = self.comma_list(self.expr); end = self.tokens[self.i - 1].end

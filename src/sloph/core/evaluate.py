@@ -298,6 +298,14 @@ class _Machine:
         raise AssertionError(f"unknown evaluator frame {type(frame)!r}")
 
     def _primitive(self, name: str, values: list[Value], span: Span) -> Value:
+        if name == "io.write":
+            fail(
+                "core.eval.effectful_primitive",
+                "eval",
+                "the pure reference evaluator cannot execute io.write",
+                span,
+                primitive=name,
+            )
         left, right = values
         if not isinstance(left, IntValue) or not isinstance(right, IntValue):
             fail(
