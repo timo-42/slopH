@@ -512,10 +512,12 @@ static SlValue *sl_int_to_bytes(SlValue *value) {
     }
     if(integer->sign<0)buffer[size++]='-';
     int written=snprintf((char *)buffer+size,sizeof(buffer)-size,"%" PRIu32,chunks[--count]);
-    if(written<0||(size_t)written>=sizeof(buffer)-size)sl_die("integer formatting failed");size+=(size_t)written;
+    if(written<0||(size_t)written>=sizeof(buffer)-size){sl_die("integer formatting failed");}
+    size+=(size_t)written;
     while(count){
         written=snprintf((char *)buffer+size,sizeof(buffer)-size,"%09" PRIu32,chunks[--count]);
-        if(written!=9||(size_t)written>=sizeof(buffer)-size)sl_die("integer formatting failed");size+=(size_t)written;
+        if(written!=9||(size_t)written>=sizeof(buffer)-size){sl_die("integer formatting failed");}
+        size+=(size_t)written;
     }
     return sl_bytes(buffer,size);
 }
