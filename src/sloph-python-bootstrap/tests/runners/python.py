@@ -123,7 +123,7 @@ def run(case: Case) -> Outcome:
         if "fuel" in case.fields:
             command.extend(("--fuel", case.fields["fuel"]))
     environment = dict(os.environ)
-    source = str(Path(__file__).resolve().parents[2] / "src")
+    source = str(Path(__file__).resolve().parents[2])
     environment["PYTHONPATH"] = source + os.pathsep + environment.get("PYTHONPATH", "")
     if kind == "core-run":
         with tempfile.TemporaryDirectory(prefix="sloph-case-") as directory:

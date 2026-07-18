@@ -7,6 +7,7 @@ import re
 import tomllib
 from typing import Any
 
+from sloph._resources import libraries_root
 from sloph.core.diagnostics import DiagnosticError, fail
 from sloph.core.limits import Limits
 from sloph.core.model import INT, ForeignBinding, NamedType
@@ -269,7 +270,7 @@ def _load_bundled_dependencies(
     foreign_bindings: list[ForeignBinding],
     limits: Limits,
 ) -> None:
-    root = Path(__file__).resolve().parents[1] / "libraries"
+    root = libraries_root()
     pending = list(reversed(requested))
     loaded: set[str] = set()
     while pending:

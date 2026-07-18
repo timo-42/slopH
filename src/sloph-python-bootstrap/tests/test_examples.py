@@ -9,7 +9,8 @@ import tempfile
 import unittest
 
 
-REPOSITORY = Path(__file__).resolve().parents[1]
+COMPONENT = Path(__file__).resolve().parents[1]
+REPOSITORY = COMPONENT.parents[1]
 EXAMPLES = REPOSITORY / "examples"
 REQUIRED_FILES = ("README.md", "sloph.toml", "expected.stdout")
 
@@ -41,7 +42,7 @@ def discover_examples(root: Path) -> tuple[Example, ...]:
 
 def run_cli(*arguments: str, timeout: int = 30) -> subprocess.CompletedProcess[bytes]:
     environment = dict(os.environ)
-    source = str(REPOSITORY / "src")
+    source = str(COMPONENT)
     environment["PYTHONPATH"] = source + os.pathsep + environment.get("PYTHONPATH", "")
     return subprocess.run(
         [sys.executable, "-m", "sloph", *arguments],

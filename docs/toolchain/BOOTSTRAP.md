@@ -65,8 +65,8 @@ bootstrap scope.
 
 ## Current Implementation: Hosted Python Vertical Slice
 
-The current executable is not yet a self-hosting stage of the source-bootstrap
-chain. It is a hosted Python 3.11+ implementation of the experimental Source v0
+The current executable in `src/sloph-python-bootstrap` is not yet a self-hosting
+stage of the source-bootstrap chain. It is a hosted Python 3.11+ implementation of the experimental Source v0
 and Core v0 profiles. The installed `sloph` entry point invokes a thin Python
 CLI, which delegates to libraries for source parsing, module loading,
 elaboration to Core v0, Core processing, and deterministic C11 emission. A host

@@ -4,9 +4,12 @@ import unittest
 from tests.runners.python import discover, run
 
 
+REPOSITORY = Path(__file__).resolve().parents[3]
+
+
 class SharedCoreCases(unittest.TestCase):
     def test_shared_cases(self) -> None:
-        root = Path(__file__).parent
+        root = REPOSITORY / "tests"
         cases = discover(root)
         self.assertGreater(len(cases), 0)
         for case in cases:

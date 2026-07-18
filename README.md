@@ -63,12 +63,13 @@ The new vertical slice is specified by
 [Source v0](docs/language/SOURCE_V0.md) and the
 [experimental C11 backend](docs/toolchain/C_BACKEND_V0.md).
 
-Python 3.11 or newer is required. Install the experimental CLI from a checkout
-and run its complete runtime test suite with:
+Python 3.11 or newer and `uv` are required. Run the hosted Python bootstrap and
+its complete test suite directly from a checkout without installing a project:
 
 ```text
-python -m pip install --no-deps -e .
-python -m unittest discover -s tests -t .
+uv run --no-project --directory src/sloph-python-bootstrap python -m sloph --help
+uv run --no-project --directory src/sloph-python-bootstrap \
+  python -m unittest discover -s tests -t .
 ```
 
 ## Repository Layout
@@ -80,11 +81,15 @@ python -m unittest discover -s tests -t .
 │   ├── language/         Language and Core design
 │   ├── toolchain/        Compiler, CLI, testing, and bootstrap design
 │   └── research/         Academic and practitioner research
-├── src/sloph/            Experimental Python toolchain libraries and thin CLI
+├── src/
+│   ├── libraries/        Bundled SlopH libraries and native boundaries
+│   └── sloph-python-bootstrap/
+│       ├── sloph/        Hosted Python toolchain libraries and thin CLI
+│       ├── tests/        Python-bootstrap tests and portable-corpus adapter
+│       └── pyproject.toml
 ├── examples/             CI-verified stable v1 projects
-├── tests/                Shared corpus, runner, and implementation tests
+├── tests/                Portable Core/Source cases and golden files
 ├── .github/workflows/    Linux and macOS CI
-├── pyproject.toml        Python package and console entry point
 └── LICENSE
 ~~~
 

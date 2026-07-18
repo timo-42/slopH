@@ -72,11 +72,13 @@ relative to the case directory. Golden output is compared as exact UTF-8 text;
 the runner does not normalize different Core forms or diagnostics into
 equality.
 
-The Python adapter is `tests/runners/python.py`. The standard-library test suite
-and shared cases run together with:
+The Python adapter is
+`src/sloph-python-bootstrap/tests/runners/python.py`. The Python-bootstrap
+tests and shared cases run together from the component directory with:
 
 ```text
-python -m unittest discover -s tests -t .
+uv run --no-project --directory src/sloph-python-bootstrap \
+  python -m unittest discover -s tests -t .
 ```
 
 Core cases cover text parsing, validation, canonical printing, evaluation,
@@ -137,19 +139,13 @@ tests/
 │   ├── source-core-match/
 │   └── fixed-point/
 │
-├── cli/                       # Stable CLI contract
-│
-├── runners/                   # Shared-corpus adapters
-│   ├── python/
-│   ├── self-hosted/
-│   └── bootstrap/
-│
-└── implementation/
-    └── python/                # Python-only implementation tests
+└── cli/                       # Stable CLI input/output cases
 ```
 
 Directories may be added only for a distinct test boundary. The repository
 should not create empty future directories merely to match this illustration.
+Implementation-specific test code and corpus adapters live beside their
+implementation, such as `src/sloph-python-bootstrap/tests/`.
 
 ## Boundary Model
 
@@ -311,9 +307,9 @@ case must not become the only test of a language or Core behavior.
 
 ### Implementation-Specific Tests
 
-Tests under `tests/implementation/python/` may inspect private Python classes,
-helpers, caches, or algorithms. They may use Python's test framework and are
-not consumed by the self-hosted or bootstrap compiler.
+Tests under `src/sloph-python-bootstrap/tests/` may inspect private Python
+classes, helpers, caches, or algorithms. They may use Python's test framework
+and are not consumed by the self-hosted compiler or later bootstrap stages.
 
 Equivalent self-hosted implementation tests may later live in a separate
 implementation-specific directory. They cannot change the expected results of
