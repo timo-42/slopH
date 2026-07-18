@@ -1,0 +1,6 @@
+format: 0
+name: source/check/import-cycle
+kind: source-check
+input: project
+expect-exit: 1
+expect-diagnostics: diagnostics.jsonl

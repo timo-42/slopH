@@ -1,0 +1,16 @@
+module demo::main;
+
+import demo::math::{Maybe, add, base};
+
+value main: Int {
+  let sum: Int = add(base, 2);
+  case Maybe::Some(sum) -> Int {
+    Maybe::Some(item: Int) => {
+      item
+    }
+    Maybe::None() => {
+      0
+    }
+  }
+}
+

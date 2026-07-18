@@ -1,0 +1,3 @@
+module example::main;
+value main: Int { 0 }
+

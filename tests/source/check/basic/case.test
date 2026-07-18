@@ -1,0 +1,6 @@
+format: 0
+name: source/check/basic
+kind: source-check
+input: project
+expect-exit: 0
+

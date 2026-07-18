@@ -14,6 +14,8 @@ class Limits:
     evaluation_depth: int = 4_096
     value_nodes: int = 100_000
     output_bytes: int = 1_048_576
+    project_files: int = 10_000
+    project_bytes: int = 268_435_456
 
     def with_fuel(self, fuel: int) -> "Limits":
         return replace(self, fuel=fuel)

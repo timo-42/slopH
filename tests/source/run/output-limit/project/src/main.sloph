@@ -1,0 +1,24 @@
+module limit::main;
+type Tree {
+  Leaf(item: Int);
+  Pair(left: Tree, right: Tree);
+}
+value v0: Tree { Tree::Leaf(0) }
+value v1: Tree { Tree::Pair(v0, v0) }
+value v2: Tree { Tree::Pair(v1, v1) }
+value v3: Tree { Tree::Pair(v2, v2) }
+value v4: Tree { Tree::Pair(v3, v3) }
+value v5: Tree { Tree::Pair(v4, v4) }
+value v6: Tree { Tree::Pair(v5, v5) }
+value v7: Tree { Tree::Pair(v6, v6) }
+value v8: Tree { Tree::Pair(v7, v7) }
+value v9: Tree { Tree::Pair(v8, v8) }
+value v10: Tree { Tree::Pair(v9, v9) }
+value v11: Tree { Tree::Pair(v10, v10) }
+value v12: Tree { Tree::Pair(v11, v11) }
+value v13: Tree { Tree::Pair(v12, v12) }
+value v14: Tree { Tree::Pair(v13, v13) }
+value v15: Tree { Tree::Pair(v14, v14) }
+value v16: Tree { Tree::Pair(v15, v15) }
+value v17: Tree { Tree::Pair(v16, v16) }
+value v18: Tree { Tree::Pair(v17, v17) }

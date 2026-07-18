@@ -1,0 +1,2 @@
+module private::hidden;
+value secret: Int { 42 }

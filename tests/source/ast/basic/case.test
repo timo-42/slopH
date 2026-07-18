@@ -1,0 +1,7 @@
+format: 0
+name: source/ast/basic
+kind: source-ast
+input: input.sloph
+expect-exit: 0
+expect-output: expected.json
+

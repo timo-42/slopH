@@ -100,11 +100,11 @@ above, but their syntax and diagnostics may change while the profile remains
 under `unstable`. Resource limits and evaluation behavior are part of the Core
 v0 profile rather than ambient Python behavior.
 
-The experimental profile does **not** provide:
+The experimental Core-only commands do **not** provide:
 
 - JSON or binary Core input or output;
 - a Core structural or textual `diff` command;
-- source-language parsing, elaboration, macro expansion, or type inference;
+- macro expansion or type inference;
 - optimization passes or optimized-Core output;
 - C, native, WebAssembly, object, assembly, or executable backends;
 - the stable public Core API and compatibility guarantees proposed below.
@@ -112,6 +112,60 @@ The experimental profile does **not** provide:
 Requests for an unsupported format, operation, or backend are rejected rather
 than silently approximated. New semantic forms require a later Core format
 version; Core v0 readers reject unknown tags, sections, and fields.
+
+## Experimental Source-to-Native v0 Tools
+
+The first complete authored-program slice is defined by
+[SOURCE_V0.md](../language/SOURCE_V0.md) and
+[C_BACKEND_V0.md](./C_BACKEND_V0.md). It is also deliberately unstable. The
+CLI exposes the reusable Syntax, project, compiler, and backend libraries as:
+
+```text
+sloph unstable check PROJECT
+
+sloph unstable format INPUT
+    [--write | --check | --stdout]
+
+sloph unstable ast print INPUT
+    [--input-format source|json]
+    [--format json]
+    [-o PATH]
+
+sloph unstable ast check INPUT
+    [--input-format source|json]
+
+sloph unstable core print INPUT
+    [--input-format text|source]
+    [-o PATH]
+
+sloph unstable compile INPUT
+    [--input-format source|text]
+    [--symbol GLOBAL_ID]
+    -o PATH
+    [--cc PATH]
+    [--emit-c PATH]
+    [--timings]
+
+sloph unstable run PROJECT
+    [--cc PATH]
+    [--emit-c PATH]
+    [--timings]
+```
+
+`PROJECT` is a project directory or `sloph.toml`. Source compilation takes a
+project; textual Core compilation takes one Core v0 file and requires
+`--symbol`. `--cc` defaults to `cc` and is explicit rather than read from
+ambient build configuration. The native bridge supports macOS ARM64 and Linux
+AMD64 hosts only.
+
+Formatting defaults to standard output. `--write` atomically replaces the
+input file; `--check` writes nothing and exits 1 when the canonical spelling
+differs. AST output is the versioned `sloph.syntax` JSON schema only. Native
+execution prints the canonical Core data value produced by the project entry.
+In JSONL diagnostic mode, a native runtime failure is wrapped as one
+`compiler.runtime.failed` diagnostic instead of forwarding raw runtime stderr.
+The profile has no inference, macros, floats, I/O, optimization pipeline,
+cross-compilation, object-file interface, package resolver, or stable ABI.
 
 ## Library-First Implementation
 
@@ -636,7 +690,7 @@ future services without compiler changes.
 
 ## Conformance Requirements
 
-For the current experimental Core v0 milestone, conformance is limited to:
+For the current experimental v0 milestone, conformance is limited to:
 
 - parsing and validating canonical tagged S-expression Core v0 text;
 - canonical text printing and parse-print idempotence;
@@ -645,9 +699,15 @@ For the current experimental Core v0 milestone, conformance is limited to:
   unsupported inputs;
 - standard-input/output separation and the documented process exit classes;
 - identical results from the CLI and the Python library operation it invokes.
+- Source parsing, AST JSON, canonical formatting, project resolution, and
+  deterministic Source-to-Core lowering under the Source v0 restrictions;
+- direct first-order C11 emission and native execution on the two documented
+  host targets, including deterministic runtime resource failures.
 
-JSON, binary, diff, optimizer, source-language, and backend cases are outside
-the Core v0 profile and must not be reported as passing Core v0 conformance.
+Core JSON, binary formats, diff, optimization, higher-order native code, and
+other backends are outside the v0 profile. Source and C11 results count toward
+the experimental v0 milestone, but must not be mislabeled as Core v0 format
+conformance.
 
 The eventual supported CLI conformance suite must verify:
 

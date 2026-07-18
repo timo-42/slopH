@@ -1,10 +1,10 @@
 # SlopH
 
 SlopH is the working name for a small, AI-first, general-purpose programming
-language intended to compile to native executables. The project is currently in
-the language-design and bootstrap-planning stage. Its first implementation
-milestone is a deliberately limited Python tool for experimenting with Core v0;
-it is not yet a source-language compiler or native backend.
+language intended to compile to native executables. The repository now contains
+experimental Core v0 tools and a deliberately small Source v0 to native C11
+vertical slice. These are executable design experiments, not yet the final
+source language, runtime, or native backend.
 
 The design prioritizes code that AI systems can generate and reason about,
 human reviewability, a specification small enough to fit in an AI context
@@ -23,24 +23,34 @@ a primary goal.
 5. Read the [infrastructure requirements](docs/toolchain/INFRASTRUCTURE.md) and
    [bootstrap plan](docs/toolchain/BOOTSTRAP.md).
 
-## Experimental Core v0 Tools
+## Experimental Tools
 
 Core v0 is a monomorphic, pure subset used to test the typed Core
 representation before the full source language is fixed. The Python 3.11+
-implementation has no third-party runtime dependencies and exposes only:
+implementation has no third-party runtime dependencies and exposes:
 
 ```text
 sloph unstable core check
 sloph unstable core print
 sloph unstable core eval
+sloph unstable check
+sloph unstable format
+sloph unstable ast print
+sloph unstable ast check
+sloph unstable compile
+sloph unstable run
 ```
 
-The milestone accepts only the canonical tagged S-expression text format. It
-does not accept or emit JSON or binary Core, compare Core documents, compile
-source programs, optimize Core, or produce native, C, WebAssembly, or other
-backend output. See the [Core v0 specification](docs/language/CORE_V0.md),
-[experimental CLI profile](docs/toolchain/CLI.md#experimental-core-v0-tools),
-and [Core v0 test profile](docs/toolchain/TESTING.md#experimental-core-v0-test-profile).
+Core commands accept the canonical tagged S-expression text format. The source
+profile adds multi-module parsing, formatting, AST JSON, Core lowering, and a
+first-order C11 native bridge. Neither profile provides Core JSON/binary,
+optimization, effects, higher-order native functions, or a final application
+ABI. See the [Core v0 specification](docs/language/CORE_V0.md),
+[experimental CLI profile](docs/toolchain/CLI.md#experimental-source-to-native-v0-tools),
+and [v0 test profile](docs/toolchain/TESTING.md#experimental-v0-test-profile).
+The new vertical slice is specified by
+[Source v0](docs/language/SOURCE_V0.md) and the
+[experimental C11 backend](docs/toolchain/C_BACKEND_V0.md).
 
 Python 3.11 or newer is required. Install the experimental CLI from a checkout
 and run its complete runtime test suite with:
@@ -59,7 +69,7 @@ python -m unittest discover -s tests -t .
 │   ├── language/         Language and Core design
 │   ├── toolchain/        Compiler, CLI, testing, and bootstrap design
 │   └── research/         Academic and practitioner research
-├── src/sloph/            Python Core v0 libraries and thin CLI
+├── src/sloph/            Experimental Python toolchain libraries and thin CLI
 ├── tests/                Shared corpus, runner, and implementation tests
 ├── .github/workflows/    Linux and macOS CI
 ├── pyproject.toml        Python package and console entry point
@@ -70,6 +80,7 @@ python -m unittest discover -s tests -t .
 
 - [Small typed Core](docs/language/CORE.md)
 - [Experimental Core v0 profile](docs/language/CORE_V0.md)
+- [Experimental Source v0 profile](docs/language/SOURCE_V0.md)
 - [Enums, structs, Unit, and Bool](docs/language/ENUM.md)
 - [Integers and bounded integers](docs/language/INTEGER.md)
 - [Floating point and bounded floats](docs/language/FLOAT.md)
@@ -82,6 +93,7 @@ python -m unittest discover -s tests -t .
 - [Single-binary CLI](docs/toolchain/CLI.md)
 - [Shared testing architecture](docs/toolchain/TESTING.md)
 - [Reproducible bootstrap](docs/toolchain/BOOTSTRAP.md)
+- [Experimental C11 backend](docs/toolchain/C_BACKEND_V0.md)
 
 ### Research
 

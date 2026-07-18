@@ -12,16 +12,30 @@ jobs:
     timeout-minutes: 10
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest]
-        python: ["3.11", "3.13"]
+        include:
+          - os: ubuntu-24.04
+            arch: x86_64
+            python: "3.11"
+          - os: ubuntu-24.04
+            arch: x86_64
+            python: "3.13"
+          - os: macos-15
+            arch: arm64
+            python: "3.11"
+          - os: macos-15
+            arch: arm64
+            python: "3.13"
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
+      - run: test "$(uname -m)" = "${{ matrix.arch }}"
       - run: python -m pip install --no-deps -e .
       - run: python -m unittest discover -s tests -t .
       - run: sloph unstable core check tests/core/evaluate/integer-add/input.core
       - run: sloph unstable core print tests/core/evaluate/integer-add/input.core
       - run: sloph unstable core eval tests/core/evaluate/integer-add/input.core --symbol example::main
+      - run: sloph unstable check tests/source/run/basic/project
+      - run: sloph unstable run tests/source/run/basic/project

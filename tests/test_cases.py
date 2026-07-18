@@ -6,7 +6,7 @@ from tests.runners.python import discover, run
 
 class SharedCoreCases(unittest.TestCase):
     def test_shared_cases(self) -> None:
-        root = Path(__file__).parent / "core"
+        root = Path(__file__).parent
         cases = discover(root)
         self.assertGreater(len(cases), 0)
         for case in cases:
