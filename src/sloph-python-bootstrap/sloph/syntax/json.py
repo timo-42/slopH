@@ -32,8 +32,10 @@ def _encode(value: Any) -> dict[str, Any]:
     if isinstance(value, CaseAlternative): return common | {"constructor": value.constructor, "binders": [_encode(x) for x in value.binders], "body": _encode(value.body)}
     if isinstance(value, CaseExpr): return common | {"scrutinee": _encode(value.scrutinee), "result_type": _encode(value.result_type), "alternatives": [_encode(x) for x in value.alternatives]}
     if isinstance(value, ImportDecl): return common | {"module": value.module, "names": list(value.names)}
-    if isinstance(value, Availability): return common | {"selector": value.selector, "values": list(value.values)}
-    if isinstance(value, ConditionalImportAlternative): return common | {"values": list(value.values), "import": _encode(value.import_)}
+    if isinstance(value, TargetConstantPattern): return common | {"name": value.name}
+    if isinstance(value, TargetTuplePattern): return common | {"items": [_encode(x) for x in value.items]}
+    if isinstance(value, Availability): return common | {"selector": value.selector, "pattern": _encode(value.pattern)}
+    if isinstance(value, ConditionalImportAlternative): return common | {"pattern": _encode(value.pattern), "import": _encode(value.import_)}
     if isinstance(value, ConditionalImportDecl): return common | {"selector": value.selector, "alternatives": [_encode(x) for x in value.alternatives]}
     if isinstance(value, FieldDecl): return common | {"name": value.name, "type": _encode(value.type)}
     if isinstance(value, ConstructorDecl): return common | {"name": value.name, "fields": [_encode(x) for x in value.fields]}
@@ -109,8 +111,9 @@ class _Decoder:
                 "LetBinding": {"binder", "value"}, "Block": {"bindings", "result"},
                 "CaseAlternative": {"constructor", "binders", "body"}, "CaseExpr": {"scrutinee", "result_type", "alternatives"},
                 "ImportDecl": {"module", "names"}, "FieldDecl": {"name", "type"},
-                "Availability": {"selector", "values"},
-                "ConditionalImportAlternative": {"values", "import"},
+                "TargetConstantPattern": {"name"}, "TargetTuplePattern": {"items"},
+                "Availability": {"selector", "pattern"},
+                "ConditionalImportAlternative": {"pattern", "import"},
                 "ConditionalImportDecl": {"selector", "alternatives"},
                 "ConstructorDecl": {"name", "fields"}, "TypeDecl": {"name", "constructors", "public"},
                 "FunctionDecl": {"name", "parameters", "result_type", "body", "public"},
@@ -152,8 +155,10 @@ class _Decoder:
             if kind == "CaseAlternative": return CaseAlternative(s(obj["constructor"], "constructor"), a(obj["binders"], n), n(obj["body"]), span)
             if kind == "CaseExpr": return CaseExpr(n(obj["scrutinee"]), n(obj["result_type"]), a(obj["alternatives"], n), span)
             if kind == "ImportDecl": return ImportDecl(s(obj["module"], "module"), a(obj["names"], lambda x: s(x, "name")), span)
-            if kind == "Availability": return Availability(s(obj["selector"], "selector"), a(obj["values"], lambda x: s(x, "value")), span)
-            if kind == "ConditionalImportAlternative": return ConditionalImportAlternative(a(obj["values"], lambda x: s(x, "value")), n(obj["import"]), span)
+            if kind == "TargetConstantPattern": return TargetConstantPattern(s(obj["name"], "name"), span)
+            if kind == "TargetTuplePattern": return TargetTuplePattern(a(obj["items"], n), span)
+            if kind == "Availability": return Availability(s(obj["selector"], "selector"), n(obj["pattern"]), span)
+            if kind == "ConditionalImportAlternative": return ConditionalImportAlternative(n(obj["pattern"]), n(obj["import"]), span)
             if kind == "ConditionalImportDecl": return ConditionalImportDecl(s(obj["selector"], "selector"), a(obj["alternatives"], n), span)
             if kind == "FieldDecl": return FieldDecl(s(obj["name"], "name"), n(obj["type"]), span)
             if kind == "ConstructorDecl": return ConstructorDecl(s(obj["name"], "name"), a(obj["fields"], n), span)

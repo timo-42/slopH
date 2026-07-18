@@ -8,15 +8,15 @@ import unittest
 from sloph.backend import emit_c
 from sloph.core import format_core, parse_core
 from sloph.core import DiagnosticError
-from sloph.project import CompilerSpecials, elaborate_project_v1, load_project
+from sloph.project import Arch, CompilerTarget, OS, elaborate_project_v1, load_project
 
 
 COMPONENT = Path(__file__).resolve().parents[1]
 ROOT = COMPONENT.parents[1]
 LIBRARY = COMPONENT.parent / "libraries" / "syscall"
 CC = "/usr/bin/cc"
-SPECIALS = CompilerSpecials.host()
-PLATFORM_ROOT = LIBRARY / "src" / "posix" / SPECIALS.os / SPECIALS.arch
+TARGET = CompilerTarget.host()
+PLATFORM_ROOT = LIBRARY / "src" / "posix" / TARGET.os.value / TARGET.arch.value
 
 
 class PosixLibraryTests(unittest.TestCase):
@@ -71,11 +71,11 @@ int main(void) {
         unit = elaborate_project_v1(project)
         text = format_core(unit)
         self.assertIn(
-            f"(binding foreign.syscall.posix.{SPECIALS.os}.{SPECIALS.arch}.write",
+            f"(binding foreign.syscall.posix.{TARGET.os.value}.{TARGET.arch.value}.write",
             text,
         )
         self.assertIn(
-            f"(provider syscall::posix::{SPECIALS.os}::{SPECIALS.arch})", text
+            f"(provider syscall::posix::{TARGET.os.value}::{TARGET.arch.value})", text
         )
         self.assertIn("(effects io)", text)
         self.assertIn("(fact pointer_retention none)", text)
@@ -83,15 +83,15 @@ int main(void) {
 
     def test_sloph_selects_exactly_one_platform_provider(self) -> None:
         cases = (
-            (CompilerSpecials("linux", "amd64"), "syscall::posix::linux::amd64"),
-            (CompilerSpecials("darwin", "arm64"), "syscall::posix::darwin::arm64"),
+            (CompilerTarget(OS.LINUX, Arch.AMD64), "syscall::posix::linux::amd64"),
+            (CompilerTarget(OS.DARWIN, Arch.ARM64), "syscall::posix::darwin::arm64"),
         )
-        for specials, expected in cases:
+        for target, expected in cases:
             with self.subTest(expected=expected):
                 project = load_project(
                     ROOT / "examples" / "hello-world",
                     source_version=1,
-                    specials=specials,
+                    target=target,
                 )
                 modules = {module.name for module in project.modules}
                 providers = {binding.provider for binding in project.foreign_bindings}
@@ -99,7 +99,7 @@ int main(void) {
                 self.assertEqual({expected}, providers)
                 self.assertNotIn(
                     "syscall::posix::darwin::arm64"
-                    if specials.os == "linux"
+                    if target.os == OS.LINUX
                     else "syscall::posix::linux::amd64",
                     modules,
                 )

@@ -143,15 +143,30 @@ class ImportDecl:
 
 
 @dataclass(frozen=True, slots=True)
+class TargetConstantPattern:
+    name: str
+    span: Span = UNKNOWN_SPAN
+
+
+@dataclass(frozen=True, slots=True)
+class TargetTuplePattern:
+    items: tuple["TargetPattern", ...]
+    span: Span = UNKNOWN_SPAN
+
+
+TargetPattern: TypeAlias = TargetConstantPattern | TargetTuplePattern
+
+
+@dataclass(frozen=True, slots=True)
 class Availability:
     selector: str
-    values: tuple[str, ...]
+    pattern: TargetPattern
     span: Span = UNKNOWN_SPAN
 
 
 @dataclass(frozen=True, slots=True)
 class ConditionalImportAlternative:
-    values: tuple[str, ...]
+    pattern: TargetPattern
     import_: ImportDecl
     span: Span = UNKNOWN_SPAN
 

@@ -6,7 +6,7 @@ import unittest
 
 from sloph.core import DiagnosticError
 from sloph.core.model import ConExpr, LamExpr
-from sloph.project import CompilerSpecials, elaborate_project_v1, load_project
+from sloph.project import Arch, CompilerTarget, OS, elaborate_project_v1, load_project
 from sloph.syntax import (
     format_source,
     parse_source_v1,
@@ -17,10 +17,10 @@ from sloph.syntax import (
 
 class PlatformSelectionTests(unittest.TestCase):
     def test_conditional_import_syntax_round_trips(self) -> None:
-        source = """module demo::main when SPECIAL_ARCH amd64;
-import case SPECIAL_PLATFORM {
-  linux, amd64 => demo::linux::{native};
-  darwin, arm64 => demo::darwin::{native};
+        source = """module demo::main when compiler::target::arch is arch::amd64;
+import case compiler::target::platform {
+  (os::linux, arch::amd64) => demo::linux::{native};
+  (os::darwin, arch::arm64) => demo::darwin::{native};
 }
 public fn main() -> Bool { native() }
 """
@@ -37,8 +37,8 @@ public fn main() -> Bool { native() }
         with self._project(
             'dependencies=[]',
             """module demo::main;
-import case SPECIAL_PLATFORM {
-  linux, amd64 => demo::linux::{native};
+import case compiler::target::platform {
+  (os::linux, arch::amd64) => demo::linux::{native};
 }
 public fn main() -> Exit { Exit::Success() }
 """,
@@ -47,9 +47,71 @@ public fn main() -> Exit { Exit::Success() }
                 load_project(
                     root,
                     source_version=1,
-                    specials=CompilerSpecials("darwin", "arm64"),
+                    target=CompilerTarget(OS.DARWIN, Arch.ARM64),
                 )
-        self.assertEqual("project.special.no_match", caught.exception.diagnostic.code)
+        self.assertEqual("project.target.no_match", caught.exception.diagnostic.code)
+
+    def test_target_patterns_are_typed(self) -> None:
+        invalid_sources = (
+            (
+                "unknown constant",
+                """module demo::main;
+import case compiler::target::arch {
+  arch::riscv64 => demo::native::{native};
+}
+public fn main() -> Exit { Exit::Success() }
+""",
+                "syntax.validate.invalid_target",
+            ),
+            (
+                "wrong constant domain",
+                """module demo::main;
+import case compiler::target::platform {
+  (arch::amd64, arch::arm64) => demo::native::{native};
+}
+public fn main() -> Exit { Exit::Success() }
+""",
+                "syntax.validate.target_type",
+            ),
+            (
+                "wrong tuple shape",
+                """module demo::main;
+import case compiler::target::platform {
+  (os::linux) => demo::native::{native};
+}
+public fn main() -> Exit { Exit::Success() }
+""",
+                "syntax.validate.target_type",
+            ),
+        )
+        for label, source, code in invalid_sources:
+            with self.subTest(label=label), self.assertRaises(DiagnosticError) as caught:
+                parse_source_v1(source)
+            self.assertEqual(code, caught.exception.diagnostic.code)
+
+    def test_duplicate_target_pattern_is_rejected(self) -> None:
+        source = """module demo::main;
+import case compiler::target::arch {
+  arch::amd64 => demo::first::{native};
+  arch::amd64 => demo::second::{native};
+}
+public fn main() -> Exit { Exit::Success() }
+"""
+        with self.assertRaises(DiagnosticError):
+            parse_source_v1(source)
+
+    def test_legacy_special_selector_is_rejected(self) -> None:
+        source = """module demo::main;
+import case SPECIAL_PLATFORM {
+  linux, amd64 => demo::native::{native};
+}
+public fn main() -> Exit { Exit::Success() }
+"""
+        with self.assertRaises(DiagnosticError) as caught:
+            parse_source_v1(source)
+        self.assertEqual(
+            "syntax.parse.unknown_target_selector", caught.exception.diagnostic.code
+        )
 
     def test_architecture_module_is_unavailable_on_wrong_arch(self) -> None:
         source = """module demo::main;
@@ -61,7 +123,7 @@ public fn main() -> Exit { Exit::Success() }
                 load_project(
                     root,
                     source_version=1,
-                    specials=CompilerSpecials("darwin", "arm64"),
+                    target=CompilerTarget(OS.DARWIN, Arch.ARM64),
                 )
         self.assertEqual("project.module.unavailable", caught.exception.diagnostic.code)
 
@@ -76,7 +138,7 @@ public fn main() -> Exit {
             project = load_project(
                 root,
                 source_version=1,
-                specials=CompilerSpecials("linux", "amd64"),
+                target=CompilerTarget(OS.LINUX, Arch.AMD64),
             )
             unit = elaborate_project_v1(project)
         feature = next(

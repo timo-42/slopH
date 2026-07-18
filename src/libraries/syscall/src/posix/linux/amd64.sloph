@@ -1,4 +1,4 @@
-module syscall::posix::linux::amd64 when SPECIAL_PLATFORM linux, amd64;
+module syscall::posix::linux::amd64 when compiler::target::platform is (os::linux, arch::amd64);
 
 import syscall::posix::native::{NativeWriteResult};
 

@@ -13,8 +13,8 @@ from sloph.core.diagnostics import DiagnosticError, fail
 from sloph.core.limits import Limits
 from sloph.core.model import INT, ForeignBinding, NamedType
 from sloph.project.model import Project, ProjectManifest, ProjectModule
-from sloph.project.special import CompilerSpecials
-from sloph.syntax.model import ConditionalImportDecl, ImportDecl
+from sloph.project.special import Arch, CompilerTarget, OS
+from sloph.syntax.model import ConditionalImportDecl, ImportDecl, TargetConstantPattern, TargetPattern, TargetTuplePattern
 
 
 _LOWER_SEGMENT = re.compile(r"[a-z_][A-Za-z0-9_]*\Z", re.ASCII)
@@ -151,13 +151,13 @@ def load_project(
     limits: Limits | None = None,
     *,
     source_version: int = 0,
-    specials: CompilerSpecials | None = None,
+    target: CompilerTarget | None = None,
 ) -> Project:
     """Load, parse, and topologically order all modules in a project."""
 
     manifest = load_manifest(path)
     actual_limits = limits or Limits()
-    actual_specials = specials or CompilerSpecials.host()
+    actual_target = target or CompilerTarget.host()
     from sloph.syntax import parse_source, parse_source_v1
     source_parser = parse_source_v1 if source_version == 1 else parse_source
 
@@ -196,10 +196,10 @@ def load_project(
             actual, imports = _scan_header(data, source_path, source_version=0)
         else:
             actual = syntax.name
-            selected = _select_imports(syntax.imports, actual_specials, source_path)
+            selected = _select_imports(syntax.imports, actual_target, source_path)
             imports = tuple(item.module for item in selected)
             syntax = replace(syntax, imports=selected)
-            _require_available(syntax, actual_specials, source_path)
+            _require_available(syntax, actual_target, source_path)
         if actual != expected:
             fail(
                 "project.module.path_mismatch",
@@ -231,7 +231,7 @@ def load_project(
             by_name,
             sources,
             actual_limits,
-            actual_specials,
+            actual_target,
         )
     if not by_name:
         fail(
@@ -244,7 +244,7 @@ def load_project(
     selected_by_name = {name: by_name[name] for name in reachable}
     for module in selected_by_name.values():
         if module.syntax is not None:
-            _require_available(module.syntax, actual_specials, module.path)
+            _require_available(module.syntax, actual_target, module.path)
         for imported in module.imports:
             if imported not in by_name:
                 fail(
@@ -289,7 +289,7 @@ def _load_bundled_dependencies(
     by_name: dict[str, ProjectModule],
     sources: dict[str, bytes],
     limits: Limits,
-    specials: CompilerSpecials,
+    target: CompilerTarget,
 ) -> None:
     root = libraries_root()
     pending = list(reversed(requested))
@@ -332,7 +332,7 @@ def _load_bundled_dependencies(
             from sloph.syntax import parse_source_v1
             syntax = parse_source_v1(data, limits)
             actual = syntax.name
-            selected = _select_imports(syntax.imports, specials, source_path)
+            selected = _select_imports(syntax.imports, target, source_path)
             imports = tuple(item.module for item in selected)
             syntax = replace(syntax, imports=selected)
             if actual != expected:
@@ -354,7 +354,7 @@ def _library_module_name(package: str, relative: Path) -> str:
 
 def _select_imports(
     imports: tuple,
-    specials: CompilerSpecials,
+    target: CompilerTarget,
     path: Path,
 ) -> tuple[ImportDecl, ...]:
     selected: list[ImportDecl] = []
@@ -364,29 +364,30 @@ def _select_imports(
             continue
         if not isinstance(item, ConditionalImportDecl):
             raise TypeError(f"unsupported import node {type(item).__name__}")
-        actual = specials.values(item.selector)
-        matches = [alt.import_ for alt in item.alternatives if alt.values == actual]
+        actual = target.value(item.selector)
+        matches = [alt.import_ for alt in item.alternatives if _target_pattern_value(alt.pattern) == actual]
         if len(matches) != 1:
             fail(
-                "project.special.no_match",
+                "project.target.no_match",
                 "resolve",
                 f"conditional import has no branch for {item.selector}={actual!r}",
                 item.span,
                 path=str(path),
-                special=item.selector,
-                actual=list(actual),
-                available=[list(alt.values) for alt in item.alternatives],
+                selector=item.selector,
+                actual=_target_display(actual),
+                available=[_target_pattern_display(alt.pattern) for alt in item.alternatives],
             )
         selected.append(matches[0])
     return tuple(selected)
 
 
-def _require_available(syntax: Any, specials: CompilerSpecials, path: Path) -> None:
+def _require_available(syntax: Any, target: CompilerTarget, path: Path) -> None:
     availability = getattr(syntax, "availability", None)
     if availability is None:
         return
-    actual = specials.values(availability.selector)
-    if availability.values != actual:
+    actual = target.value(availability.selector)
+    required = _target_pattern_value(availability.pattern)
+    if required != actual:
         fail(
             "project.module.unavailable",
             "resolve",
@@ -394,10 +395,38 @@ def _require_available(syntax: Any, specials: CompilerSpecials, path: Path) -> N
             availability.span,
             path=str(path),
             module=syntax.name,
-            special=availability.selector,
-            required=list(availability.values),
-            actual=list(actual),
+            selector=availability.selector,
+            required=_target_display(required),
+            actual=_target_display(actual),
         )
+
+
+_TARGET_CONSTANTS = {
+    "os::linux": OS.LINUX,
+    "os::darwin": OS.DARWIN,
+    "arch::amd64": Arch.AMD64,
+    "arch::arm64": Arch.ARM64,
+}
+
+
+def _target_pattern_value(pattern: TargetPattern):
+    if isinstance(pattern, TargetConstantPattern):
+        return _TARGET_CONSTANTS[pattern.name]
+    if isinstance(pattern, TargetTuplePattern):
+        return tuple(_target_pattern_value(item) for item in pattern.items)
+    raise TypeError(f"unsupported compiler-target pattern {type(pattern).__name__}")
+
+
+def _target_display(value):
+    if isinstance(value, tuple):
+        return [_target_display(item) for item in value]
+    return value.value
+
+
+def _target_pattern_display(pattern: TargetPattern):
+    if isinstance(pattern, TargetConstantPattern):
+        return pattern.name
+    return [_target_pattern_display(item) for item in pattern.items]
 
 
 def _reachable_modules(modules: dict[str, ProjectModule]) -> set[str]:

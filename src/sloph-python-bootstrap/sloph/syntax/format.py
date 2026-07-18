@@ -5,7 +5,8 @@ from sloph.core.limits import Limits
 from sloph.syntax._integer import format_decimal
 from sloph.syntax.model import (
     Block, BytesExpr, CallExpr, CaseExpr, ConditionalImportDecl, ConstructorExpr, Expr, FunctionType, GlobalExpr, IfExpr, InferredType, IntExpr, LambdaExpr,
-    IntType, LocalExpr, Module, NamedType, PrimitiveExpr, TypeRef,
+    IntType, LocalExpr, Module, NamedType, PrimitiveExpr, TargetConstantPattern,
+    TargetPattern, TargetTuplePattern, TypeRef,
 )
 
 
@@ -15,6 +16,14 @@ def _type(value: TypeRef) -> str:
     if isinstance(value, FunctionType): return f"fn({_type(value.parameter)}) -> {_type(value.result)}"
     if isinstance(value, InferredType): return "_"
     raise TypeError(f"unknown syntax type: {type(value).__name__}")
+
+
+def _target_pattern(pattern: TargetPattern) -> str:
+    if isinstance(pattern, TargetConstantPattern):
+        return pattern.name
+    if isinstance(pattern, TargetTuplePattern):
+        return f"({', '.join(_target_pattern(item) for item in pattern.items)})"
+    raise TypeError(f"unknown target pattern: {type(pattern).__name__}")
 
 
 def _expr(value: Expr, indent: int) -> str:
@@ -84,7 +93,7 @@ def format_source(
     validate_syntax(module, actual, version=version)
     availability = ""
     if module.availability is not None:
-        availability = f" when {module.availability.selector} {', '.join(module.availability.values)}"
+        availability = f" when {module.availability.selector} is {_target_pattern(module.availability.pattern)}"
     lines = [f"module {module.name}{availability};"]
     if module.imports:
         lines.append("")
@@ -94,7 +103,7 @@ def format_source(
                 for alternative in item.alternatives:
                     selected = alternative.import_
                     lines.append(
-                        f"  {', '.join(alternative.values)} => "
+                        f"  {_target_pattern(alternative.pattern)} => "
                         f"{selected.module}::{{{', '.join(selected.names)}}};"
                     )
                 lines.append("}")

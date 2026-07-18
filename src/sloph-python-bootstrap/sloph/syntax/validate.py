@@ -20,6 +20,34 @@ def _lower(name: str) -> bool: return _ident(name) and (name[0].islower() or nam
 def _upper(name: str) -> bool: return _ident(name) and name[0].isupper()
 
 
+_TARGET_SELECTOR_TYPES = {
+    "compiler::target::platform": ("os", "arch"),
+    "compiler::target::arch": "arch",
+}
+_TARGET_CONSTANT_TYPES = {
+    "os::linux": "os",
+    "os::darwin": "os",
+    "arch::amd64": "arch",
+    "arch::arm64": "arch",
+}
+
+
+def _target_pattern_type(pattern: TargetPattern):
+    if isinstance(pattern, TargetConstantPattern):
+        return _TARGET_CONSTANT_TYPES.get(pattern.name)
+    if isinstance(pattern, TargetTuplePattern):
+        return tuple(_target_pattern_type(item) for item in pattern.items)
+    return None
+
+
+def _target_pattern_key(pattern: TargetPattern):
+    if isinstance(pattern, TargetConstantPattern):
+        return pattern.name
+    if isinstance(pattern, TargetTuplePattern):
+        return tuple(_target_pattern_key(item) for item in pattern.items)
+    return None
+
+
 class _Validator:
     def __init__(self, limits: Limits, version: int = 0): self.limits, self.version, self.nodes, self.depth = limits, version, 0, 0
 
@@ -34,8 +62,7 @@ class _Validator:
         tuple_fields = {
             Module: ("imports", "types", "functions", "values"),
             ImportDecl: ("names",), ConstructorDecl: ("fields",),
-            Availability: ("values",), ConditionalImportDecl: ("alternatives",),
-            ConditionalImportAlternative: ("values",),
+            TargetTuplePattern: ("items",), ConditionalImportDecl: ("alternatives",),
             TypeDecl: ("constructors",), FunctionDecl: ("parameters",),
             CallExpr: ("arguments",), LambdaExpr: ("parameters",), ConstructorExpr: ("arguments",),
             PrimitiveExpr: ("arguments",), Block: ("bindings",),
@@ -149,26 +176,45 @@ class _Validator:
         if not node.names or not all(_lower(x) for x in node.module.split("::")): _bad("invalid_import", "import requires a lowercase module and selected names", node)
         if not all(_lower(x) or _upper(x) for x in node.names): _bad("invalid_import", "import selections must be unqualified source names", node)
         if any(len(x) > self.limits.token_bytes for x in node.names): _bad("limit_exceeded", f"token_bytes limit exceeded (configured {self.limits.token_bytes})", node, limit="token_bytes", configured=self.limits.token_bytes)
+    def v_TargetConstantPattern(self, node):
+        if node.name not in _TARGET_CONSTANT_TYPES:
+            _bad("invalid_target", "unknown compiler-target constant", node, constant=node.name)
+    def v_TargetTuplePattern(self, node):
+        if not node.items:
+            _bad("invalid_target", "compiler-target tuple pattern cannot be empty", node)
+        for item in node.items:
+            if not isinstance(item, (TargetConstantPattern, TargetTuplePattern)):
+                _bad("wrong_node", "invalid compiler-target pattern", node)
+            self.visit(item)
     def v_Availability(self, node):
-        arity = {"SPECIAL_PLATFORM": 2, "SPECIAL_ARCH": 1}.get(node.selector)
-        if arity is None or len(node.values) != arity or not all(_lower(x) for x in node.values):
-            _bad("invalid_special", "invalid compiler-special availability", node)
+        expected = _TARGET_SELECTOR_TYPES.get(node.selector)
+        if expected is None or not isinstance(node.pattern, (TargetConstantPattern, TargetTuplePattern)):
+            _bad("invalid_target", "invalid compiler-target availability", node)
+        self.visit(node.pattern)
+        if _target_pattern_type(node.pattern) != expected:
+            _bad("target_type", "compiler-target pattern does not match selector type", node, selector=node.selector)
     def v_ConditionalImportAlternative(self, node):
-        if not all(_lower(x) for x in node.values) or not isinstance(node.import_, ImportDecl):
+        if not isinstance(node.pattern, (TargetConstantPattern, TargetTuplePattern)) or not isinstance(node.import_, ImportDecl):
             _bad("invalid_import", "invalid conditional import alternative", node)
+        self.visit(node.pattern)
         self.visit(node.import_)
     def v_ConditionalImportDecl(self, node):
         if self.version != 1:
-            _bad("invalid_special", "conditional imports require Source v1", node)
-        arity = {"SPECIAL_PLATFORM": 2, "SPECIAL_ARCH": 1}.get(node.selector)
-        if arity is None or not node.alternatives:
-            _bad("invalid_special", "invalid conditional import selector", node)
+            _bad("invalid_target", "conditional imports require Source v1", node)
+        expected = _TARGET_SELECTOR_TYPES.get(node.selector)
+        if expected is None or not node.alternatives:
+            _bad("invalid_target", "invalid conditional import selector", node)
         seen = set()
         for alternative in node.alternatives:
-            if not isinstance(alternative, ConditionalImportAlternative) or len(alternative.values) != arity or alternative.values in seen:
+            if not isinstance(alternative, ConditionalImportAlternative):
                 _bad("invalid_import", "invalid or duplicate conditional import alternative", node)
-            seen.add(alternative.values)
             self.visit(alternative)
+            key = _target_pattern_key(alternative.pattern)
+            if key in seen:
+                _bad("invalid_import", "invalid or duplicate conditional import alternative", node)
+            seen.add(key)
+            if _target_pattern_type(alternative.pattern) != expected:
+                _bad("target_type", "compiler-target pattern does not match selector type", alternative, selector=node.selector)
     def v_FieldDecl(self, node):
         if not _lower(node.name): _bad("invalid_name", "field must start with lowercase or underscore", node, name=node.name)
         self.typ(node.type)
@@ -195,7 +241,7 @@ class _Validator:
     def v_Module(self, node):
         if not all(_lower(x) for x in node.name.split("::")): _bad("invalid_name", "module components must start with lowercase or underscore", node, name=node.name)
         if node.availability is not None:
-            if self.version != 1 or not isinstance(node.availability, Availability): _bad("invalid_special", "module availability requires Source v1", node)
+            if self.version != 1 or not isinstance(node.availability, Availability): _bad("invalid_target", "module availability requires Source v1", node)
             self.visit(node.availability)
         groups = ((node.imports, (ImportDecl, ConditionalImportDecl)), (node.types, TypeDecl), (node.functions, FunctionDecl), (node.values, ValueDecl))
         for values, expected in groups:
