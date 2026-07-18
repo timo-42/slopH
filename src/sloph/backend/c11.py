@@ -430,7 +430,9 @@ static void sl_print_big(const SlBig *value) {
     if (!value->sign) { sl_text("0"); return; }
     uint32_t work[SL_MAX_LIMBS], chunks[SL_DECIMAL_CHUNKS]; size_t len=value->len,count=0u; memcpy(work,value->limb,len*4u);
     while(len){uint64_t rem=0u;for(size_t i=len;i-- >0u;){uint64_t cur=(rem<<32u)|work[i];work[i]=(uint32_t)(cur/1000000000u);rem=cur%1000000000u;}chunks[count++]=(uint32_t)rem;while(len&&!work[len-1u])--len;}
-    if(value->sign<0)sl_char('-');sl_print_u32(chunks[--count],0);while(count)sl_print_u32(chunks[--count],1);
+    if (value->sign < 0) { sl_char('-'); }
+    sl_print_u32(chunks[--count], 0);
+    while (count) { sl_print_u32(chunks[--count], 1); }
 }
 '''
 
@@ -519,7 +521,9 @@ class _Emitter:
         return (
             f"static SlValue *sl_g{gid}_cache=NULL; static unsigned sl_g{gid}_state=0u;\n"
             f"static SlValue *sl_g{gid}(void) {{\n"
-            f"  if(sl_g{gid}_state==2u)return sl_g{gid}_cache;if(sl_g{gid}_state==1u)sl_die(\"cyclic data global\");sl_g{gid}_state=1u;sl_eval_enter();\n"
+            f"  if(sl_g{gid}_state==2u){{return sl_g{gid}_cache;}}\n"
+            f"  if(sl_g{gid}_state==1u){{sl_die(\"cyclic data global\");}}\n"
+            f"  sl_g{gid}_state=1u;sl_eval_enter();\n"
             f"{body}\n  sl_g{gid}_cache={result};sl_g{gid}_state=2u;sl_eval_leave();return {result};\n}}\n"
         )
 
