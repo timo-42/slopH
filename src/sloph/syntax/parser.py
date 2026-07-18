@@ -8,7 +8,7 @@ from sloph.syntax._integer import parse_decimal
 from sloph.syntax.model import (
     Binder, Block, BytesExpr, CallExpr, CaseAlternative, CaseExpr, ConstructorDecl,
     ConstructorExpr, FieldDecl, FunctionDecl, GlobalExpr, ImportDecl, IntExpr,
-    FunctionType, InferredType, IntType, LambdaExpr, LetBinding, LocalExpr, Module, NamedType, PrimitiveExpr, TypeDecl,
+    FunctionType, IfExpr, InferredType, IntType, LambdaExpr, LetBinding, LocalExpr, Module, NamedType, PrimitiveExpr, TypeDecl,
     TypeRef, ValueDecl,
 )
 
@@ -21,7 +21,7 @@ class _Token:
 
 
 _PUNCT = frozenset("{}(),;:=|")
-_KEYWORDS = frozenset({"module", "import", "public", "type", "fn", "value", "const", "let", "case", "primitive"})
+_KEYWORDS = frozenset({"module", "import", "public", "type", "fn", "value", "const", "let", "case", "if", "else", "primitive"})
 
 
 def _limit(name: str, configured: int, span: Span = Span(0, 0)) -> None:
@@ -257,6 +257,13 @@ class _Parser:
 
     def atom(self):
         token = self.token
+        if self.version == 1 and self.peek("if"):
+            start = self.take("if").start
+            condition = self.expr()
+            then_body = self.block()
+            self.take("else")
+            else_body = self.block()
+            return IfExpr(condition, then_body, else_body, self.node(start, else_body.span.end))
         if self.version == 1 and self.peek("fn"):
             start = self.take("fn").start
             self.take("(")
