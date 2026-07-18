@@ -1,0 +1,408 @@
+# Shared Language and Toolchain Testing
+
+This document defines the test architecture for the language, Core, compiler,
+backends, and future bootstrap chain.
+
+The normative test corpus is implementation-neutral. The first Python
+compiler, the later self-hosted compiler, and the future reproducible bootstrap
+compiler must consume the same applicable test cases. Python tests alone do not
+define language behavior.
+
+## Principles
+
+- Organize tests by stable specification boundary rather than compiler module.
+- Store shared cases as data and source files, never executable Python code.
+- Run the same applicable cases through every compiler implementation.
+- Keep tests of private implementation details separate from conformance tests.
+- Make failures identify the first boundary at which behavior diverges.
+- Use deterministic, versioned representations for public AST, expansion,
+  Core, interfaces, diagnostics, and other machine-consumable results.
+- Do not require network access, registry state, or a populated cache.
+- Treat resource-limit, malformed-input, and determinism tests as conformance
+  requirements rather than optional robustness tests.
+
+## Directory Layout
+
+```text
+tests/
+├── language/                  # End-to-end source-language behavior
+│   ├── valid/
+│   ├── invalid/
+│   └── runtime/
+│
+├── syntax/                    # Source -> public Syntax AST
+│   ├── lexer/
+│   ├── parser/
+│   └── formatter/
+│
+├── desugar/                   # Surface transformations
+│   ├── standard-sugar/
+│   ├── macros/
+│   ├── operators/
+│   └── provenance/
+│
+├── elaboration/               # Resolved typed source -> initial Core
+│   ├── names/
+│   ├── types/
+│   ├── ownership/
+│   └── source-to-core/
+│
+├── core/                      # Independent Core behavior
+│   ├── parse/
+│   ├── validate/
+│   ├── invalid/
+│   ├── evaluate/
+│   ├── optimize/
+│   └── serialization/
+│
+├── backend/                   # Core -> executable behavior
+│   ├── c/
+│   ├── native/
+│   └── equivalence/
+│
+├── bootstrap/                 # Future reproducible bootstrap chain
+│   ├── seed-c90/
+│   ├── rv32im/
+│   ├── b0/
+│   ├── bootstrap-core/
+│   ├── source-core-match/
+│   └── fixed-point/
+│
+├── cli/                       # Stable CLI contract
+│
+├── runners/                   # Shared-corpus adapters
+│   ├── python/
+│   ├── self-hosted/
+│   └── bootstrap/
+│
+└── implementation/
+    └── python/                # Python-only implementation tests
+```
+
+Directories may be added only for a distinct test boundary. The repository
+should not create empty future directories merely to match this illustration.
+
+## Boundary Model
+
+```text
+syntax       source -> public Syntax AST
+desugar      Syntax AST -> canonical kernel surface
+elaboration  resolved typed surface -> initial typed Core
+core         Core -> validated, optimized, or evaluated Core behavior
+backend      validated Core -> target executable behavior
+bootstrap    C90 seed -> fixed-point self-hosted compiler
+language     authored source -> observable language result
+```
+
+Each suite isolates one contract. End-to-end language cases cross all relevant
+boundaries, but they do not replace focused boundary tests.
+
+### Language
+
+Language tests define observable source-language behavior. They cover accepted
+programs, rejected programs, and runtime behavior without requiring a specific
+internal AST, optimization sequence, or machine instruction selection.
+
+A complete compiler must pass all language cases applicable to its declared
+feature profile. The future bootstrap compiler may initially implement only the
+explicit Bootstrap-Core or bootstrap-source profile, but it must run the same
+cases used by other implementations for that profile.
+
+### Syntax
+
+Syntax tests cover tokenization, parsing, public AST serialization, source
+locations, trivia preservation, syntax errors, and canonical formatting.
+
+Formatter cases require:
+
+- the exact canonical formatted source;
+- idempotence after a second formatting pass;
+- preservation of program meaning;
+- stable handling of comments and source trivia;
+- deterministic output across implementations.
+
+### Desugaring
+
+Desugaring tests begin with valid public Syntax and end with canonical kernel
+surface syntax. They separately cover:
+
+- standard-library sugar;
+- user transformations and macros;
+- operator transformation;
+- one-step and complete expansion;
+- hygiene and resolved capture behavior;
+- expansion provenance and diagnostic source mapping;
+- expansion depth, generated-size, and resource limits.
+
+Desugaring tests do not perform type checking except where a transformation's
+documented input contract requires syntax categories. Generated output is
+checked by the ordinary later pipeline in separate integration cases.
+
+Illustrative case:
+
+```text
+tests/desugar/operators/add/
+├── case.test
+├── input.lang
+└── expected.lang
+```
+
+### Elaboration
+
+Elaboration tests cover name resolution, public and private identities, type
+checking, ownership checking, typeclass or witness selection, and lowering into
+initial typed Core.
+
+Source-to-Core cases pin only the stable elaborated Core boundary. They must not
+pin optimizer passes, private annotations, allocation choices, or backend IR.
+
+Illustrative case:
+
+```text
+tests/elaboration/source-to-core/bool-case/
+├── case.test
+├── input.lang
+└── expected.core
+```
+
+### Core
+
+Core tests are independent of surface syntax, macros, and source type
+inference. They directly exercise the public Core parser, serializer, validator,
+reference evaluator, and stable optimizer boundary.
+
+The Core suite includes:
+
+- accepted canonical Core;
+- structurally malformed Core;
+- scope and type violations;
+- invalid constructor, primitive, ownership, or provenance use;
+- text, JSON, and binary serialization round trips;
+- evaluator behavior;
+- permitted stable optimizations and semantic equivalence;
+- decoder and validator resource limits.
+
+Illustrative invalid case:
+
+```text
+tests/core/invalid/wrong-application-type/
+├── case.test
+├── input.core
+└── diagnostics.json
+```
+
+Pass-by-pass optimizer tests, private annotations, lower IR, and machine IR do
+not belong in this shared Core suite. They live under implementation-specific
+internal tests because those representations have no compatibility guarantee.
+
+### Backend
+
+Backend tests begin with independently validated Core. This prevents parser,
+macro, or type-checker failures from being misreported as backend failures.
+
+Equivalence cases compare:
+
+- the reference Core evaluator;
+- the portable C backend;
+- every supported native backend;
+- compile-time evaluation where applicable.
+
+The observable result includes exit status, standard output, standard error,
+declared files, traps, and deterministic runtime errors. Target-specific ABI and
+object-format tests remain separate from language-semantic equivalence tests.
+
+### Bootstrap
+
+Bootstrap tests implement the stages in [BOOTSTRAP.md](./BOOTSTRAP.md) and are
+separate from ordinary language and compiler tests. They cover:
+
+- compiling and validating the single C90 seed;
+- RV32IM instruction, assembler, image, trap, and resource behavior;
+- B0 compilation and self-compilation;
+- Bootstrap-Core validation and lowering;
+- correspondence between compiler source and checked-in compiler Core;
+- target-independent cross-host artifact equality;
+- native self-compilation and byte-identical fixed points.
+
+A bootstrap failure must identify the first divergent stage. It must not be
+reported merely as a general language conformance failure.
+
+### CLI
+
+CLI tests cover the stable contract in [CLI.md](./CLI.md), including argument
+parsing, nested subcommands, standard-input and standard-output behavior,
+diagnostic separation, structured schemas, and exit codes.
+
+CLI tests exercise the same library operations as direct-library tests. A CLI
+case must not become the only test of a language or Core behavior.
+
+### Implementation-Specific Tests
+
+Tests under `tests/implementation/python/` may inspect private Python classes,
+helpers, caches, or algorithms. They may use Python's test framework and are
+not consumed by the self-hosted or bootstrap compiler.
+
+Equivalent self-hosted implementation tests may later live in a separate
+implementation-specific directory. They cannot change the expected results of
+the shared suites.
+
+## Portable Case Format
+
+Every shared case is a directory containing a small `case.test` manifest and
+referenced input or expected-output files. No shared case imports Python or
+executes arbitrary host code.
+
+Illustrative runtime case:
+
+```text
+tests/language/runtime/integer-add/
+├── case.test
+├── main.lang
+├── stdout.txt
+└── stderr.txt
+```
+
+Illustrative manifest:
+
+```text
+name: language/runtime/integer-add
+kind: run
+source-root: .
+entry: main.lang
+expect-exit: 0
+expect-stdout: stdout.txt
+expect-stderr: stderr.txt
+```
+
+The manifest is deliberately simpler than TOML, YAML, or general JSON:
+
+- UTF-8 text;
+- one `key: value` field per line;
+- fixed documented keys;
+- no executable expressions;
+- no interpolation, anchors, nested objects, or implicit type coercion;
+- large or multiline data stored in referenced files;
+- paths relative to the case directory;
+- duplicate or unknown keys rejected unless a format version explicitly
+  permits them.
+
+The final keys and escaping rules remain to be specified alongside the first
+runner. The complete format must remain small enough to implement in Python,
+the self-hosted language, B0, or Bootstrap Core without a general-purpose data
+format dependency.
+
+## Shared Runners
+
+A runner adapts one compiler implementation to the shared case protocol:
+
+```text
+shared case data
+       |
+       +-> Python runner ------> Python compiler libraries
+       |
+       +-> self-hosted runner -> self-hosted compiler libraries
+       |
+       +-> bootstrap runner ---> bootstrap-profile compiler
+```
+
+Runners may call implementation libraries directly. They must not reimplement
+language rules, normalize away semantic differences, or maintain separate
+expected results.
+
+Every runner reports a common result containing at least:
+
+- case identity and suite;
+- implementation and version;
+- declared feature profile and target;
+- pass, fail, skip, or infrastructure-error status;
+- first failed boundary;
+- expected and actual artifact identities;
+- structured diagnostics;
+- time and resource measurements when requested.
+
+A skip is permitted only when the manifest declares a feature or target outside
+the implementation's advertised profile. Missing functionality inside an
+advertised profile is a failure, not a skip.
+
+## Golden Data
+
+Golden outputs are used only at stable public boundaries:
+
+- public Syntax AST;
+- canonical formatted source;
+- canonical fully expanded surface syntax;
+- elaborated typed Core;
+- stable optimized Core when that boundary is specified;
+- public interfaces;
+- structured diagnostics;
+- observable runtime results.
+
+Golden output may not expose:
+
+- Python object representations;
+- hash-map iteration order;
+- temporary or absolute paths;
+- compiler-private optimizer passes;
+- lower or machine IR;
+- memory addresses;
+- timestamps or undeclared environment state.
+
+Golden updates must show reviewable expected-output diffs. A bulk acceptance
+command cannot silently replace expected behavior.
+
+## Diagnostic Comparisons
+
+Diagnostic cases compare stable structured information:
+
+- diagnostic code;
+- severity;
+- primary and secondary spans;
+- stable message identifier and typed arguments;
+- macro or transformation provenance;
+- related declarations and suggestions where specified.
+
+Human prose may also have golden tests for readability, but wording changes do
+not redefine semantics unless the CLI specification explicitly makes the text
+stable. Paths and source positions use canonical source identities.
+
+## Determinism and Normalization
+
+All runners normalize only representation details declared non-semantic by a
+public schema. They must not normalize different constructors, types,
+primitives, ownership states, effects, diagnostic codes, exit statuses, or
+runtime values into equality.
+
+Shared tests run with:
+
+- fixed UTF-8 input and normalized line endings;
+- stable source identities independent of checkout path;
+- deterministic module and diagnostic ordering;
+- declared target and feature profiles;
+- empty caches in designated cold cases;
+- network access disabled;
+- controlled environment variables and locale;
+- bounded time, memory, expansion, recursion, and output sizes.
+
+The same canonical test must produce the same target-independent artifacts
+under the Python and self-hosted implementations. Bootstrap-profile equality is
+required for every construct in that profile.
+
+## Admission Rule
+
+A language, Core, macro, backend, CLI, or bootstrap feature is incomplete until
+its stable behavior is expressible in the shared corpus and passes every
+applicable implementation.
+
+Implementation-specific tests may supplement shared cases but cannot substitute
+for them. Tests that require a private representation are evidence about one
+compiler implementation, not part of the language contract.
+
+## Deferred Decisions
+
+- The complete `case.test` field catalog and format versioning.
+- The first implementation of the common runner result schema.
+- Feature-profile and target-selection notation.
+- Golden-update CLI commands and review workflow.
+- Test sharding, parallel execution, and resource-budget defaults.
+- Which stable optimizer results, if any, become normative golden boundaries.
+- How the corpus is packaged for consumption outside the compiler repository.
