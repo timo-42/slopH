@@ -175,6 +175,10 @@ Filesystem, network, clock, randomness, environment, secrets, and process
 creation should not be ambient globals. Program startup supplies explicit
 capabilities, and package interfaces record the resulting effects.
 
+These capability boundaries also support the deterministic interceptors and
+fault plans proposed by the
+[bundled test framework](./TEST_FRAMEWORK.md), without requiring global mocks.
+
 ## Core and Validation
 
 Canonical typed Core records resolved effects on function types, declarations,

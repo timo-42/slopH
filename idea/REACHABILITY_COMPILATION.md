@@ -12,6 +12,10 @@ This policy applies to ordinary functions, methods, generic applications,
 private helpers, trait or interface implementations, async frames, cleanup
 functions, and compiler-generated runtime support.
 
+Test declarations and fixtures follow the same selection rules in the proposed
+[bundled test framework](./TEST_FRAMEWORK.md): only selected tests and their
+transitive support become ordinary test-build roots.
+
 Whether a reachable expression may be removed or reordered depends on the
 proposed [purity and function effect system](./EFFECTS.md). An effectful
 declaration is not automatically a root, but a reachable effectful call cannot
