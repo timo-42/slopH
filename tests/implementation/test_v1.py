@@ -92,6 +92,28 @@ value main: Int { factorial(6) }
         self.assertEqual(0, completed.returncode)
         self.assertEqual(b"(value 0 (int 720))\n", completed.stdout)
 
+    def test_haskell_style_factorial_clauses(self) -> None:
+        project = self._project(
+            """module demo::main;
+fn factorial(n: Int) -> Int
+| 0 => { 1 }
+| n => { n * factorial(n - 1) }
+value main: Int { factorial(6) }
+"""
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "factorial-clauses"
+            compile_project(project, output, source_version=1)
+            completed = subprocess.run([output], check=False, capture_output=True)
+        self.assertEqual(0, completed.returncode)
+        self.assertEqual(b"(value 0 (int 720))\n", completed.stdout)
+
+    def test_clause_requires_exhaustive_catchall(self) -> None:
+        with self.assertRaisesRegex(Exception, "catch-all"):
+            parse_source_v1(
+                "module demo; fn only_zero(n: Int) -> Int | 0 => { 1 }"
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

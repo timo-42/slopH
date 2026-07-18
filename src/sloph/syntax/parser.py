@@ -20,7 +20,7 @@ class _Token:
     end: int
 
 
-_PUNCT = frozenset("{}(),;:=")
+_PUNCT = frozenset("{}(),;:=|")
 _KEYWORDS = frozenset({"module", "import", "public", "type", "fn", "value", "let", "case", "primitive"})
 
 
@@ -92,6 +92,10 @@ def _lex(data: bytes, limits: Limits, *, version: int = 0) -> tuple[_Token, ...]
         start = i
         if text.startswith("::", i) or text.startswith("->", i) or text.startswith("=>", i):
             i += 2
+        elif version == 1 and text.startswith("==", i):
+            i += 2
+        elif version == 1 and ch in "+-*<":
+            i += 1
         elif ch in _PUNCT:
             i += 1
         elif ch == "-" and i + 1 < len(text) and text[i + 1].isdigit():
@@ -199,17 +203,40 @@ class _Parser:
         return Block(tuple(bindings), result, self.node(start, end))
 
     def expr(self):
+        return self.binary_expr(0)
+
+    def binary_expr(self, minimum: int):
         self.enter()
         try:
             result = self.atom()
             while self.peek("("):
                 start = result.span.start; self.take("("); args = self.comma_list(self.expr)
                 result = CallExpr(result, args, self.node(start, self.tokens[self.i - 1].end))
+            if self.version == 1:
+                precedence = {"==": 3, "<": 3, "+": 6, "-": 6, "*": 7}
+                primitive = {"==": "int.equal", "<": "int.less", "+": "int.add", "-": "int.sub", "*": "int.mul"}
+                while self.token.text in precedence and precedence[self.token.text] >= minimum:
+                    operator = self.take()
+                    right = self.binary_expr(precedence[operator.text] + 1)
+                    result = PrimitiveExpr(
+                        primitive[operator.text],
+                        (result, right),
+                        self.node(result.span.start, right.span.end),
+                    )
             return result
         finally: self.depth -= 1
 
     def atom(self):
         token = self.token
+        if self.version == 1 and token.text == "-":
+            start = self.take("-").start
+            literal = self.token
+            if not literal.text.isdigit():
+                self.error("unary minus currently requires an integer literal", literal)
+            self.take()
+            if len(literal.text) > self.limits.literal_digits:
+                _limit("literal_digits", self.limits.literal_digits, Span(start, literal.end))
+            return IntExpr(-parse_decimal(literal.text), self.node(start, literal.end))
         if token.text.lstrip("-").isdigit():
             self.take()
             if len(token.text.lstrip("-")) > self.limits.literal_digits: _limit("literal_digits", self.limits.literal_digits, Span(token.start, token.end))
@@ -283,8 +310,79 @@ class _Parser:
 
     def fn_decl(self, public: bool, start: int) -> FunctionDecl:
         self.take("fn"); name = self.lower_ident("function"); self.take("("); params = self.comma_list(self.binder)
-        self.take("->"); result = self.type_ref(); body = self.block()
+        self.take("->"); result = self.type_ref()
+        body = self.function_clauses(params, result) if self.version == 1 and self.peek("|") else self.block()
         return FunctionDecl(name.text, params, result, body, public, self.node(start, body.span.end))
+
+    def function_clauses(self, params: tuple[Binder, ...], result: TypeRef) -> Block:
+        """Parse the v1 ordered exact-Int clause subset into ordinary cases.
+
+        This first clause implementation deliberately canonicalizes immediately:
+        public Syntax and Core need no clause-specific semantic node.
+        """
+        if len(params) != 1:
+            self.error("function clauses currently require exactly one parameter")
+        parameter = params[0]
+        literals: set[int] = set()
+        clauses: list[tuple[int | str, Block, Span]] = []
+        catchall = False
+        while self.peek("|"):
+            clause_start = self.take("|").start
+            token = self.token
+            if token.text.lstrip("-").isdigit() or self.peek("-"):
+                sign = -1 if self.peek("-") else 1
+                if sign < 0:
+                    self.take("-")
+                    token = self.token
+                    if not token.text.isdigit():
+                        self.error("expected integer after '-' in function pattern", token)
+                self.take()
+                value = sign * parse_decimal(token.text)
+                if value in literals:
+                    self.error("duplicate integer function pattern", token)
+                if catchall:
+                    self.error("function clause is unreachable after a catch-all", token)
+                literals.add(value)
+                pattern: int | str = value
+            else:
+                name = self.lower_ident("pattern binder")
+                if catchall:
+                    self.error("function clause is unreachable after a catch-all", name)
+                catchall = True
+                pattern = name.text
+            self.take("=>")
+            body = self.block() if self.peek("{") else Block((), self.expr(), self.node(self.tokens[self.i - 1].start, self.tokens[self.i - 1].end))
+            clauses.append((pattern, body, self.node(clause_start, body.span.end)))
+        if not catchall:
+            self.error("integer function clauses require a final binder or underscore catch-all")
+
+        fallback: Block | None = None
+        for pattern, body, span in reversed(clauses):
+            if isinstance(pattern, str):
+                if pattern not in ("_", parameter.name):
+                    alias = Binder(pattern, parameter.type, span)
+                    source = LocalExpr(parameter.name, span)
+                    body = Block((LetBinding(alias, source, span), *body.bindings), body.result, span)
+                fallback = body
+                continue
+            assert fallback is not None
+            condition = PrimitiveExpr(
+                "int.equal",
+                (LocalExpr(parameter.name, span), IntExpr(pattern, span)),
+                span,
+            )
+            case = CaseExpr(
+                condition,
+                result,
+                (
+                    CaseAlternative("Bool::False", (), fallback, span),
+                    CaseAlternative("Bool::True", (), body, span),
+                ),
+                span,
+            )
+            fallback = Block((), case, span)
+        assert fallback is not None
+        return fallback
 
     def value_decl(self, public: bool, start: int) -> ValueDecl:
         self.take("value"); name = self.lower_ident("value"); self.take(":"); typ = self.type_ref(); body = self.block()
