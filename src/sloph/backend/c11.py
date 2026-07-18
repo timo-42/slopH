@@ -511,7 +511,7 @@ static SlValue *sl_apply(SlValue *function, SlValue *argument) {
     if(function->kind!=3u)sl_die("application received non-function value");
     SlClosure *closure=&function->as.closure;if(closure->count>=closure->arity)sl_die("invalid saturated closure");
     size_t count=closure->count+1u;SlValue **arguments=(SlValue **)sl_alloc(count*sizeof(SlValue *));
-    if(closure->count)memcpy(arguments,closure->argument,closure->count*sizeof(SlValue *));arguments[count-1u]=argument;
+    if(closure->count){memcpy(arguments,closure->argument,closure->count*sizeof(SlValue *));}arguments[count-1u]=argument;
     return count==closure->arity?sl_dispatch(closure->function,count,arguments,closure->environment_count,closure->environment):sl_closure(closure->function,closure->arity,count,arguments,closure->environment_count,closure->environment);
 }
 
