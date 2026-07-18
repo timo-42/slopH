@@ -430,7 +430,10 @@ def _target_pattern_display(pattern: TargetPattern):
 
 
 def _reachable_modules(modules: dict[str, ProjectModule]) -> set[str]:
-    pending = sorted(name for name, module in modules.items() if not module.bundled)
+    roots = {name for name, module in modules.items() if not module.bundled}
+    if "core" in modules:
+        roots.add("core")
+    pending = sorted(roots)
     reached: set[str] = set()
     while pending:
         name = pending.pop()
