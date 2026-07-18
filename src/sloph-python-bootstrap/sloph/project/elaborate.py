@@ -51,6 +51,7 @@ class _Scope:
     visible: dict[str, _Symbol]
     constructors: dict[str, tuple[str, Any]]
     version: int
+    foreign_bindings: dict[str, Any]
 
 
 def elaborate_project(
@@ -106,6 +107,7 @@ def _elaborate(project: Project, *, version: int) -> CoreUnit:
 
 def _build_scopes(project: Project, *, version: int = 0) -> dict[str, _Scope]:
     scopes: dict[str, _Scope] = {}
+    foreign_bindings = {binding.identity: binding for binding in project.foreign_bindings}
     for module in project.modules:
         own: dict[str, _Symbol] = {}
         constructors: dict[str, tuple[str, Any]] = {}
@@ -150,7 +152,9 @@ def _build_scopes(project: Project, *, version: int = 0) -> dict[str, _Scope]:
                             f"{module.name}::{name}::{constructor.name}",
                             constructor,
                         )
-        scopes[module.name] = _Scope(module, own, dict(own), constructors, version)
+        scopes[module.name] = _Scope(
+            module, own, dict(own), constructors, version, foreign_bindings
+        )
 
     for module in project.modules:
         scope = scopes[module.name]
@@ -619,7 +623,8 @@ def _infer_lowered_type(
         if expression.name in ("int.equal", "int.less"): return NamedType("core::Bool")
         if expression.name == "bytes.length": return INT
         if expression.name == "runtime.trap": return NamedType("core::Unit")
-        if expression.name == "foreign.syscall.posix_write": return NamedType("syscall::posix::WriteResult")
+        binding = scope.foreign_bindings.get(expression.name)
+        if binding is not None: return binding.result
         return INT
     if isinstance(expression, ConExpr):
         return NamedType(expression.constructor.rsplit("::", 1)[0])

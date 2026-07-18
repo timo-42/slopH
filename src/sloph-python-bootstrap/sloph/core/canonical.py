@@ -106,8 +106,8 @@ def _foreign_form(binding: ForeignBinding) -> Form:
         ("result", _type_form(binding.result)),
         ("c-params", *(_encoded(item) for item in binding.c_parameters)),
         ("c-result", _encoded(binding.c_result)),
+        ("provider", binding.provider), ("header", _encoded(binding.header)),
         ("requires", *binding.requires), ("effects", *binding.effects),
-        ("targets", *binding.targets),
         ("facts", *(("fact", key, value) for key, value in binding.facts)),
         ("provenance", binding.provenance),
     )

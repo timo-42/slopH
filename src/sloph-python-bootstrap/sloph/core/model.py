@@ -163,9 +163,10 @@ class ForeignBinding:
     adapter: str
     c_parameters: tuple[str, ...]
     c_result: str
+    provider: str
+    header: str
     requires: tuple[str, ...] = ()
     effects: tuple[str, ...] = ()
-    targets: tuple[str, ...] = ()
     facts: tuple[tuple[str, str], ...] = ()
     provenance: str = ""
 

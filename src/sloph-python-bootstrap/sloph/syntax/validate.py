@@ -34,6 +34,8 @@ class _Validator:
         tuple_fields = {
             Module: ("imports", "types", "functions", "values"),
             ImportDecl: ("names",), ConstructorDecl: ("fields",),
+            Availability: ("values",), ConditionalImportDecl: ("alternatives",),
+            ConditionalImportAlternative: ("values",),
             TypeDecl: ("constructors",), FunctionDecl: ("parameters",),
             CallExpr: ("arguments",), LambdaExpr: ("parameters",), ConstructorExpr: ("arguments",),
             PrimitiveExpr: ("arguments",), Block: ("bindings",),
@@ -147,6 +149,26 @@ class _Validator:
         if not node.names or not all(_lower(x) for x in node.module.split("::")): _bad("invalid_import", "import requires a lowercase module and selected names", node)
         if not all(_lower(x) or _upper(x) for x in node.names): _bad("invalid_import", "import selections must be unqualified source names", node)
         if any(len(x) > self.limits.token_bytes for x in node.names): _bad("limit_exceeded", f"token_bytes limit exceeded (configured {self.limits.token_bytes})", node, limit="token_bytes", configured=self.limits.token_bytes)
+    def v_Availability(self, node):
+        arity = {"SPECIAL_PLATFORM": 2, "SPECIAL_ARCH": 1}.get(node.selector)
+        if arity is None or len(node.values) != arity or not all(_lower(x) for x in node.values):
+            _bad("invalid_special", "invalid compiler-special availability", node)
+    def v_ConditionalImportAlternative(self, node):
+        if not all(_lower(x) for x in node.values) or not isinstance(node.import_, ImportDecl):
+            _bad("invalid_import", "invalid conditional import alternative", node)
+        self.visit(node.import_)
+    def v_ConditionalImportDecl(self, node):
+        if self.version != 1:
+            _bad("invalid_special", "conditional imports require Source v1", node)
+        arity = {"SPECIAL_PLATFORM": 2, "SPECIAL_ARCH": 1}.get(node.selector)
+        if arity is None or not node.alternatives:
+            _bad("invalid_special", "invalid conditional import selector", node)
+        seen = set()
+        for alternative in node.alternatives:
+            if not isinstance(alternative, ConditionalImportAlternative) or len(alternative.values) != arity or alternative.values in seen:
+                _bad("invalid_import", "invalid or duplicate conditional import alternative", node)
+            seen.add(alternative.values)
+            self.visit(alternative)
     def v_FieldDecl(self, node):
         if not _lower(node.name): _bad("invalid_name", "field must start with lowercase or underscore", node, name=node.name)
         self.typ(node.type)
@@ -172,10 +194,13 @@ class _Validator:
         self.typ(node.type); self.block(node.value)
     def v_Module(self, node):
         if not all(_lower(x) for x in node.name.split("::")): _bad("invalid_name", "module components must start with lowercase or underscore", node, name=node.name)
-        groups = ((node.imports, ImportDecl), (node.types, TypeDecl), (node.functions, FunctionDecl), (node.values, ValueDecl))
+        if node.availability is not None:
+            if self.version != 1 or not isinstance(node.availability, Availability): _bad("invalid_special", "module availability requires Source v1", node)
+            self.visit(node.availability)
+        groups = ((node.imports, (ImportDecl, ConditionalImportDecl)), (node.types, TypeDecl), (node.functions, FunctionDecl), (node.values, ValueDecl))
         for values, expected in groups:
             for value in values:
-                if not isinstance(value, expected): _bad("wrong_node", f"module contains non-{expected.__name__} node", node)
+                if not isinstance(value, expected): _bad("wrong_node", "module contains an invalid declaration node", node)
                 self.visit(value)
 
 

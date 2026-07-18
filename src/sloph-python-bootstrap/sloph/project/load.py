@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import heapq
 import json
+from dataclasses import replace
 from pathlib import Path
 import re
 import tomllib
@@ -12,6 +13,8 @@ from sloph.core.diagnostics import DiagnosticError, fail
 from sloph.core.limits import Limits
 from sloph.core.model import INT, ForeignBinding, NamedType
 from sloph.project.model import Project, ProjectManifest, ProjectModule
+from sloph.project.special import CompilerSpecials
+from sloph.syntax.model import ConditionalImportDecl, ImportDecl
 
 
 _LOWER_SEGMENT = re.compile(r"[a-z_][A-Za-z0-9_]*\Z", re.ASCII)
@@ -144,12 +147,17 @@ def _required_string(raw: dict[str, object], key: str) -> str:
 
 
 def load_project(
-    path: str | Path, limits: Limits | None = None, *, source_version: int = 0
+    path: str | Path,
+    limits: Limits | None = None,
+    *,
+    source_version: int = 0,
+    specials: CompilerSpecials | None = None,
 ) -> Project:
     """Load, parse, and topologically order all modules in a project."""
 
     manifest = load_manifest(path)
     actual_limits = limits or Limits()
+    actual_specials = specials or CompilerSpecials.host()
     from sloph.syntax import parse_source, parse_source_v1
     source_parser = parse_source_v1 if source_version == 1 else parse_source
 
@@ -183,9 +191,15 @@ def load_project(
                 "project source-byte limit exceeded",
                 configured=actual_limits.project_bytes,
             )
-        actual, imports = _scan_header(
-            data, source_path, source_version=source_version
-        )
+        syntax = source_parser(data, actual_limits) if source_version == 1 else None
+        if syntax is None:
+            actual, imports = _scan_header(data, source_path, source_version=0)
+        else:
+            actual = syntax.name
+            selected = _select_imports(syntax.imports, actual_specials, source_path)
+            imports = tuple(item.module for item in selected)
+            syntax = replace(syntax, imports=selected)
+            _require_available(syntax, actual_specials, source_path)
         if actual != expected:
             fail(
                 "project.module.path_mismatch",
@@ -209,16 +223,15 @@ def load_project(
                 f"module {actual!r} imports a module more than once",
                 module=actual,
             )
-        by_name[actual] = ProjectModule(actual, source_path, None, imports)
+        by_name[actual] = ProjectModule(actual, source_path, syntax, imports)
         sources[actual] = data
-    foreign_bindings: list[ForeignBinding] = []
     if source_version == 1:
         _load_bundled_dependencies(
             ("core", *manifest.dependencies),
             by_name,
             sources,
-            foreign_bindings,
             actual_limits,
+            actual_specials,
         )
     if not by_name:
         fail(
@@ -227,7 +240,11 @@ def load_project(
             "source-root contains no .sloph modules",
             source_root=str(manifest.source_root),
         )
-    for module in by_name.values():
+    reachable = _reachable_modules(by_name)
+    selected_by_name = {name: by_name[name] for name in reachable}
+    for module in selected_by_name.values():
+        if module.syntax is not None:
+            _require_available(module.syntax, actual_specials, module.path)
         for imported in module.imports:
             if imported not in by_name:
                 fail(
@@ -237,18 +254,18 @@ def load_project(
                     module=module.name,
                     imported=imported,
                 )
-    ordered_headers = _topological_modules(by_name)
+    ordered_headers = _topological_modules(selected_by_name)
     ordered: list[ProjectModule] = []
     for header in ordered_headers:
-        try:
-            syntax = source_parser(sources[header.name], actual_limits)
-        except DiagnosticError as error:
-            error.diagnostic.details.setdefault("path", str(header.path))
-            raise
+        syntax = header.syntax
+        if syntax is None:
+            try:
+                syntax = source_parser(sources[header.name], actual_limits)
+            except DiagnosticError as error:
+                error.diagnostic.details.setdefault("path", str(header.path))
+                raise
         parsed_name = _attribute(syntax, "name", "module")
-        parsed_imports = tuple(
-            _import_name(item) for item in _items(syntax, "imports")
-        )
+        parsed_imports = tuple(_import_name(item) for item in _items(syntax, "imports"))
         if parsed_name != header.name or parsed_imports != header.imports:
             raise AssertionError("source header scan disagreed with the source parser")
         ordered.append(
@@ -260,6 +277,10 @@ def load_project(
                 header.bundled,
             )
         )
+    foreign_bindings: list[ForeignBinding] = []
+    for module in ordered:
+        if module.bundled:
+            foreign_bindings.extend(_load_module_provider(module))
     return Project(manifest, tuple(ordered), tuple(foreign_bindings))
 
 
@@ -267,8 +288,8 @@ def _load_bundled_dependencies(
     requested: tuple[str, ...],
     by_name: dict[str, ProjectModule],
     sources: dict[str, bytes],
-    foreign_bindings: list[ForeignBinding],
     limits: Limits,
+    specials: CompilerSpecials,
 ) -> None:
     root = libraries_root()
     pending = list(reversed(requested))
@@ -308,24 +329,18 @@ def _load_bundled_dependencies(
             relative = source_path.relative_to(source_root).with_suffix("")
             expected = _library_module_name(package, relative)
             data = _read_bounded(source_path, limits.input_bytes, "project.source.limit")
-            actual, imports = _scan_header(data, source_path, source_version=1)
+            from sloph.syntax import parse_source_v1
+            syntax = parse_source_v1(data, limits)
+            actual = syntax.name
+            selected = _select_imports(syntax.imports, specials, source_path)
+            imports = tuple(item.module for item in selected)
+            syntax = replace(syntax, imports=selected)
             if actual != expected:
                 fail("project.module.path_mismatch", "resolve", f"module declaration {actual!r} does not match its path identity {expected!r}", path=str(source_path), expected=expected, actual=actual)
             if actual in by_name:
                 fail("project.module.duplicate", "resolve", f"duplicate module {actual!r}", module=actual)
-            by_name[actual] = ProjectModule(actual, source_path, None, imports, True)
+            by_name[actual] = ProjectModule(actual, source_path, syntax, imports, True)
             sources[actual] = data
-        binding_path = package_root / "bindings.json"
-        if binding_path.is_file():
-            try:
-                bindings = json.loads(binding_path.read_text(encoding="utf-8"))
-            except (OSError, UnicodeError, json.JSONDecodeError) as error:
-                fail("project.foreign_binding.syntax", "project", f"invalid foreign binding metadata: {error}", path=str(binding_path))
-            if not isinstance(bindings, list):
-                fail("project.foreign_binding.shape", "project", "foreign binding metadata must be an array", path=str(binding_path))
-            foreign_bindings.extend(
-                _decode_foreign_binding(item, binding_path) for item in bindings
-            )
         loaded.add(package)
 
 
@@ -337,10 +352,112 @@ def _library_module_name(package: str, relative: Path) -> str:
     return "::".join((package, *relative.parts))
 
 
+def _select_imports(
+    imports: tuple,
+    specials: CompilerSpecials,
+    path: Path,
+) -> tuple[ImportDecl, ...]:
+    selected: list[ImportDecl] = []
+    for item in imports:
+        if isinstance(item, ImportDecl):
+            selected.append(item)
+            continue
+        if not isinstance(item, ConditionalImportDecl):
+            raise TypeError(f"unsupported import node {type(item).__name__}")
+        actual = specials.values(item.selector)
+        matches = [alt.import_ for alt in item.alternatives if alt.values == actual]
+        if len(matches) != 1:
+            fail(
+                "project.special.no_match",
+                "resolve",
+                f"conditional import has no branch for {item.selector}={actual!r}",
+                item.span,
+                path=str(path),
+                special=item.selector,
+                actual=list(actual),
+                available=[list(alt.values) for alt in item.alternatives],
+            )
+        selected.append(matches[0])
+    return tuple(selected)
+
+
+def _require_available(syntax: Any, specials: CompilerSpecials, path: Path) -> None:
+    availability = getattr(syntax, "availability", None)
+    if availability is None:
+        return
+    actual = specials.values(availability.selector)
+    if availability.values != actual:
+        fail(
+            "project.module.unavailable",
+            "resolve",
+            f"module {syntax.name!r} is unavailable for {actual!r}",
+            availability.span,
+            path=str(path),
+            module=syntax.name,
+            special=availability.selector,
+            required=list(availability.values),
+            actual=list(actual),
+        )
+
+
+def _reachable_modules(modules: dict[str, ProjectModule]) -> set[str]:
+    pending = sorted(name for name, module in modules.items() if not module.bundled)
+    reached: set[str] = set()
+    while pending:
+        name = pending.pop()
+        if name in reached:
+            continue
+        module = modules.get(name)
+        if module is None:
+            # The caller emits the established missing-import diagnostic.
+            continue
+        reached.add(name)
+        pending.extend(reversed(module.imports))
+    return reached
+
+
+def _load_module_provider(module: ProjectModule) -> tuple[ForeignBinding, ...]:
+    provider_root = module.path.with_suffix("")
+    manifest_path = provider_root / "provider.json"
+    if not manifest_path.is_file():
+        return ()
+    try:
+        metadata = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        fail("project.provider.syntax", "project", f"invalid native provider metadata: {error}", path=str(manifest_path))
+    if not isinstance(metadata, dict) or set(metadata) != {"format", "module", "bindings", "sources"}:
+        fail("project.provider.shape", "project", "native provider metadata has missing or unknown fields", path=str(manifest_path))
+    if metadata["format"] != 0 or metadata["module"] != module.name:
+        fail("project.provider.identity", "project", "native provider identity does not match its module", path=str(manifest_path), module=module.name)
+    binding_name = metadata["bindings"]
+    sources = metadata["sources"]
+    if not isinstance(binding_name, str) or Path(binding_name).name != binding_name:
+        fail("project.provider.shape", "project", "provider bindings must be a local filename", path=str(manifest_path))
+    if not isinstance(sources, list) or not sources or not all(isinstance(item, str) and Path(item).name == item for item in sources):
+        fail("project.provider.shape", "project", "provider sources must be local filenames", path=str(manifest_path))
+    for source in sources:
+        if not (provider_root / source).is_file():
+            fail("project.provider.source", "project", "native provider source is missing", path=str(provider_root / source), provider=module.name)
+    binding_path = provider_root / binding_name
+    try:
+        bindings = json.loads(binding_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        fail("project.foreign_binding.syntax", "project", f"invalid foreign binding metadata: {error}", path=str(binding_path))
+    if not isinstance(bindings, list):
+        fail("project.foreign_binding.shape", "project", "foreign binding metadata must be an array", path=str(binding_path))
+    decoded = tuple(_decode_foreign_binding(item, binding_path) for item in bindings)
+    if any(binding.provider != module.name for binding in decoded):
+        fail("project.provider.binding", "project", "foreign binding names a different provider", path=str(binding_path), provider=module.name)
+    for binding in decoded:
+        if Path(binding.header).name != binding.header or not (provider_root / binding.header).is_file():
+            fail("project.provider.header", "project", "native provider header is missing or invalid", path=str(provider_root / binding.header), provider=module.name)
+    return decoded
+
+
 def _decode_foreign_binding(raw: object, path: Path) -> ForeignBinding:
     if not isinstance(raw, dict):
         fail("project.foreign_binding.shape", "project", "foreign binding must be an object", path=str(path))
-    required = {"identity", "symbol", "c_parameters", "c_result", "requires", "effects", "targets", "facts", "provenance", "header"}
+    required = {"identity", "symbol", "c_parameters", "c_result", "provider", "requires", "effects", "facts", "provenance", "header"}
     allowed = required | {"adapter"}
     if not required <= set(raw) or set(raw) - allowed:
         fail("project.foreign_binding.shape", "project", "foreign binding has missing or unknown fields", path=str(path))
@@ -382,9 +499,10 @@ def _decode_foreign_binding(raw: object, path: Path) -> ForeignBinding:
         adapter_kind,
         tuple(c_parameters),
         _binding_string(raw["c_result"], path),
+        _binding_string(raw["provider"], path),
+        _binding_string(raw["header"], path),
         strings("requires"),
         strings("effects"),
-        strings("targets"),
         tuple(sorted(facts.items())),
         _binding_string(raw["provenance"], path),
     )

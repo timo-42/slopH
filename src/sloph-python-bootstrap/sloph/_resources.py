@@ -11,7 +11,7 @@ def libraries_root() -> Path:
     root = Path(__file__).resolve().parents[2] / "libraries"
     if all(
         (root / package / "library.json").is_file()
-        for package in ("core", "os", "std", "syscall")
+        for package in ("core", "cpu", "os", "std", "syscall")
     ):
         return root
     fail(

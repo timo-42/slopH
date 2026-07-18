@@ -1,0 +1,5 @@
+module cpu::amd64 when SPECIAL_ARCH amd64;
+
+public fn avx512() -> Bool {
+  Bool::False()
+}

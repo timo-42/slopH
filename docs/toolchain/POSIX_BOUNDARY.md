@@ -10,12 +10,13 @@ application.
 
 ## Layers
 
-1. Each supported target has a `syscall.h` declaring the same stable,
-   compiler-owned C symbols.
-2. A target-specific `syscall.S` implements those symbols. The capital `.S`
-   suffix selects assembler source with C preprocessing in GCC and Clang.
-3. `syscall::posix::write_once` exposes one write attempt as `Written`,
-   `Interrupted`, or `Error`.
+1. `syscall::posix` selects one public platform module with a Source v1
+   `SPECIAL_PLATFORM` conditional import.
+2. `syscall::posix::linux::amd64` and
+   `syscall::posix::darwin::arm64` each own their binding metadata,
+   `syscall.h`, and `syscall.S` resources.
+3. `syscall::posix::write_once` converts the selected native result into the
+   portable `Written`, `Interrupted`, or `Error` API.
 4. `std::io::write` retries interruption and short writes until all bytes have
    been written. A permanent error traps until the language has a standard
    `Result` type.
@@ -25,8 +26,9 @@ Linux AMD64 enters the kernel with the `syscall` instruction and translates
 raw negative kernel errors into the public `-1` plus `errno` contract. macOS
 ARM64 tail-calls the public libSystem `read` and `write` symbols from assembly;
 it deliberately does not depend on private Darwin kernel trap numbers. The
-compiler selects both the provider and its matching header from the target
-directory.
+resolved SlopH dependency graph carries the provider identity. The backend
+reads its matching header and native sources from provider metadata and has no
+syscall-specific host-platform selector.
 
 The complete generated C runtime still depends on libc. This boundary only
 makes descriptor I/O target-specific and keeps raw kernel details out of Core
@@ -34,12 +36,16 @@ and ordinary packages.
 
 ## Binding metadata and capabilities
 
-`bindings.json` records the C signature, adapter, supported targets, required
-capabilities, effects, provenance, and audit facts such as blocking behavior,
-allocation, callbacks, pointer access, and pointer retention. Core v1 carries
-this metadata in its canonical textual form. The C backend resolves the
-foreign name and symbol through that record; POSIX names are not in Core's
-built-in primitive table.
+Each provider's `bindings.json` records its owning SlopH provider, logical
+header, C signature, adapter, required capabilities, effects, provenance, and
+audit facts such as blocking behavior, allocation, callbacks, pointer access,
+and pointer retention. Core v1 carries this metadata in its canonical textual
+form. The selected SlopH module is the compatibility authority; bindings no
+longer carry a handwritten multi-target list.
+
+`provider.json` is bounded inert metadata connecting the provider module to
+its binding file and native source filenames. Paths are local to the
+module-adjacent provider directory.
 
 These facts are metadata only in v1. They support inspection and later
 capability/rule analysis, but the compiler does not yet propagate them through

@@ -6,7 +6,7 @@ from sloph.core.diagnostics import DiagnosticError, Span, fail
 from sloph.core.limits import Limits
 from sloph.syntax._integer import parse_decimal
 from sloph.syntax.model import (
-    Binder, Block, BytesExpr, CallExpr, CaseAlternative, CaseExpr, ConstructorDecl,
+    Availability, Binder, Block, BytesExpr, CallExpr, CaseAlternative, CaseExpr, ConditionalImportAlternative, ConditionalImportDecl, ConstructorDecl,
     ConstructorExpr, FieldDecl, FunctionDecl, GlobalExpr, ImportDecl, IntExpr,
     FunctionType, IfExpr, InferredType, IntType, LambdaExpr, LetBinding, LocalExpr, Module, NamedType, PrimitiveExpr, TypeDecl,
     TypeRef, ValueDecl,
@@ -21,7 +21,7 @@ class _Token:
 
 
 _PUNCT = frozenset("{}(),;:=|")
-_KEYWORDS = frozenset({"module", "import", "public", "type", "fn", "value", "const", "let", "case", "if", "else", "primitive"})
+_KEYWORDS = frozenset({"module", "import", "when", "public", "type", "fn", "value", "const", "let", "case", "if", "else", "primitive"})
 
 
 def _limit(name: str, configured: int, span: Span = Span(0, 0)) -> None:
@@ -347,16 +347,73 @@ class _Parser:
             type_ = InferredType(self.node(name.start, name.end))
         return Binder(name.text, type_, self.node(start, type_.span.end))
 
-    def import_decl(self) -> ImportDecl:
-        start = self.take("import").start
+    def selector(self) -> tuple[str, int]:
+        token = self.ident()
+        arities = {"SPECIAL_PLATFORM": 2, "SPECIAL_ARCH": 1}
+        if token.text not in arities:
+            fail(
+                "syntax.parse.unknown_special",
+                "parse",
+                f"unknown compiler special {token.text!r}",
+                Span(token.start, token.end),
+                special=token.text,
+            )
+        return token.text, arities[token.text]
+
+    def selector_values(self, arity: int) -> tuple[str, ...]:
+        values = [self.lower_ident("compiler-special value").text]
+        while self.peek(","):
+            self.take(",")
+            values.append(self.lower_ident("compiler-special value").text)
+        if len(values) != arity:
+            self.error(f"compiler-special pattern requires exactly {arity} value(s)")
+        return tuple(values)
+
+    def selected_import(self) -> ImportDecl:
+        start = self.token.start
         parts = [self.lower_ident("module component").text]
         while self.peek("::"):
             self.take()
             if self.peek("{"): break
             parts.append(self.lower_ident("module component").text)
-        self.take("{"); names = self.comma_list(lambda: self.ident().text, "}"); end = self.take(";").end
+        self.take("{")
+        names = self.comma_list(lambda: self.ident().text, "}")
         if not names: self.error("imports must select at least one name", self.tokens[self.i - 1])
-        return ImportDecl("::".join(parts), names, self.node(start, end))
+        return ImportDecl("::".join(parts), names, self.node(start, self.tokens[self.i - 1].end))
+
+    def import_decl(self):
+        start = self.take("import").start
+        if self.version == 1 and self.peek("case"):
+            self.take("case")
+            selector, arity = self.selector()
+            self.take("{")
+            alternatives = []
+            seen = set()
+            while not self.peek("}"):
+                alternative_start = self.token.start
+                values = self.selector_values(arity)
+                if values in seen:
+                    self.error("duplicate compiler-special import pattern")
+                seen.add(values)
+                self.take("=>")
+                import_ = self.selected_import()
+                end = self.take(";").end
+                alternatives.append(
+                    ConditionalImportAlternative(
+                        values, import_, self.node(alternative_start, end)
+                    )
+                )
+            end = self.take("}").end
+            if not alternatives:
+                self.error("conditional imports require at least one alternative")
+            return ConditionalImportDecl(
+                selector, tuple(alternatives), self.node(start, end)
+            )
+        self.i -= 1
+        start = self.take("import").start
+        import_ = self.selected_import()
+        end = self.take(";").end
+        return ImportDecl(import_.module, import_.names, self.node(start, end))
 
     def type_decl(self, public: bool, start: int) -> TypeDecl:
         self.take("type"); name = self.upper_ident("type"); self.take("{"); ctors = []
@@ -495,7 +552,16 @@ class _Parser:
         first = self.lower_ident("module component"); parts = [first.text]
         while self.peek("::"):
             self.take(); parts.append(self.lower_ident("module component").text)
-        name = "::".join(parts); self.take(";")
+        name = "::".join(parts)
+        availability = None
+        if self.version == 1 and self.peek("when"):
+            availability_start = self.take("when").start
+            selector, arity = self.selector()
+            values = self.selector_values(arity)
+            availability = Availability(
+                selector, values, self.node(availability_start, self.token.start)
+            )
+        self.take(";")
         imports = []
         while self.peek("import"): imports.append(self.import_decl())
         types, functions, values = [], [], []
@@ -507,7 +573,7 @@ class _Parser:
             elif (self.version == 1 and self.peek("const")) or (self.version == 0 and self.peek("value")): values.append(self.value_decl(public, dstart))
             else: self.error("expected type, fn, or const declaration" if self.version == 1 else "expected type, fn, or value declaration")
         end = self.token.end
-        return Module(name, tuple(imports), tuple(types), tuple(functions), tuple(values), self.node(start, end))
+        return Module(name, tuple(imports), tuple(types), tuple(functions), tuple(values), self.node(start, end), availability)
 
 
 def parse_source(source: str | bytes, limits: Limits | None = None) -> Module:
