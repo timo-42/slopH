@@ -131,6 +131,21 @@ value main: Int { factorial(6) }
             b"(value 0 (bytes x68656c6c6f0a00ff))\n", completed.stdout
         )
 
+    def test_named_functions_are_first_class_and_partially_applied(self) -> None:
+        project = self._project(
+            """module demo::main;
+fn add(left: Int, right: Int) -> Int { left + right }
+fn apply(function: fn(Int) -> Int, item: Int) -> Int { function(item) }
+value main: Int { apply(add(1), 41) }
+"""
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "higher-order"
+            compile_project(project, output, source_version=1)
+            completed = subprocess.run([output], check=False, capture_output=True)
+        self.assertEqual(0, completed.returncode)
+        self.assertEqual(b"(value 0 (int 42))\n", completed.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

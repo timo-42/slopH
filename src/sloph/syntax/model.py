@@ -17,7 +17,14 @@ class NamedType:
     span: Span = UNKNOWN_SPAN
 
 
-TypeRef: TypeAlias = IntType | NamedType
+@dataclass(frozen=True, slots=True)
+class FunctionType:
+    parameter: "TypeRef"
+    result: "TypeRef"
+    span: Span = UNKNOWN_SPAN
+
+
+TypeRef: TypeAlias = IntType | NamedType | FunctionType
 
 
 @dataclass(frozen=True, slots=True)

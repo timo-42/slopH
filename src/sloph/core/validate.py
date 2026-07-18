@@ -108,7 +108,7 @@ def _validate_declaration_types(context: _Context) -> None:
     for enum in sorted(context.unit.types, key=lambda item: item.name):
         for constructor in enum.constructors:
             for field in constructor.fields:
-                if isinstance(field.type, FunctionType):
+                if context.unit.version == 0 and isinstance(field.type, FunctionType):
                     fail(
                         "core.validate.function_field",
                         "validate",

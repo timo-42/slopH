@@ -8,7 +8,7 @@ from sloph.syntax._integer import parse_decimal
 from sloph.syntax.model import (
     Binder, Block, BytesExpr, CallExpr, CaseAlternative, CaseExpr, ConstructorDecl,
     ConstructorExpr, FieldDecl, FunctionDecl, GlobalExpr, ImportDecl, IntExpr,
-    IntType, LetBinding, LocalExpr, Module, NamedType, PrimitiveExpr, TypeDecl,
+    FunctionType, IntType, LetBinding, LocalExpr, Module, NamedType, PrimitiveExpr, TypeDecl,
     TypeRef, ValueDecl,
 )
 
@@ -184,6 +184,18 @@ class _Parser:
         return "::".join(parts), Span(first.start, end)
 
     def type_ref(self) -> TypeRef:
+        if self.peek("fn"):
+            start = self.take("fn").start
+            self.take("(")
+            parameters = self.comma_list(self.type_ref)
+            if not parameters:
+                parameters = (NamedType("Unit", self.node(start, self.tokens[self.i - 1].end)),)
+            self.take("->")
+            result = self.type_ref()
+            type_: TypeRef = result
+            for parameter in reversed(parameters):
+                type_ = FunctionType(parameter, type_, self.node(start, result.span.end))
+            return type_
         name, span = self.path()
         if name == "Int": return IntType(self.node(span.start, span.end))
         if not name.split("::")[-1][0].isupper():
