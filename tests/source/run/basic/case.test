@@ -4,4 +4,3 @@ kind: source-run
 input: project
 expect-exit: 0
 expect-output: expected.value
-

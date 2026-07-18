@@ -12,4 +12,3 @@ public fn add(left: Int, right: Int) -> Int {
 public value base: Int {
   40
 }
-

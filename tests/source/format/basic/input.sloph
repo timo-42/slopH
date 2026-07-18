@@ -1,2 +1,1 @@
 module example::main; public value main:Int { primitive int.add(20,22) }
-
