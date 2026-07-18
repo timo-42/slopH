@@ -63,6 +63,24 @@ The C compiler and linker remain trusted inputs in this path. A later project
 may reduce that trust root further, but doing so is outside this language's
 bootstrap scope.
 
+## Current Implementation: Hosted Python Vertical Slice
+
+The current executable is not yet a self-hosting stage of the source-bootstrap
+chain. It is a hosted Python 3.11+ implementation of the experimental Source v0
+and Core v0 profiles. The installed `sloph` entry point invokes a thin Python
+CLI, which delegates to libraries for source parsing, module loading,
+elaboration to Core v0, Core processing, and deterministic C11 emission. A host
+C compiler turns that C11 into the first experimental native executables.
+
+![Current Python-hosted Core v0 implementation](./CURRENT_PYTHON_IMPLEMENTATION.svg)
+
+This vertical slice is a real, deliberately restricted compiler path, but it is
+not the future compiler shown below: Source v0 is first-order and fully
+annotated, and C11 plus the host toolchain is a portability bridge rather than
+the final object backend. Python is therefore still a development host, not the
+permanent bootstrap seed or an implementation language that must appear in the
+reproducible source-bootstrap trust root.
+
 ## Bootstrap Products
 
 The bootstrap does not attempt to implement the complete user-facing toolchain
