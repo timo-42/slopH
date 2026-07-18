@@ -284,12 +284,15 @@ def _free_locals(expression: Expr, bound: frozenset[str]) -> set[str]:
     return result
 
 
-_RUNTIME = r'''#include <inttypes.h>
+_RUNTIME = r'''#include <errno.h>
+#include <inttypes.h>
+#include <limits.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "syscall.h"
 
 #define SL_MAX_LIMBS 512u
 #define SL_DECIMAL_CHUNKS 549u
@@ -331,8 +334,6 @@ static void sl_write(const char *data, size_t size) {
 
 static void sl_text(const char *text) { sl_write(text, strlen(text)); }
 static void sl_char(char value) { sl_write(&value, 1u); }
-static void sl_io_write(SlValue *value) { if(value->kind!=2u)sl_die("io.write received non-Bytes value");sl_write((const char *)value->as.bytes.data,value->as.bytes.len); }
-
 static void sl_print_u32(uint32_t value, int padded) {
     char buffer[16];
     int size = snprintf(buffer, sizeof(buffer), padded ? "%09" PRIu32 : "%" PRIu32, value);
@@ -523,6 +524,27 @@ static void sl_print_big(const SlBig *value) {
     sl_print_u32(chunks[--count], 0);
     while (count) { sl_print_u32(chunks[--count], 1); }
 }
+
+static uint64_t sl_int_u64_value(SlValue *value, const char *purpose) {
+    if(value->kind!=0u||value->as.integer->sign<0||value->as.integer->len>2u)sl_die(purpose);
+    uint64_t result=0u;
+    if(value->as.integer->len>0u)result=value->as.integer->limb[0];
+    if(value->as.integer->len>1u)result|=((uint64_t)value->as.integer->limb[1])<<32u;
+    return result;
+}
+
+static SlValue *sl_int_u64(uint64_t value) {
+    char text[32];int length=snprintf(text,sizeof(text),"%" PRIu64,value);
+    if(length<0||(size_t)length>=sizeof(text))sl_die("native integer conversion failed");
+    return sl_int_literal(text);
+}
+
+static void sl_trap_bytes(SlValue *value) {
+    if(value->kind!=2u)sl_die("runtime.trap received non-Bytes value");
+    fputs("sloph trap: ",stderr);
+    if(value->as.bytes.len&&fwrite(value->as.bytes.data,1u,value->as.bytes.len,stderr)!=value->as.bytes.len)exit(2);
+    fputc('\n',stderr);exit(2);
+}
 '''
 
 
@@ -532,6 +554,7 @@ class _Emitter:
         self.symbol = symbol
         self.definitions = {item.name: item for item in unit.definitions}
         self.functions = _functions(unit)
+        self.foreign_bindings = {item.identity: item for item in unit.foreign_bindings}
         names = sorted(self.definitions)
         self.global_ids = {name: index for index, name in enumerate(names)}
         constructors = sorted(
@@ -561,7 +584,8 @@ class _Emitter:
         self.temp = 0
 
     def emit(self) -> str:
-        output = [_RUNTIME]
+        runtime = _RUNTIME if self.unit.foreign_bindings else _RUNTIME.replace('#include "syscall.h"\n', '')
+        output = [runtime]
         output.append(self._declarations())
         output.append(self._dispatch())
         output.append(self._printer())
@@ -573,7 +597,7 @@ class _Emitter:
             if definition.name not in self.functions:
                 output.append(self._global(definition))
         entry = self._gid(self.symbol)
-        keep = "(void)&sl_int_literal;(void)&sl_int_add;(void)&sl_int_sub;(void)&sl_int_mul;(void)&sl_int_compare;(void)&sl_con;(void)&sl_bytes;(void)&sl_closure;(void)&sl_apply;(void)&sl_io_write;(void)&sl_exit_code;(void)&sl_print_value;"
+        keep = "(void)&sl_int_literal;(void)&sl_int_add;(void)&sl_int_sub;(void)&sl_int_mul;(void)&sl_int_compare;(void)&sl_con;(void)&sl_bytes;(void)&sl_closure;(void)&sl_apply;(void)&sl_int_u64;(void)&sl_int_u64_value;(void)&sl_trap_bytes;(void)&sl_exit_code;(void)&sl_print_value;"
         if self.symbol in self.functions:
             unit = self.constructor_ids["core::Unit::Unit"]
             success = self.constructor_ids["core::Exit::Success"]
@@ -719,18 +743,39 @@ class _Emitter:
         if isinstance(expression, PrimExpr):
             values=[self._expr(item,environment,lines,indent) for item in expression.arguments]
             result=self._new()
-            if expression.name == "io.write":
-                unit_tag=self.constructor_ids["core::Unit::Unit"]
-                lines.append(f"{indent}sl_io_write({values[0]});")
-                lines.append(f"{indent}SlValue *{result}=sl_con({unit_tag}u,0u,NULL);")
+            if expression.name == "bytes.length":
+                lines.append(f'{indent}if({values[0]}->kind!=2u)sl_die("bytes.length received non-Bytes value");')
+                lines.append(f"{indent}SlValue *{result}=sl_int_u64((uint64_t){values[0]}->as.bytes.len);")
+            elif expression.name == "runtime.trap":
+                lines.append(f"{indent}sl_trap_bytes({values[0]});")
+                lines.append(f"{indent}SlValue *{result}=NULL;")
+            elif expression.name in self.foreign_bindings:
+                binding=self.foreign_bindings[expression.name]
+                if binding.adapter != "borrowed_bytes_write":
+                    fail("backend.c11.foreign_adapter", "backend", f"unsupported foreign adapter {binding.adapter!r}", expression.span, binding=expression.name)
+                written_tag=self.constructor_ids["syscall::posix::WriteResult::Written"]
+                interrupted_tag=self.constructor_ids["syscall::posix::WriteResult::Interrupted"]
+                error_tag=self.constructor_ids["syscall::posix::WriteResult::Error"]
+                fd=self._new(); offset=self._new(); count=self._new(); native=self._new(); error=self._new(); field=self._new()
+                lines.append(f'{indent}uint64_t {fd}=sl_int_u64_value({values[0]},"file descriptor is outside C int range");')
+                lines.append(f'{indent}if({fd}>(uint64_t)INT_MAX)sl_die("file descriptor is outside C int range");')
+                lines.append(f'{indent}if({values[1]}->kind!=2u)sl_die("foreign write received non-Bytes value");')
+                lines.append(f'{indent}uint64_t {offset}=sl_int_u64_value({values[2]},"write offset is outside native range");')
+                lines.append(f'{indent}uint64_t {count}=sl_int_u64_value({values[3]},"write count is outside native range");')
+                lines.append(f'{indent}if({offset}>(uint64_t){values[1]}->as.bytes.len||{count}>(uint64_t){values[1]}->as.bytes.len-{offset}||{count}>(uint64_t)(SIZE_MAX>>1u))sl_die("foreign write range is invalid");')
+                lines.append(f"{indent}errno=0;ssize_t {native}={binding.symbol}((int){fd},{values[1]}->as.bytes.data+(size_t){offset},(size_t){count});int {error}=errno;")
+                lines.append(f"{indent}SlValue *{result}=NULL;")
+                lines.append(f"{indent}if({native}>=0){{SlValue *{field}[]={{sl_int_u64((uint64_t){native})}};{result}=sl_con({written_tag}u,1u,{field});}}else if({error}==EINTR){{{result}=sl_con({interrupted_tag}u,0u,NULL);}}else{{SlValue *{field}[]={{sl_int_u64((uint64_t)(unsigned){error})}};{result}=sl_con({error_tag}u,1u,{field});}}")
             elif expression.name in ("int.equal", "int.less"):
                 false_tag=self.constructor_ids["core::Bool::False"]
                 true_tag=self.constructor_ids["core::Bool::True"]
                 operator="==0" if expression.name == "int.equal" else "<0"
                 lines.append(f"{indent}SlValue *{result}=sl_con(sl_int_compare({values[0]}, {values[1]}){operator}?{true_tag}u:{false_tag}u,0u,NULL);")
-            else:
+            elif expression.name in ("int.add", "int.sub", "int.mul"):
                 op={"int.add":"add","int.sub":"sub","int.mul":"mul"}[expression.name]
                 lines.append(f"{indent}SlValue *{result}=sl_int_{op}({values[0]}, {values[1]});")
+            else:
+                fail("backend.c11.primitive", "backend", f"unsupported primitive {expression.name!r}", expression.span)
             return result
         if isinstance(expression, ConExpr):
             values=[self._expr(item,environment,lines,indent) for item in expression.fields]; result=self._new()

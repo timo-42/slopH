@@ -120,6 +120,7 @@ def _elaborate(project: Project, *, version: int) -> CoreUnit:
         version,
         tuple(sorted(enums, key=lambda item: item.name)),
         tuple(sorted(definitions, key=lambda item: item.name)),
+        foreign_bindings=project.foreign_bindings,
     )
     validate(unit)
     _validate_entry(project, unit)
@@ -441,6 +442,14 @@ def _lower_expr(
             span,
         )
     if kind == "PrimitiveExpr":
+        if expression.name.startswith(("foreign.", "runtime.")) and not scope.module.bundled:
+            fail(
+                "project.resolve.trusted_primitive",
+                "resolve",
+                "foreign and runtime primitives are restricted to bundled libraries",
+                span,
+                primitive=expression.name,
+            )
         return PrimExpr(
             expression.name,
             tuple(
@@ -637,7 +646,9 @@ def _infer_lowered_type(
         return _infer_lowered_type(scope, expression.body, locals_ | {expression.binder.name: expression.binder.type})
     if isinstance(expression, PrimExpr):
         if expression.name in ("int.equal", "int.less"): return NamedType("core::Bool")
-        if expression.name == "io.write": return NamedType("core::Unit")
+        if expression.name == "bytes.length": return INT
+        if expression.name == "runtime.trap": return NamedType("core::Unit")
+        if expression.name == "foreign.syscall.posix_write": return NamedType("syscall::posix::WriteResult")
         return INT
     if isinstance(expression, ConExpr):
         return NamedType(expression.constructor.rsplit("::", 1)[0])

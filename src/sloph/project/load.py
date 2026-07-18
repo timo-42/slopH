@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import heapq
+import json
 from pathlib import Path
 import re
 import tomllib
@@ -8,6 +9,7 @@ from typing import Any
 
 from sloph.core.diagnostics import DiagnosticError, fail
 from sloph.core.limits import Limits
+from sloph.core.model import INT, ForeignBinding, NamedType
 from sloph.project.model import Project, ProjectManifest, ProjectModule
 
 
@@ -15,7 +17,7 @@ _LOWER_SEGMENT = re.compile(r"[a-z_][A-Za-z0-9_]*\Z", re.ASCII)
 _GLOBAL = re.compile(
     r"[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)+\Z", re.ASCII
 )
-_MANIFEST_KEYS = frozenset(("format", "package", "source-root", "entry"))
+_MANIFEST_KEYS = frozenset(("format", "package", "source-root", "entry", "dependencies"))
 _MANIFEST_BYTES = 65_536
 
 
@@ -45,7 +47,7 @@ def load_manifest(path: str | Path) -> ProjectManifest:
     if not isinstance(raw, dict):
         fail("project.manifest.shape", "project", "manifest must be a TOML table")
     unknown = sorted(set(raw) - _MANIFEST_KEYS)
-    missing = sorted(_MANIFEST_KEYS - set(raw))
+    missing = sorted({"format", "package", "source-root", "entry"} - set(raw))
     if missing:
         fail(
             "project.manifest.missing",
@@ -106,7 +108,26 @@ def load_manifest(path: str | Path) -> ProjectManifest:
             "source-root is not a directory",
             source_root=str(source_root),
         )
-    return ProjectManifest(manifest_path, package, source_root, entry)
+    dependencies_raw = raw.get("dependencies", [])
+    if not isinstance(dependencies_raw, list) or not all(
+        isinstance(item, str) and _LOWER_SEGMENT.fullmatch(item)
+        for item in dependencies_raw
+    ):
+        fail(
+            "project.manifest.dependencies",
+            "project",
+            "dependencies must be an array of lowercase package names",
+            path=str(manifest_path),
+        )
+    dependencies = tuple(dependencies_raw)
+    if len(dependencies) != len(set(dependencies)):
+        fail(
+            "project.manifest.dependencies",
+            "project",
+            "dependencies must not contain duplicates",
+            path=str(manifest_path),
+        )
+    return ProjectManifest(manifest_path, package, source_root, entry, dependencies)
 
 
 def _required_string(raw: dict[str, object], key: str) -> str:
@@ -189,6 +210,15 @@ def load_project(
             )
         by_name[actual] = ProjectModule(actual, source_path, None, imports)
         sources[actual] = data
+    foreign_bindings: list[ForeignBinding] = []
+    if source_version == 1:
+        _load_bundled_dependencies(
+            manifest.dependencies,
+            by_name,
+            sources,
+            foreign_bindings,
+            actual_limits,
+        )
     if not by_name:
         fail(
             "project.module.none",
@@ -221,9 +251,149 @@ def load_project(
         if parsed_name != header.name or parsed_imports != header.imports:
             raise AssertionError("source header scan disagreed with the source parser")
         ordered.append(
-            ProjectModule(header.name, header.path, syntax, header.imports)
+            ProjectModule(
+                header.name,
+                header.path,
+                syntax,
+                header.imports,
+                header.bundled,
+            )
         )
-    return Project(manifest, tuple(ordered))
+    return Project(manifest, tuple(ordered), tuple(foreign_bindings))
+
+
+def _load_bundled_dependencies(
+    requested: tuple[str, ...],
+    by_name: dict[str, ProjectModule],
+    sources: dict[str, bytes],
+    foreign_bindings: list[ForeignBinding],
+    limits: Limits,
+) -> None:
+    root = Path(__file__).resolve().parents[1] / "libraries"
+    pending = list(reversed(requested))
+    loaded: set[str] = set()
+    while pending:
+        package = pending.pop()
+        if package in loaded:
+            continue
+        package_root = root / package
+        manifest_path = package_root / "library.json"
+        if not manifest_path.is_file():
+            fail(
+                "project.dependency.missing",
+                "project",
+                f"bundled dependency {package!r} does not exist",
+                dependency=package,
+            )
+        try:
+            metadata = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as error:
+            fail(
+                "project.dependency.manifest",
+                "project",
+                f"invalid bundled dependency manifest for {package!r}: {error}",
+                dependency=package,
+            )
+        if not isinstance(metadata, dict) or set(metadata) != {"format", "package", "dependencies"}:
+            fail("project.dependency.manifest", "project", f"invalid bundled dependency manifest for {package!r}", dependency=package)
+        if metadata["format"] != 0 or metadata["package"] != package:
+            fail("project.dependency.manifest", "project", f"bundled dependency identity mismatch for {package!r}", dependency=package)
+        dependencies = metadata["dependencies"]
+        if not isinstance(dependencies, list) or not all(isinstance(item, str) and _LOWER_SEGMENT.fullmatch(item) for item in dependencies):
+            fail("project.dependency.manifest", "project", f"invalid dependency list for {package!r}", dependency=package)
+        pending.extend(reversed(dependencies))
+        source_root = package_root / "src"
+        for source_path in sorted(source_root.rglob("*.sloph")):
+            relative = source_path.relative_to(source_root).with_suffix("")
+            expected = "::".join((package, *relative.parts))
+            data = _read_bounded(source_path, limits.input_bytes, "project.source.limit")
+            actual, imports = _scan_header(data, source_path, source_version=1)
+            if actual != expected:
+                fail("project.module.path_mismatch", "resolve", f"module declaration {actual!r} does not match its path identity {expected!r}", path=str(source_path), expected=expected, actual=actual)
+            if actual in by_name:
+                fail("project.module.duplicate", "resolve", f"duplicate module {actual!r}", module=actual)
+            by_name[actual] = ProjectModule(actual, source_path, None, imports, True)
+            sources[actual] = data
+        binding_path = package_root / "bindings.json"
+        if binding_path.is_file():
+            try:
+                bindings = json.loads(binding_path.read_text(encoding="utf-8"))
+            except (OSError, UnicodeError, json.JSONDecodeError) as error:
+                fail("project.foreign_binding.syntax", "project", f"invalid foreign binding metadata: {error}", path=str(binding_path))
+            if not isinstance(bindings, list):
+                fail("project.foreign_binding.shape", "project", "foreign binding metadata must be an array", path=str(binding_path))
+            foreign_bindings.extend(
+                _decode_foreign_binding(item, binding_path) for item in bindings
+            )
+        loaded.add(package)
+
+
+def _decode_foreign_binding(raw: object, path: Path) -> ForeignBinding:
+    if not isinstance(raw, dict):
+        fail("project.foreign_binding.shape", "project", "foreign binding must be an object", path=str(path))
+    required = {"identity", "symbol", "c_parameters", "c_result", "requires", "effects", "targets", "facts", "provenance", "header"}
+    allowed = required | {"adapter"}
+    if not required <= set(raw) or set(raw) - allowed:
+        fail("project.foreign_binding.shape", "project", "foreign binding has missing or unknown fields", path=str(path))
+    adapter = raw.get("adapter")
+    if adapter is None:
+        # A raw pointer binding is visible to audit tooling, but not callable
+        # until Source has a writable borrowed-buffer type.
+        parameters: tuple = ()
+        result = NamedType("core::Unit")
+        adapter_kind = "unavailable"
+    else:
+        expected = {"kind", "arguments", "result", "sloph_parameters", "sloph_result"}
+        if not isinstance(adapter, dict) or set(adapter) != expected:
+            fail("project.foreign_binding.adapter", "project", "invalid foreign adapter metadata", path=str(path))
+        source_parameters = adapter["sloph_parameters"]
+        if not isinstance(source_parameters, list):
+            fail("project.foreign_binding.adapter", "project", "adapter parameters must be an array", path=str(path))
+        parameters = tuple(_binding_type(item, path) for item in source_parameters)
+        result = _binding_type(adapter["sloph_result"], path)
+        adapter_kind = _binding_string(adapter["kind"], path)
+    c_parameters = raw["c_parameters"]
+    facts = raw["facts"]
+    if not isinstance(c_parameters, list) or not all(isinstance(item, str) for item in c_parameters):
+        fail("project.foreign_binding.shape", "project", "C parameters must be strings", path=str(path))
+    if not isinstance(facts, dict) or not all(isinstance(key, str) and isinstance(value, str) for key, value in facts.items()):
+        fail("project.foreign_binding.shape", "project", "binding facts must be string pairs", path=str(path))
+
+    def strings(field: str) -> tuple[str, ...]:
+        value = raw[field]
+        if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+            fail("project.foreign_binding.shape", "project", f"binding {field} must be an array of strings", path=str(path))
+        return tuple(value)
+
+    return ForeignBinding(
+        _binding_string(raw["identity"], path),
+        _binding_string(raw["symbol"], path),
+        parameters,
+        result,
+        adapter_kind,
+        tuple(c_parameters),
+        _binding_string(raw["c_result"], path),
+        strings("requires"),
+        strings("effects"),
+        strings("targets"),
+        tuple(sorted(facts.items())),
+        _binding_string(raw["provenance"], path),
+    )
+
+
+def _binding_string(value: object, path: Path) -> str:
+    if not isinstance(value, str) or not value:
+        fail("project.foreign_binding.shape", "project", "binding value must be a non-empty string", path=str(path))
+    return value
+
+
+def _binding_type(value: object, path: Path):
+    name = _binding_string(value, path)
+    if name == "Int":
+        return INT
+    if name in {"Bytes", "Unit", "Bool", "Exit"}:
+        return NamedType(f"core::{name}")
+    return NamedType(name)
 
 
 def _read_bounded(path: Path, maximum: int, code: str) -> bytes:

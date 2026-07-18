@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from typing import Iterable, TypeAlias
+from urllib.parse import quote
 
 from sloph.core.model import (
     Alternative,
@@ -16,6 +17,7 @@ from sloph.core.model import (
     EnumDecl,
     Expr,
     FunctionType,
+    ForeignBinding,
     GlobalExpr,
     IntExpr,
     IntType,
@@ -48,6 +50,7 @@ def canonicalize(unit: CoreUnit) -> CoreUnit:
         unit,
         types=tuple(sorted(unit.types, key=lambda item: item.name)),
         definitions=definitions,
+        foreign_bindings=tuple(sorted(unit.foreign_bindings, key=lambda item: item.identity)),
     )
 
 
@@ -56,12 +59,15 @@ def format_core(unit: CoreUnit, limits: Limits | None = None) -> str:
     canonical = canonicalize(unit)
     if _unit_flat_size(canonical) > limits.output_bytes:
         limit_fail("print", "output_bytes", limits.output_bytes, unit.span)
-    form: Form = (
+    items: tuple[Form, ...] = (
         "core",
         str(canonical.version),
         ("types", *(_enum_form(enum) for enum in canonical.types)),
         ("defs", *(_definition_form(definition) for definition in canonical.definitions)),
     )
+    if canonical.foreign_bindings:
+        items += (("foreign", *(_foreign_form(item) for item in canonical.foreign_bindings)),)
+    form: Form = items
     result = _pretty(form, 0) + "\n"
     if len(result.encode("ascii")) > limits.output_bytes:
         limit_fail("print", "output_bytes", limits.output_bytes, unit.span)
@@ -84,7 +90,31 @@ def _unit_flat_size(unit: CoreUnit) -> int:
     definitions = _list_size(
         (len("defs"), *(_definition_size(item) for item in unit.definitions))
     )
-    return _list_size((len("core"), 1, types, definitions))
+    foreign = _list_size((len("foreign"), *(_foreign_size(item) for item in unit.foreign_bindings))) if unit.foreign_bindings else 0
+    parts = (len("core"), 1, types, definitions) + ((foreign,) if foreign else ())
+    return _list_size(parts)
+
+
+def _encoded(value: str) -> str:
+    return quote(value, safe="._:-")
+
+
+def _foreign_form(binding: ForeignBinding) -> Form:
+    return (
+        "binding", binding.identity, binding.symbol, binding.adapter,
+        ("params", *(_type_form(item) for item in binding.parameters)),
+        ("result", _type_form(binding.result)),
+        ("c-params", *(_encoded(item) for item in binding.c_parameters)),
+        ("c-result", _encoded(binding.c_result)),
+        ("requires", *binding.requires), ("effects", *binding.effects),
+        ("targets", *binding.targets),
+        ("facts", *(("fact", key, value) for key, value in binding.facts)),
+        ("provenance", binding.provenance),
+    )
+
+
+def _foreign_size(binding: ForeignBinding) -> int:
+    return len(str(_foreign_form(binding))) * 2
 
 
 def _enum_size(enum: EnumDecl) -> int:

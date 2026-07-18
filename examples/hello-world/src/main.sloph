@@ -1,6 +1,8 @@
 module hello::main;
 
+import std::io::{write};
+
 public fn main() -> Exit {
-  let written = primitive io.write("Hello, world!\n");
+  let written = write("Hello, world!\n");
   Exit::Success()
 }

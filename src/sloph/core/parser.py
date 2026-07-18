@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import re
+from urllib.parse import unquote
 
 from sloph.core.diagnostics import Span, fail, limit_fail
 from sloph.core.limits import Limits
@@ -21,6 +22,7 @@ from sloph.core.model import (
     Expr,
     FieldDecl,
     FunctionType,
+    ForeignBinding,
     GlobalExpr,
     IntExpr,
     LamExpr,
@@ -184,7 +186,9 @@ def _parse_sexpr(raw: bytes, limits: Limits) -> SExpr:
 
 
 def _decode_unit(node: SExpr, limits: Limits) -> CoreUnit:
-    items = _tagged(node, "core", exact=4)
+    items = _tagged(node, "core", minimum=4)
+    if len(items) not in (4, 5):
+        fail("core.parse.arity", "parse", "core form must contain types, defs, and optional foreign bindings", node.span)
     version_atom = _atom(items[1], "Core version")
     if version_atom.value not in ("0", "1"):
         fail(
@@ -198,7 +202,42 @@ def _decode_unit(node: SExpr, limits: Limits) -> CoreUnit:
     def_items = _tagged(items[3], "defs", minimum=1)
     types = tuple(_decode_enum(item, limits) for item in type_items[1:])
     definitions = tuple(_decode_definition(item, limits) for item in def_items[1:])
-    return CoreUnit(int(version_atom.value), types, definitions, node.span)
+    bindings: tuple[ForeignBinding, ...] = ()
+    if len(items) == 5:
+        binding_items = _tagged(items[4], "foreign", minimum=1)
+        bindings = tuple(_decode_foreign(item) for item in binding_items[1:])
+    return CoreUnit(int(version_atom.value), types, definitions, node.span, bindings)
+
+
+def _decode_foreign(node: SExpr) -> ForeignBinding:
+    items = _tagged(node, "binding", exact=13)
+    params = _tagged(items[4], "params", minimum=1)
+    result = _tagged(items[5], "result", exact=2)
+    c_params = _tagged(items[6], "c-params", minimum=1)
+    c_result = _tagged(items[7], "c-result", exact=2)
+    requires = _tagged(items[8], "requires", minimum=1)
+    effects = _tagged(items[9], "effects", minimum=1)
+    targets = _tagged(items[10], "targets", minimum=1)
+    facts = _tagged(items[11], "facts", minimum=1)
+    provenance = _tagged(items[12], "provenance", exact=2)
+    pairs = []
+    for fact in facts[1:]:
+        fact_items = _tagged(fact, "fact", exact=3)
+        pairs.append((_atom(fact_items[1], "fact key").value, _atom(fact_items[2], "fact value").value))
+    return ForeignBinding(
+        _atom(items[1], "binding identity").value,
+        _atom(items[2], "C symbol").value,
+        tuple(_decode_type(item) for item in params[1:]),
+        _decode_type(result[1]),
+        _atom(items[3], "adapter").value,
+        tuple(unquote(_atom(item, "C parameter").value) for item in c_params[1:]),
+        unquote(_atom(c_result[1], "C result").value),
+        tuple(_atom(item, "requirement").value for item in requires[1:]),
+        tuple(_atom(item, "effect").value for item in effects[1:]),
+        tuple(_atom(item, "target").value for item in targets[1:]),
+        tuple(pairs),
+        _atom(provenance[1], "provenance").value,
+    )
 
 
 def _decode_enum(node: SExpr, limits: Limits) -> EnumDecl:

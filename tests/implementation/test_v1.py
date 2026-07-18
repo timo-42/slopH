@@ -208,11 +208,15 @@ const main: Int { factorial(6) }
     def test_function_main_writes_bytes_and_returns_exit(self) -> None:
         project = self._project(
             """module demo::main;
+import std::io::{write};
 public fn main() -> Exit {
-  let written = primitive io.write("hello\\n");
+  let written = write("hello\\n");
   Exit::Success()
 }
 """
+        )
+        (project / "sloph.toml").write_text(
+            MANIFEST + 'dependencies = ["std"]\n', encoding="utf-8"
         )
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "application"

@@ -1,0 +1,16 @@
+module syscall::posix;
+
+public type WriteResult {
+  Written(count: Int);
+  Interrupted();
+  Error(native_code: Int);
+}
+
+public fn write_once(
+  descriptor: Int,
+  bytes: Bytes,
+  offset: Int,
+  count: Int
+) -> WriteResult {
+  primitive foreign.syscall.posix_write(descriptor, bytes, offset, count)
+}

@@ -5,6 +5,9 @@ registry, and compiled artifacts. It is subordinate to the top-level goals in
 [REQUIREMENTS.md](../../REQUIREMENTS.md). An infrastructure feature may be rejected
 when it adds more operational or conceptual cost than the latency it removes.
 
+The native runtime boundary and bundled-library packaging are specified in
+[POSIX_BOUNDARY.md](POSIX_BOUNDARY.md).
+
 The details below are requirements and design constraints, not a promise that
 every mechanism must exist in the first prototype.
 

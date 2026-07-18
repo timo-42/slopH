@@ -30,6 +30,7 @@ from sloph.core.model import (
 
 
 SEGMENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
+FOREIGN_RE = re.compile(r"foreign(?:\.[A-Za-z_][A-Za-z0-9_]*)+\Z")
 PRIMITIVES: dict[str, tuple[tuple[CoreType, ...], CoreType]] = {
     "int.add": ((INT, INT), INT),
     "int.sub": ((INT, INT), INT),
@@ -38,7 +39,8 @@ PRIMITIVES: dict[str, tuple[tuple[CoreType, ...], CoreType]] = {
 V1_PRIMITIVES: dict[str, tuple[tuple[CoreType, ...], CoreType]] = PRIMITIVES | {
     "int.equal": ((INT, INT), NamedType("core::Bool")),
     "int.less": ((INT, INT), NamedType("core::Bool")),
-    "io.write": ((NamedType("core::Bytes"),), NamedType("core::Unit")),
+    "bytes.length": ((NamedType("core::Bytes"),), INT),
+    "runtime.trap": ((NamedType("core::Bytes"),), NamedType("core::Unit")),
 }
 
 
@@ -48,6 +50,11 @@ class _Context:
         self.enums: dict[str, EnumDecl] = {}
         self.constructors: dict[str, tuple[EnumDecl, ConstructorDecl]] = {}
         self.definitions: dict[str, Definition] = {}
+        self.foreign_bindings = {
+            item.identity: item
+            for item in unit.foreign_bindings
+            if item.adapter != "unavailable"
+        }
 
 
 def validate(unit: CoreUnit) -> None:
@@ -60,8 +67,18 @@ def validate(unit: CoreUnit) -> None:
             version=unit.version,
         )
     context = _Context(unit)
+    if unit.version == 0 and unit.foreign_bindings:
+        fail("core.validate.foreign_version", "validate", "foreign bindings require Core version 1", unit.span)
+    if len({item.identity for item in unit.foreign_bindings}) != len(unit.foreign_bindings):
+        fail("core.validate.foreign_duplicate", "validate", "foreign binding identities must be unique", unit.span)
     _collect_declarations(context)
     _validate_declaration_types(context)
+    for binding in unit.foreign_bindings:
+        if not FOREIGN_RE.fullmatch(binding.identity):
+            fail("core.validate.foreign_identity", "validate", f"invalid foreign binding identity {binding.identity!r}", unit.span)
+        for parameter in binding.parameters:
+            _well_formed_type(context, parameter, unit.span)
+        _well_formed_type(context, binding.result, unit.span)
     _validate_global_cycles(context)
     for definition in sorted(unit.definitions, key=lambda item: item.name):
         _validate_definition(context, definition)
@@ -337,6 +354,10 @@ def _infer(
     if isinstance(expression, PrimExpr):
         catalog = V1_PRIMITIVES if context.unit.version == 1 else PRIMITIVES
         signature = catalog.get(expression.name)
+        if signature is None and context.unit.version == 1:
+            binding = context.foreign_bindings.get(expression.name)
+            if binding is not None:
+                signature = (binding.parameters, binding.result)
         if signature is None:
             fail(
                 "core.validate.unknown_primitive",

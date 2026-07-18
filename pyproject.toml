@@ -16,5 +16,8 @@ sloph = "sloph.cli:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+sloph = ["libraries/**/*"]
+
 [tool.setuptools.dynamic]
 version = { attr = "sloph.__version__" }

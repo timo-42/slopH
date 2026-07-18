@@ -113,10 +113,19 @@ class _Validator:
     def v_PrimitiveExpr(self, node):
         primitives = {"int.add", "int.sub", "int.mul"}
         if self.version == 1:
-            primitives |= {"int.equal", "int.less", "io.write"}
-        if node.name not in primitives: _bad("invalid_primitive", "unknown source primitive", node, name=node.name)
-        expected = 1 if node.name == "io.write" else 2
-        if len(node.arguments) != expected: _bad("primitive_arity", f"primitive requires exactly {expected} arguments", node, name=node.name)
+            primitives |= {
+                "int.equal",
+                "int.less",
+                "bytes.length",
+                "runtime.trap",
+            }
+        foreign = self.version == 1 and node.name.startswith("foreign.")
+        if node.name not in primitives and not foreign: _bad("invalid_primitive", "unknown source primitive", node, name=node.name)
+        expected = {
+            "bytes.length": 1,
+            "runtime.trap": 1,
+        }.get(node.name, 2)
+        if not foreign and len(node.arguments) != expected: _bad("primitive_arity", f"primitive requires exactly {expected} arguments", node, name=node.name)
         for x in node.arguments: self.expr(x)
     def v_LetBinding(self, node): self.binder(node.binder); self.expr(node.value)
     def v_Block(self, node):

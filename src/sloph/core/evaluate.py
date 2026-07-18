@@ -298,14 +298,20 @@ class _Machine:
         raise AssertionError(f"unknown evaluator frame {type(frame)!r}")
 
     def _primitive(self, name: str, values: list[Value], span: Span) -> Value:
-        if name == "io.write":
+        if name.startswith("foreign.") or name == "runtime.trap":
             fail(
                 "core.eval.effectful_primitive",
                 "eval",
-                "the pure reference evaluator cannot execute io.write",
+                f"the pure reference evaluator cannot execute {name}",
                 span,
                 primitive=name,
             )
+        if name == "bytes.length":
+            value = values[0]
+            if not isinstance(value, BytesValue):
+                fail("core.eval.primitive_value", "eval", "bytes.length received a non-Bytes value", span)
+            self._consume(1, span)
+            return IntValue(len(value.value))
         left, right = values
         if not isinstance(left, IntValue) or not isinstance(right, IntValue):
             fail(
