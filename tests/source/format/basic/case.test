@@ -4,4 +4,3 @@ kind: source-format
 input: input.sloph
 expect-exit: 0
 expect-output: expected.sloph
-

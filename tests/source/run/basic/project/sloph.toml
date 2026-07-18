@@ -2,4 +2,3 @@ format = 0
 package = "demo"
 source-root = "src"
 entry = "demo::main::main"
-
