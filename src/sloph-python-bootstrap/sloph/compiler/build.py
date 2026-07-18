@@ -11,6 +11,7 @@ import tempfile
 import threading
 from time import perf_counter_ns
 
+from sloph._resources import libraries_root
 from sloph.backend import emit_c
 from sloph.core.diagnostics import fail
 from sloph.core.model import CoreUnit
@@ -295,7 +296,7 @@ def _target_flags() -> list[str]:
 
 
 def _native_boundary() -> tuple[Path, Path]:
-    root = Path(__file__).resolve().parents[1] / "libraries" / "syscall"
+    root = libraries_root() / "syscall"
     system = platform.system()
     machine = platform.machine().lower()
     if system == "Darwin" and machine == "arm64":

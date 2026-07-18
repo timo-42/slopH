@@ -36,12 +36,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
+      - uses: astral-sh/setup-uv@v6
       - run: test "$(uname -m)" = "${{ matrix.arch }}"
-      - run: python -m pip install --no-deps -e .
       - name: Run unit, conformance, and example tests
-        run: python -m unittest discover -s tests -t .
-      - run: sloph unstable core check tests/core/evaluate/integer-add/input.core
-      - run: sloph unstable core print tests/core/evaluate/integer-add/input.core
-      - run: sloph unstable core eval tests/core/evaluate/integer-add/input.core --symbol example::main
-      - run: sloph unstable check tests/source/run/basic/project
-      - run: sloph unstable run tests/source/run/basic/project
+        run: uv run --no-project --python "$(command -v python)" --directory src/sloph-python-bootstrap python -m unittest discover -s tests -t .
+      - run: uv run --no-project --python "$(command -v python)" --directory src/sloph-python-bootstrap python -m sloph unstable core check ../../tests/core/evaluate/integer-add/input.core
+      - run: uv run --no-project --python "$(command -v python)" --directory src/sloph-python-bootstrap python -m sloph unstable core print ../../tests/core/evaluate/integer-add/input.core
+      - run: uv run --no-project --python "$(command -v python)" --directory src/sloph-python-bootstrap python -m sloph unstable core eval ../../tests/core/evaluate/integer-add/input.core --symbol example::main
+      - run: uv run --no-project --python "$(command -v python)" --directory src/sloph-python-bootstrap python -m sloph unstable check ../../tests/source/run/basic/project
+      - run: uv run --no-project --python "$(command -v python)" --directory src/sloph-python-bootstrap python -m sloph unstable run ../../tests/source/run/basic/project

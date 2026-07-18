@@ -11,8 +11,9 @@ from sloph.core import DiagnosticError
 from sloph.project import elaborate_project_v1, load_project
 
 
-ROOT = Path(__file__).resolve().parents[2]
-LIBRARY = ROOT / "src" / "sloph" / "libraries" / "syscall"
+COMPONENT = Path(__file__).resolve().parents[1]
+ROOT = COMPONENT.parents[1]
+LIBRARY = COMPONENT.parent / "libraries" / "syscall"
 CC = "/usr/bin/cc"
 
 
