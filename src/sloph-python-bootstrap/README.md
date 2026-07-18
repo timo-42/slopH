@@ -15,3 +15,9 @@ uv run --no-project --directory src/sloph-python-bootstrap python -m sloph --hel
 uv run --no-project --directory src/sloph-python-bootstrap \
   python -m unittest discover -s tests -t .
 ```
+
+Native `compile` and `run` operations execute an executable `build.sh` at the
+root of each dependency package before compiling. This temporary convention
+allows external native toolchains but grants dependency scripts the invoking
+user's ambient authority. Read-only operations do not execute scripts; see
+[`idea/SECURITY.md`](../../idea/SECURITY.md).

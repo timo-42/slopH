@@ -12,6 +12,9 @@ from sloph.cli import main
 from sloph.compiler import BuildResult
 
 
+ROOT = Path(__file__).resolve().parents[3]
+
+
 class ExperimentalCliTests(unittest.TestCase):
     def test_malformed_ast_json_is_not_an_internal_failure(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -58,6 +61,14 @@ class ExperimentalCliTests(unittest.TestCase):
 
 
 class StableV1CliTests(unittest.TestCase):
+    def test_check_does_not_run_package_build_scripts(self) -> None:
+        with patch("sloph.compiler.build._run_package_build_scripts") as build_scripts:
+            result = main(
+                ["check", str(ROOT / "examples" / "hello-world")]
+            )
+        self.assertEqual(0, result)
+        build_scripts.assert_not_called()
+
     def test_ast_json_identifies_version_one(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "input.sloph"

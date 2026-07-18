@@ -130,11 +130,12 @@ public fn main() -> Exit { Exit::Success() }
     def test_amd64_avx512_is_conservatively_false(self) -> None:
         source = """module demo::main;
 import cpu::amd64::{avx512};
+import os::process::{Exit};
 public fn main() -> Exit {
   if avx512() { Exit::Failure(1) } else { Exit::Success() }
 }
 """
-        with self._project('dependencies=["cpu"]', source) as root:
+        with self._project('dependencies=["cpu", "os"]', source) as root:
             project = load_project(
                 root,
                 source_version=1,

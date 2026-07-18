@@ -4,11 +4,14 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+import json
 
 from sloph.backend import emit_c
 from sloph.core import format_core, parse_core
 from sloph.core import DiagnosticError
 from sloph.project import Arch, CompilerTarget, OS, elaborate_project_v1, load_project
+from sloph.project.load import _load_module_provider
+from sloph.project.model import ProjectModule
 
 
 COMPONENT = Path(__file__).resolve().parents[1]
@@ -17,9 +20,16 @@ LIBRARY = COMPONENT.parent / "libraries" / "syscall"
 CC = "/usr/bin/cc"
 TARGET = CompilerTarget.host()
 PLATFORM_ROOT = LIBRARY / "src" / "posix" / TARGET.os.value / TARGET.arch.value
+SHARED_LIBRARY = PLATFORM_ROOT / (
+    "libsloph_syscall.dylib" if TARGET.os == OS.DARWIN else "libsloph_syscall.so"
+)
 
 
 class PosixLibraryTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        subprocess.run([str(LIBRARY / "build.sh")], cwd=LIBRARY, check=True)
+
     def test_application_cannot_invoke_foreign_primitive_directly(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -35,6 +45,29 @@ class PosixLibraryTests(unittest.TestCase):
             with self.assertRaises(DiagnosticError) as caught:
                 elaborate_project_v1(load_project(root, source_version=1))
         self.assertEqual("project.resolve.trusted_primitive", caught.exception.diagnostic.code)
+
+    def test_legacy_provider_sources_are_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            module_path = root / "native.sloph"
+            module_path.write_text("module demo::native;", encoding="ascii")
+            provider_root = root / "native"
+            provider_root.mkdir()
+            (provider_root / "provider.json").write_text(
+                json.dumps(
+                    {
+                        "bindings": "bindings.json",
+                        "format": 0,
+                        "module": "demo::native",
+                        "sources": ["native.S"],
+                    }
+                ),
+                encoding="ascii",
+            )
+            module = ProjectModule("demo::native", module_path, None, (), True)
+            with self.assertRaises(DiagnosticError) as caught:
+                _load_module_provider(module)
+        self.assertEqual("project.provider.shape", caught.exception.diagnostic.code)
 
     def test_platform_provider_exposes_read_and_write(self) -> None:
         harness = r'''#include "syscall.h"
@@ -60,7 +93,7 @@ int main(void) {
             output = root / "harness"
             source.write_text(harness, encoding="ascii")
             subprocess.run(
-                [CC, "-std=c11", "-Wall", "-Wextra", "-Werror", "-I", str(PLATFORM_ROOT), str(source), str(PLATFORM_ROOT / "syscall.S"), "-o", str(output)],
+                [CC, "-std=c11", "-Wall", "-Wextra", "-Werror", "-I", str(PLATFORM_ROOT), str(source), str(SHARED_LIBRARY), f"-Wl,-rpath,{PLATFORM_ROOT}", "-o", str(output)],
                 check=True, capture_output=True,
             )
             completed = subprocess.run([output], check=False)

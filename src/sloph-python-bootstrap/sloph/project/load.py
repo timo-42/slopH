@@ -291,13 +291,47 @@ def _load_bundled_dependencies(
     limits: Limits,
     target: CompilerTarget,
 ) -> None:
+    for package, package_root in resolve_bundled_packages(requested):
+        source_root = package_root / "src"
+        for source_path in sorted(source_root.rglob("*.sloph")):
+            relative = source_path.relative_to(source_root).with_suffix("")
+            expected = _library_module_name(package, relative)
+            data = _read_bounded(source_path, limits.input_bytes, "project.source.limit")
+            from sloph.syntax import parse_source_v1
+            syntax = parse_source_v1(data, limits)
+            actual = syntax.name
+            selected = _select_imports(syntax.imports, target, source_path)
+            imports = tuple(item.module for item in selected)
+            syntax = replace(syntax, imports=selected)
+            if actual != expected:
+                fail("project.module.path_mismatch", "resolve", f"module declaration {actual!r} does not match its path identity {expected!r}", path=str(source_path), expected=expected, actual=actual)
+            if actual in by_name:
+                fail("project.module.duplicate", "resolve", f"duplicate module {actual!r}", module=actual)
+            by_name[actual] = ProjectModule(actual, source_path, syntax, imports, True)
+            sources[actual] = data
+
+
+def resolve_bundled_packages(
+    requested: tuple[str, ...],
+) -> tuple[tuple[str, Path], ...]:
+    """Resolve bundled package roots in dependency-first build order."""
+
     root = libraries_root()
-    pending = list(reversed(requested))
-    loaded: set[str] = set()
-    while pending:
-        package = pending.pop()
-        if package in loaded:
-            continue
+    ordered: list[tuple[str, Path]] = []
+    complete: set[str] = set()
+    active: list[str] = []
+
+    def visit(package: str) -> None:
+        if package in complete:
+            return
+        if package in active:
+            cycle = active[active.index(package):] + [package]
+            fail(
+                "project.dependency.cycle",
+                "project",
+                "bundled dependency graph contains a cycle",
+                cycle=cycle,
+            )
         package_root = root / package
         manifest_path = package_root / "library.json"
         if not manifest_path.is_file():
@@ -323,25 +357,18 @@ def _load_bundled_dependencies(
         dependencies = metadata["dependencies"]
         if not isinstance(dependencies, list) or not all(isinstance(item, str) and _LOWER_SEGMENT.fullmatch(item) for item in dependencies):
             fail("project.dependency.manifest", "project", f"invalid dependency list for {package!r}", dependency=package)
-        pending.extend(reversed(dependencies))
-        source_root = package_root / "src"
-        for source_path in sorted(source_root.rglob("*.sloph")):
-            relative = source_path.relative_to(source_root).with_suffix("")
-            expected = _library_module_name(package, relative)
-            data = _read_bounded(source_path, limits.input_bytes, "project.source.limit")
-            from sloph.syntax import parse_source_v1
-            syntax = parse_source_v1(data, limits)
-            actual = syntax.name
-            selected = _select_imports(syntax.imports, target, source_path)
-            imports = tuple(item.module for item in selected)
-            syntax = replace(syntax, imports=selected)
-            if actual != expected:
-                fail("project.module.path_mismatch", "resolve", f"module declaration {actual!r} does not match its path identity {expected!r}", path=str(source_path), expected=expected, actual=actual)
-            if actual in by_name:
-                fail("project.module.duplicate", "resolve", f"duplicate module {actual!r}", module=actual)
-            by_name[actual] = ProjectModule(actual, source_path, syntax, imports, True)
-            sources[actual] = data
-        loaded.add(package)
+        if len(dependencies) != len(set(dependencies)):
+            fail("project.dependency.manifest", "project", f"duplicate dependency in manifest for {package!r}", dependency=package)
+        active.append(package)
+        for dependency in dependencies:
+            visit(dependency)
+        active.pop()
+        complete.add(package)
+        ordered.append((package, package_root))
+
+    for package in requested:
+        visit(package)
+    return tuple(ordered)
 
 
 def _library_module_name(package: str, relative: Path) -> str:
@@ -457,19 +484,18 @@ def _load_module_provider(module: ProjectModule) -> tuple[ForeignBinding, ...]:
         metadata = json.loads(manifest_path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError) as error:
         fail("project.provider.syntax", "project", f"invalid native provider metadata: {error}", path=str(manifest_path))
-    if not isinstance(metadata, dict) or set(metadata) != {"format", "module", "bindings", "sources"}:
+    if not isinstance(metadata, dict) or set(metadata) != {"format", "module", "bindings", "libraries"}:
         fail("project.provider.shape", "project", "native provider metadata has missing or unknown fields", path=str(manifest_path))
     if metadata["format"] != 0 or metadata["module"] != module.name:
         fail("project.provider.identity", "project", "native provider identity does not match its module", path=str(manifest_path), module=module.name)
     binding_name = metadata["bindings"]
-    sources = metadata["sources"]
+    libraries = metadata["libraries"]
     if not isinstance(binding_name, str) or Path(binding_name).name != binding_name:
         fail("project.provider.shape", "project", "provider bindings must be a local filename", path=str(manifest_path))
-    if not isinstance(sources, list) or not sources or not all(isinstance(item, str) and Path(item).name == item for item in sources):
-        fail("project.provider.shape", "project", "provider sources must be local filenames", path=str(manifest_path))
-    for source in sources:
-        if not (provider_root / source).is_file():
-            fail("project.provider.source", "project", "native provider source is missing", path=str(provider_root / source), provider=module.name)
+    if not isinstance(libraries, list) or not libraries or not all(isinstance(item, str) and Path(item).name == item and item.endswith((".so", ".dylib")) for item in libraries):
+        fail("project.provider.shape", "project", "provider libraries must be local shared-library filenames", path=str(manifest_path))
+    if len(libraries) != len(set(libraries)):
+        fail("project.provider.shape", "project", "provider libraries must not contain duplicates", path=str(manifest_path))
     binding_path = provider_root / binding_name
     try:
         bindings = json.loads(binding_path.read_text(encoding="utf-8"))

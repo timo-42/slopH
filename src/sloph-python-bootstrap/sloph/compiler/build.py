@@ -16,7 +16,7 @@ from sloph._resources import libraries_root
 from sloph.backend import emit_c
 from sloph.core.diagnostics import fail
 from sloph.core.model import CoreUnit
-from sloph.project import elaborate_project, load_project
+from sloph.project import elaborate_project, load_manifest, load_project, resolve_bundled_packages
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,6 +36,11 @@ def compile_project(
     source_version: int = 0,
 ) -> BuildResult:
     start = perf_counter_ns()
+    if source_version == 1:
+        manifest = load_manifest(project)
+        packages = resolve_bundled_packages(("core", *manifest.dependencies))
+        _run_package_build_scripts(packages)
+    dependencies_built = perf_counter_ns()
     loaded = load_project(project, source_version=source_version)
     if source_version == 1:
         from sloph.project import elaborate_project_v1
@@ -49,7 +54,10 @@ def compile_project(
         output,
         cc=cc,
         emit_c_path=emit_c_path,
-        prior_timings={"source_to_core": lowered - start},
+        prior_timings={
+            "dependency_build": dependencies_built - start,
+            "source_to_core": lowered - dependencies_built,
+        },
     )
 
 
@@ -96,16 +104,20 @@ def _compile(
             for include_root, _ in native_inputs
             for argument in ("-I", str(include_root))
         ]
-        provider_sources = [
-            str(source)
-            for _, sources in native_inputs
-            for source in sources
+        provider_libraries = [
+            str(library)
+            for _, libraries in native_inputs
+            for library in libraries
+        ]
+        runtime_arguments = [
+            f"-Wl,-rpath,{include_root}"
+            for include_root, _ in native_inputs
         ]
         command = [
             compiler, *flags, *include_arguments, str(source_path),
-            *provider_sources, "-o", str(binary_path),
+            *provider_libraries, *runtime_arguments, "-o", str(binary_path),
         ]
-        returncode, stderr_bytes = _run_compiler_bounded(command, compiler)
+        returncode, stderr_bytes = _run_process_bounded(command, compiler)
         if returncode != 0:
             stderr = stderr_bytes.decode("utf-8", errors="replace")
             fail(
@@ -190,21 +202,31 @@ def _resolve_compiler(value: str) -> str:
     return found
 
 
-def _run_compiler_bounded(command: list[str], compiler: str) -> tuple[int, bytes]:
-    """Run the host compiler with a bounded combined diagnostic stream."""
+def _run_process_bounded(
+    command: list[str],
+    compiler: str,
+    *,
+    cwd: Path | None = None,
+    diagnostic_prefix: str = "compiler.c11",
+    description: str = "C compiler",
+    details: dict[str, object] | None = None,
+) -> tuple[int, bytes]:
+    """Run a build process with bounded time and diagnostic output."""
+    diagnostic_details = {"compiler": compiler} if details is None else details
     try:
         process = subprocess.Popen(
             command,
+            cwd=cwd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             start_new_session=True,
         )
     except OSError as error:
         fail(
-            "compiler.c11.launch",
+            f"{diagnostic_prefix}.launch",
             "environment",
-            "C compiler could not be started",
-            compiler=compiler,
+            f"{description} could not be started",
+            **diagnostic_details,
             error=str(error),
         )
     limit = 1_048_576
@@ -255,10 +277,10 @@ def _run_compiler_bounded(command: list[str], compiler: str) -> tuple[int, bytes
         process.stdout.close()
         process.stderr.close()
         fail(
-            "compiler.c11.timeout",
+            f"{diagnostic_prefix}.timeout",
             "environment",
-            "C compiler exceeded the 120 second limit",
-            compiler=compiler,
+            f"{description} exceeded the 120 second limit",
+            **diagnostic_details,
         )
     for thread in threads:
         thread.join(timeout=0.1)
@@ -270,19 +292,19 @@ def _run_compiler_bounded(command: list[str], compiler: str) -> tuple[int, bytes
         process.stdout.close()
         process.stderr.close()
         fail(
-            "compiler.c11.pipe_timeout",
+            f"{diagnostic_prefix}.pipe_timeout",
             "environment",
-            "C compiler diagnostic pipes did not close",
-            compiler=compiler,
+            f"{description} diagnostic pipes did not close",
+            **diagnostic_details,
         )
     process.stdout.close()
     process.stderr.close()
     if exceeded:
         fail(
-            "compiler.c11.output_limit",
+            f"{diagnostic_prefix}.output_limit",
             "environment",
-            "C compiler output exceeded 1048576 bytes",
-            compiler=compiler,
+            f"{description} output exceeded 1048576 bytes",
+            **diagnostic_details,
             configured=limit,
         )
     return returncode, bytes(tails["stderr"])
@@ -318,16 +340,50 @@ def _native_inputs(unit: CoreUnit) -> tuple[tuple[Path, tuple[Path, ...]], ...]:
             metadata = json.loads(manifest_path.read_text(encoding="utf-8"))
         except (OSError, UnicodeError, json.JSONDecodeError) as error:
             fail("compiler.provider.metadata", "environment", f"native provider metadata could not be loaded: {error}", provider=identity, path=str(manifest_path))
-        if not isinstance(metadata, dict) or set(metadata) != {"format", "module", "bindings", "sources"} or metadata.get("format") != 0 or metadata.get("module") != identity:
+        if not isinstance(metadata, dict) or set(metadata) != {"format", "module", "bindings", "libraries"} or metadata.get("format") != 0 or metadata.get("module") != identity:
             fail("compiler.provider.metadata", "environment", "native provider metadata is invalid", provider=identity, path=str(manifest_path))
-        names = metadata["sources"]
-        if not isinstance(names, list) or not names or not all(isinstance(name, str) and Path(name).name == name for name in names):
-            fail("compiler.provider.metadata", "environment", "native provider sources are invalid", provider=identity, path=str(manifest_path))
-        sources = tuple(root / name for name in names)
-        if any(not source.is_file() for source in sources):
-            fail("compiler.provider.source", "environment", "native provider source is missing", provider=identity)
-        result.append((root, sources))
+        names = metadata["libraries"]
+        if not isinstance(names, list) or not names or not all(isinstance(name, str) and Path(name).name == name and name.endswith((".so", ".dylib")) for name in names) or len(names) != len(set(names)):
+            fail("compiler.provider.metadata", "environment", "native provider libraries are invalid", provider=identity, path=str(manifest_path))
+        libraries = tuple(root / name for name in names)
+        missing = [str(library) for library in libraries if not library.is_file()]
+        if missing:
+            fail("compiler.provider.library", "environment", "native provider library has not been built", provider=identity, missing=missing)
+        result.append((root, libraries))
     return tuple(result)
+
+
+def _run_package_build_scripts(packages: tuple[tuple[str, Path], ...]) -> None:
+    for package, root in packages:
+        script = root / "build.sh"
+        if not script.exists():
+            continue
+        if script.is_symlink() or not script.is_file() or not os.access(script, os.X_OK):
+            fail(
+                "compiler.build_script.invalid",
+                "environment",
+                "package build.sh must be an executable regular file",
+                package=package,
+                script=str(script),
+            )
+        returncode, stderr_bytes = _run_process_bounded(
+            [str(script)],
+            str(script),
+            cwd=root,
+            diagnostic_prefix="compiler.build_script",
+            description="package build script",
+            details={"package": package, "script": str(script)},
+        )
+        if returncode != 0:
+            fail(
+                "compiler.build_script.failed",
+                "environment",
+                "package build.sh failed",
+                package=package,
+                script=str(script),
+                exit_code=returncode,
+                stderr=stderr_bytes.decode("utf-8", errors="replace"),
+            )
 
 
 def _atomic_text(path: Path, content: str) -> None:

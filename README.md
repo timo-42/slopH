@@ -72,6 +72,11 @@ uv run --no-project --directory src/sloph-python-bootstrap \
   python -m unittest discover -s tests -t .
 ```
 
+Bootstrap `compile` and `run` commands currently execute package-root
+`build.sh` files belonging to dependencies. Treat adding such a dependency as
+granting arbitrary build-time code execution; the intended sandboxed
+replacement is tracked in [`idea/SECURITY.md`](idea/SECURITY.md).
+
 ## Repository Layout
 
 ~~~text
