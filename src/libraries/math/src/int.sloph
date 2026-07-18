@@ -11,3 +11,23 @@ public fn minimum(left: Int, right: Int) -> Int {
 public fn maximum(left: Int, right: Int) -> Int {
   if left < right { right } else { left }
 }
+
+public fn sign(item: Int) -> Int {
+  if item < 0 {
+    0 - 1
+  } else {
+    if 0 < item { 1 } else { 0 }
+  }
+}
+
+public fn distance(left: Int, right: Int) -> Int {
+  absolute(left - right)
+}
+
+public fn is_negative(item: Int) -> Bool {
+  item < 0
+}
+
+public fn is_positive(item: Int) -> Bool {
+  0 < item
+}
