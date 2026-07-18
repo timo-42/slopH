@@ -73,7 +73,7 @@ collections  text       formatting  parsing
 io           filesystem process     time
 random       math       async        synchronization
 networking   json       http         cli
-logging      testing
+observability testing
 ```
 
 The official testing packages should provide the bundled framework, typed
@@ -81,6 +81,16 @@ fixtures, protocol interceptors, deterministic simulation, and failure
 injection described in
 [Bundled Testing, Interceptors, and Fault Injection](./TEST_FRAMEWORK.md). They
 remain outside mandatory runtime `core` and enter only selected test targets.
+
+Observability should likewise be delivered as independently versioned official
+packages for traces, metrics, structured logs, transformations, OpenTelemetry,
+OTLP, Prometheus, and testing, with profiling and flame-graph support added as
+a later independent package. A code-free virtual package should select a tested
+compatible set for applications that want the complete experience. The proposed
+boundaries and semantic instrumentation model are described in
+[Official Observability Packages and Virtual Bundle](./libraries/observability.md).
+Unused signal packages, exporters, encoders, and transformations must remain
+outside the selected build even when the virtual bundle is present.
 
 Inclusion in the distribution does not imply implicit availability to every
 program. Unused packages must not be parsed, typechecked, compiled, linked, or
