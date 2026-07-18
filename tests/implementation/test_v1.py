@@ -114,6 +114,28 @@ const main: Int { factorial(6) }
                 "module demo; fn only_zero(n: Int) -> Int | 0 => { 1 }"
             )
 
+    def test_constructor_function_clauses_infer_field_types(self) -> None:
+        project = self._project(
+            """module demo::main;
+type List {
+  Nil();
+  Cons(head: Int, tail: List);
+}
+fn sum(xs: List) -> Int
+| List::Nil() => { 0 }
+| List::Cons(head, tail) => { head + sum(tail) }
+const main: Int { sum(List::Cons(2, List::Cons(3, List::Nil()))) }
+"""
+        )
+        unit = elaborate_project_v1(project)
+        self.assertIn("demo::main::List::Cons", format_core(unit))
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "constructor-clauses"
+            compile_project(project, output, source_version=1)
+            completed = subprocess.run([output], check=False, capture_output=True)
+        self.assertEqual(0, completed.returncode)
+        self.assertEqual(b"(value 0 (int 5))\n", completed.stdout)
+
     def test_bytes_are_source_core_and_runtime_values(self) -> None:
         project = self._project(
             'module demo::main; const main: Bytes { "hello\\n\\x00\\xff" }'

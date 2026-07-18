@@ -36,7 +36,10 @@ def _expr(value: Expr, indent: int) -> str:
         pad = " " * indent
         lines = [f"case {_expr(value.scrutinee, indent)} -> {_type(value.result_type)} {{"]
         for alt in value.alternatives:
-            binders = ", ".join(f"{b.name}: {_type(b.type)}" for b in alt.binders)
+            binders = ", ".join(
+                b.name if isinstance(b.type, InferredType) else f"{b.name}: {_type(b.type)}"
+                for b in alt.binders
+            )
             body = _block(alt.body, indent + 2)
             lines.append(f"{pad}  {alt.constructor}({binders}) => {body}")
         lines.append(f"{pad}}}")

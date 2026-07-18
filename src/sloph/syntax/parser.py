@@ -323,12 +323,22 @@ class _Parser:
             if len(ctor.split("::")) < 2 or not ctor.split("::")[-1][0].isupper():
                 fail("syntax.parse.invalid_name", "parse", "case constructor must be qualified through its type", ctor_span,
                      role="constructor", name=ctor)
-            self.take("("); binders = self.comma_list(self.binder); self.take("=>"); body = self.block()
+            self.take("("); binders = self.comma_list(self.pattern_binder); self.take("=>"); body = self.block()
             if self.peek(";"): end = self.take().end
             else: end = body.span.end
             alternatives.append(CaseAlternative(ctor, binders, body, self.node(astart, end)))
         end = self.take("}").end
         return CaseExpr(scrutinee, result_type, tuple(alternatives), self.node(start, end))
+
+    def pattern_binder(self) -> Binder:
+        start = self.token.start
+        name = self.lower_ident("pattern binder")
+        if self.peek(":"):
+            self.take()
+            type_ = self.type_ref()
+        else:
+            type_ = InferredType(self.node(name.start, name.end))
+        return Binder(name.text, type_, self.node(start, type_.span.end))
 
     def import_decl(self) -> ImportDecl:
         start = self.take("import").start
@@ -370,6 +380,8 @@ class _Parser:
         if len(params) != 1:
             self.error("function clauses currently require exactly one parameter")
         parameter = params[0]
+        if self.tokens[self.i + 1].text[:1].isupper():
+            return self.constructor_function_clauses(parameter, result)
         literals: set[int] = set()
         clauses: list[tuple[int | str, Block, Span]] = []
         catchall = False
@@ -430,6 +442,42 @@ class _Parser:
             fallback = Block((), case, span)
         assert fallback is not None
         return fallback
+
+    def constructor_function_clauses(self, parameter: Binder, result: TypeRef) -> Block:
+        alternatives: list[CaseAlternative] = []
+        while self.peek("|"):
+            clause_start = self.take("|").start
+            constructor, constructor_span = self.path()
+            parts = constructor.split("::")
+            if len(parts) < 2 or not parts[-1][:1].isupper():
+                fail(
+                    "syntax.parse.invalid_name",
+                    "parse",
+                    "function clause constructor must be qualified through its type",
+                    constructor_span,
+                    role="constructor",
+                    name=constructor,
+                )
+            self.take("(")
+            binders = self.comma_list(self.pattern_binder)
+            self.take("=>")
+            body = self.block()
+            alternatives.append(
+                CaseAlternative(
+                    constructor,
+                    binders,
+                    body,
+                    self.node(clause_start, body.span.end),
+                )
+            )
+        span = self.node(alternatives[0].span.start, alternatives[-1].span.end)
+        case = CaseExpr(
+            LocalExpr(parameter.name, span),
+            result,
+            tuple(alternatives),
+            span,
+        )
+        return Block((), case, span)
 
     def value_decl(self, public: bool, start: int) -> ValueDecl:
         self.take("const" if self.version == 1 else "value"); name = self.lower_ident("value"); self.take(":"); typ = self.type_ref(); body = self.block()
