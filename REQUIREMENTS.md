@@ -45,6 +45,8 @@ rejected if it materially harms any of them.
 
 7. **Native output**
    - The first implementation should produce native executables.
+   - The compiler architecture must also permit future managed targets built on
+     established virtual machines without changing language semantics.
 
 8. **Modular organization**
    - The language must support modules or namespaces for organizing code,

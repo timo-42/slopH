@@ -156,6 +156,47 @@ The initial native backend and linker path must favor predictable low latency.
 A slower optimizing backend may be offered separately. Both paths consume the
 same validated typed Core and must preserve language semantics.
 
+## Future Managed Execution Targets
+
+Native executables remain the required v1 output. A later compiler may also
+lower validated typed Core to one or more established managed execution
+formats. The current preferred first managed target is the
+[WebAssembly Component Model](https://component-model.bytecodealliance.org/)
+with WASI host interfaces.
+
+The purpose of a managed target is portable, sandboxed hosting with fast cold
+starts and high application density. The density benefit must come from a host
+runtime that safely runs many isolated applications and shares runtime
+infrastructure between them. Bytecode by itself is not assumed to use less CPU
+or memory than native code.
+
+Every managed backend must:
+
+- preserve the same observable language semantics as the native backend;
+- compile independently from validated typed Core rather than through another
+  surface language;
+- emit deterministic, versioned artifacts that can be validated with bounded
+  time and memory before execution;
+- expose platform services through explicit capabilities rather than ambient
+  filesystem, network, clock, randomness, environment, or secret access;
+- support per-application memory, CPU, execution, and I/O limits;
+- allow a host to interrupt or terminate an application that exceeds its
+  limits without corrupting other applications;
+- isolate application memory and mutable runtime state while permitting safe
+  sharing of immutable code and runtime infrastructure;
+- report unsupported target capabilities at compile or deployment time.
+
+Managed targets do not define the language's semantics, and SlopH must not
+become the lowest common denominator of every supported VM. Target-specific
+services remain explicit optional capabilities. JVM bytecode, .NET IL, or
+JavaScript compatibility output may be added later when concrete hosting demand
+justifies their specification, implementation, and testing costs.
+
+Designing a custom SlopH VM is a non-goal. It may be reconsidered only if
+measurements show that established runtimes cannot meet explicit requirements
+for artifact size, validation and startup latency, steady-state memory,
+application density, sandboxing, or host integration.
+
 ## Registry Package Contents
 
 Canonical compressed source and a complete manifest are the portable source of
@@ -315,6 +356,12 @@ The toolchain repository must continuously test at least:
 - deterministic rebuilds with different paths and worker counts;
 - malicious or malformed package artifacts under decoder resource limits.
 
+Once a managed target exists, continuous tests must additionally measure its
+artifact size, validation and cold-start latency, idle and active per-instance
+memory, throughput, quota enforcement, cross-application isolation, and
+applications per host. Results must be compared with the native backend and
+reported without assuming that managed execution is inherently cheaper.
+
 Regressions are evaluated against complete edit/check/test/run latency and peak
 resource use, not compiler throughput alone. Improvements that depend on a warm
 cache must be reported separately from source-only improvements.
@@ -328,7 +375,8 @@ The following choices remain open until measurements justify them:
 - whether the compiler uses processes, threads, or both for workers;
 - the initial native backend and linker implementation;
 - registry signing, transparency, and publisher-trust mechanisms;
-- supported targets and the compatibility lifetime of binary artifacts;
+- additional managed targets and the compatibility lifetime of binary
+  artifacts;
 - remote-cache protocol and whether a public registry hosts native objects;
 - package resolution, lockfile, vendoring, and offline-workflow details.
 
