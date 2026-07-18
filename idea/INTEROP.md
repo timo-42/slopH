@@ -435,7 +435,7 @@ records target conditions and enough resolved identity for reproducible
 diagnostics. A header's presence does not imply that an arbitrary library of
 the same name is acceptable.
 
-## C Backend and Future Managed Targets
+## C Backend and WebAssembly Targets
 
 A Core-to-C backend could be useful for bring-up, portability, differential
 testing, or bootstrap. It still consumes validated Core and preserves the same
@@ -446,11 +446,23 @@ Whether to build such a backend remains open. Its implementation cost, compile
 latency, external C compiler dependency, debug information, and care around C
 undefined behavior must be compared with direct native object generation.
 
-Future managed targets cannot assume that a native C ABI or native library is
-present. A provider may instead compile its C implementation for the managed
-target, expose a portable component, call an explicitly supplied host service,
-or use a managed implementation behind the same safe SlopH API. The exact
-managed or virtual-machine mechanism remains deferred.
+The two proposed production backends are direct native machine code and
+WebAssembly with generated JavaScript bindings for browser, Node, and Bun host
+profiles. The C backend remains an experimental portability bridge rather than
+a third production backend. The complete direction is recorded in
+[Native and WebAssembly Backends with Inferred Compatibility](./BACKENDS.md).
+
+WebAssembly targets cannot assume that a native C ABI or native library is
+present. A provider may instead compile its C implementation to Wasm, call an
+explicit JavaScript host import, expose a future portable component, or use a
+Wasm-native implementation behind the same safe SlopH API.
+
+Ordinary functions do not declare backend compatibility. Requirements are
+attached to Host ABI, C, JavaScript, inline-assembly, backend-primitive, and
+target-provider boundaries and inferred transitively through reachable calls.
+Opaque C declarations require explicit effect and capability metadata because
+their signatures do not reveal hidden allocation, blocking, I/O, callbacks, or
+host access.
 
 ## Validation Direction
 
@@ -471,7 +483,9 @@ Future implementation work should include these shared conformance cases:
 - initialize libsodium and run a published known-answer operation through a raw
   binding and safe wrapper;
 - compare direct-native and C-backend behavior if both backends exist;
-- reject native-only bindings on a managed target without an explicit adapter.
+- reject native-only bindings on a Wasm target without an explicit adapter;
+- infer compatibility through Host ABI, C, JavaScript, and selected-provider
+  boundaries without package-level handwritten target lists.
 
 ## Open Decisions
 

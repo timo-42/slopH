@@ -156,13 +156,15 @@ The initial native backend and linker path must favor predictable low latency.
 A slower optimizing backend may be offered separately. Both paths consume the
 same validated typed Core and must preserve language semantics.
 
-## Future Managed Execution Targets
+## WebAssembly Execution Targets
 
-Native executables remain the required v1 output. A later compiler may also
-lower validated typed Core to one or more established managed execution
-formats. The current preferred first managed target is the
+The two proposed production backends lower validated typed Core directly to
+native machine code or WebAssembly. The Wasm backend emits a module plus
+versioned generated JavaScript and TypeScript bindings for browser, Node, and
+Bun host profiles. WASI and the
 [WebAssembly Component Model](https://component-model.bytecodealliance.org/)
-with WASI host interfaces.
+may later provide additional profiles or packaging; they are not prerequisites
+for the initial JavaScript-hosted Wasm backend.
 
 The purpose of a managed target is portable, sandboxed hosting with fast cold
 starts and high application density. The density benefit must come from a host
@@ -185,6 +187,14 @@ Every managed backend must:
 - isolate application memory and mutable runtime state while permitting safe
   sharing of immutable code and runtime infrastructure;
 - report unsupported target capabilities at compile or deployment time.
+
+Backend and host compatibility is inferred from reachable Host ABI, C,
+JavaScript, inline-assembly, backend-primitive, and selected-provider
+boundaries. Libraries do not maintain an authoritative handwritten target
+list. Opaque foreign boundaries declare requirements and effects explicitly;
+the compiler propagates them through compiled interfaces and the registry
+independently verifies resulting backend/host profiles. See
+[Native and WebAssembly Backends with Inferred Compatibility](../../idea/BACKENDS.md).
 
 Managed targets do not define the language's semantics, and SlopH must not
 become the lowest common denominator of every supported VM. Target-specific

@@ -245,7 +245,9 @@ stable operation.
 ```text
 <lang> compile [PATH]
     [-o PATH]
-    [--emit executable|object|assembly]
+    [--backend native|wasm]
+    [--host native|browser|node|bun]
+    [--emit executable|object|assembly|wasm|javascript|typescript]
     [--no-link]
     [--feature NAME]...
     [--all-features]
@@ -260,6 +262,13 @@ whether the default result is an executable or library. `--source-only`
 disables optional precompiled registry artifacts so the canonical source build
 path can be tested.
 
+`--backend`, `--target`, and `--host` form one validated target tuple. Native
+builds emit machine code and use the native host profile. Wasm builds emit a
+module and the required versioned JavaScript helpers; TypeScript declarations
+are generated from the same validated ABI description when requested. Browser
+output is not directly runnable from a terminal without an explicit browser
+harness. Node and Bun may provide CLI host runners.
+
 `--timings` reports phase time and peak resource information.
 `--explain-rebuild` reports why each compiled node was invalidated or why a
 cached artifact could not be used.
@@ -270,6 +279,8 @@ cached artifact could not be used.
 <lang> check [PATH]
     [--through parse|expand|resolve|type|core]
     [--all-targets]
+    [--backend native|wasm]
+    [--host native|browser|node|bun]
     [--include-tests]
     [--keep-going]
     [--deny-warnings]
