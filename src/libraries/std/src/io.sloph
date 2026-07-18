@@ -1,31 +1,50 @@
 module std::io;
 
-import syscall::posix::{write_once, WriteResult};
+import syscall::posix::{write_once, WriteError};
 
-fn write_from(bytes: Bytes, offset: Int) -> Unit {
+fn write_from(bytes: Bytes, offset: Int) -> Result[Unit, WriteError] {
   let length = primitive bytes.length(bytes);
   if offset == length {
-    Unit::Unit()
+    Result::Ok[Unit, WriteError](Unit::Unit())
   } else {
     let result = write_once(1, bytes, offset, length - offset);
-    case result -> Unit {
-      WriteResult::Written(count) => {
+    case result -> Result[Unit, WriteError] {
+      Result::Ok(count) => {
         if count < 1 {
-          primitive runtime.trap("POSIX write made no progress")
+          Result::Err[Unit, WriteError](WriteError::NoProgress())
         } else {
           write_from(bytes, offset + count)
         }
       }
-      WriteResult::Interrupted() => {
-        write_from(bytes, offset)
-      }
-      WriteResult::Error(native_code) => {
-        primitive runtime.trap("POSIX write failed")
+      Result::Err(error) => {
+        case error -> Result[Unit, WriteError] {
+          WriteError::Interrupted() => {
+            write_from(bytes, offset)
+          }
+          WriteError::Native(native_code) => {
+            Result::Err[Unit, WriteError](WriteError::Native(native_code))
+          }
+          WriteError::NoProgress() => {
+            Result::Err[Unit, WriteError](WriteError::NoProgress())
+          }
+        }
       }
     }
   }
 }
 
-public fn write(bytes: Bytes) -> Unit {
+public fn try_write(bytes: Bytes) -> Result[Unit, WriteError] {
   write_from(bytes, 0)
+}
+
+public fn write(bytes: Bytes) -> Unit {
+  let result = try_write(bytes);
+  case result -> Unit {
+    Result::Ok(_unit) => {
+      Unit::Unit()
+    }
+    Result::Err(error) => {
+      primitive runtime.trap("POSIX write failed")
+    }
+  }
 }

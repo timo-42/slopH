@@ -175,6 +175,49 @@ const main: {result_type} {{ {function}({literal}) }}
                     format_value(evaluate(unit, "demo::main::main")),
                 )
 
+    def test_explicit_generic_function_and_option(self) -> None:
+        project = self._project(
+            """module demo::main;
+fn identity[Item](item: Item) -> Item { item }
+const main: Int {
+  let option: Option[Int] = Option::Some[Int](identity[Int](42));
+  case option -> Int {
+    Option::None() => { 0 }
+    Option::Some(item) => { item }
+  }
+}
+"""
+        )
+        unit = elaborate_project_v1(project)
+        core = format_core(unit)
+        self.assertIn("(forall Item", core)
+        self.assertIn("(types Int)", core)
+        self.assertEqual(
+            "(value 0 (int 42))\n",
+            format_value(evaluate(unit, "demo::main::main")),
+        )
+
+    def test_recursive_generic_enum(self) -> None:
+        project = self._project(
+            """module demo::main;
+type List[Item] {
+  Nil();
+  Cons(head: Item, tail: List[Item]);
+}
+const main: Int {
+  let list: List[Int] = List::Cons[Int](42, List::Nil[Int]());
+  case list -> Int {
+    List::Nil() => { 0 }
+    List::Cons(head, tail) => { head }
+  }
+}
+"""
+        )
+        self.assertEqual(
+            "(value 0 (int 42))\n",
+            format_value(evaluate(elaborate_project_v1(project), "demo::main::main")),
+        )
+
     def test_named_functions_are_first_class_and_partially_applied(self) -> None:
         project = self._project(
             """module demo::main;

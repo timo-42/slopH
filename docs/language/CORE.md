@@ -6,8 +6,28 @@ must elaborate into this Core before optimization and native code generation.
 
 The implemented [experimental Core v0 profile](./CORE_V0.md) is a deliberately
 narrow test vehicle for this direction. Its exact grammar and semantics are
-normative for that experiment; the broader forms proposed here remain design
-work and must not be inferred from v0 omissions.
+normative for that experiment; v0 omissions do not imply that later profiles
+must remain monomorphic. Forms not identified below as implemented remain
+design work.
+
+The Python bootstrap also implements canonical Core v2 for the initial
+unconstrained generics profile. Core v2 adds:
+
+```text
+(var T)                         scoped type variable
+(apply core::Option Int)        applied nominal type
+(forall T TYPE)                 universal type
+(lam (type-bind T) EXPR)        type abstraction
+(app EXPR (type TYPE))          explicit type application
+(enum NAME (params T ...) ...)  generic nominal declaration
+(con CTOR (types TYPE ...) ...) explicit constructor type arguments
+```
+
+The validator checks type-variable scope, application arity, constructor-field
+substitution, and generic case binders independently of Source. The reference
+evaluator and C backend erase type abstractions and applications only after
+validation; one generic body is emitted for the uniform boxed representation.
+Core v0 and v1 remain readable for existing fixtures.
 
 The examples and Core forms below are provisional design directions rather
 than a finalized grammar.

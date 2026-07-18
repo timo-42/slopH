@@ -5,7 +5,7 @@
       "arguments": ["c_int", "bytes_pointer_at", "c_size"],
       "result": "ssize_errno",
       "sloph_parameters": ["Int", "Bytes", "Int", "Int"],
-      "sloph_result": "syscall::posix::native::NativeWriteResult"
+      "sloph_result": "core::Result[Int, syscall::posix::native::NativeWriteError]"
     },
     "c_parameters": ["int", "const void *", "size_t"],
     "c_result": "ssize_t",

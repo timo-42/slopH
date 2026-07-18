@@ -9,6 +9,16 @@ public type Bool {
   True();
 }
 
+public type Option[Item] {
+  None();
+  Some(item: Item);
+}
+
+public type Result[Success, Failure] {
+  Ok(success: Success);
+  Err(failure: Failure);
+}
+
 public fn not(item: Bool) -> Bool {
   case item -> Bool {
     Bool::False() => { Bool::True() }

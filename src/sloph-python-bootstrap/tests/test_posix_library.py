@@ -130,6 +130,7 @@ int main(void) {
                 providers = {binding.provider for binding in project.foreign_bindings}
                 self.assertIn(expected, modules)
                 self.assertEqual({expected}, providers)
+                self.assertEqual(2, elaborate_project_v1(project).version)
                 self.assertNotIn(
                     "syscall::posix::darwin::arm64"
                     if target.os == OS.LINUX
@@ -171,6 +172,47 @@ ssize_t sloph_syscall_write(int fd, const void *buffer, size_t count) { (void)fd
         completed = self._compile_generated(generated, provider)
         self.assertEqual(2, completed.returncode)
         self.assertIn(b"sloph trap: POSIX write failed", completed.stderr)
+
+    def test_try_write_returns_permanent_and_no_progress_errors(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "src").mkdir()
+            (root / "sloph.toml").write_text(
+                'format=0\npackage="demo"\nsource-root="src"\nentry="demo::main::main"\ndependencies=["os","std"]\n',
+                encoding="ascii",
+            )
+            (root / "src" / "main.sloph").write_text(
+                """module demo::main;
+import os::process::{Exit};
+import std::io::{try_write};
+public fn main() -> Exit {
+  let result = try_write("x");
+  case result -> Exit {
+    Result::Ok(ignored_unit) => { Exit::Success() }
+    Result::Err(error) => { Exit::Failure(7) }
+  }
+}
+""",
+                encoding="ascii",
+            )
+            unit = elaborate_project_v1(load_project(root, source_version=1))
+        generated = emit_c(unit, "demo::main::main")
+        providers = (
+            r'''#include "syscall.h"
+#include <errno.h>
+ssize_t sloph_syscall_read(int fd, void *buffer, size_t count) { (void)fd; (void)buffer; (void)count; return -1; }
+ssize_t sloph_syscall_write(int fd, const void *buffer, size_t count) { (void)fd; (void)buffer; (void)count; errno=EBADF; return -1; }
+''',
+            r'''#include "syscall.h"
+ssize_t sloph_syscall_read(int fd, void *buffer, size_t count) { (void)fd; (void)buffer; (void)count; return -1; }
+ssize_t sloph_syscall_write(int fd, const void *buffer, size_t count) { (void)fd; (void)buffer; (void)count; return 0; }
+''',
+        )
+        for provider in providers:
+            with self.subTest(provider=provider):
+                completed = self._compile_generated(generated, provider)
+                self.assertEqual(7, completed.returncode)
+                self.assertNotIn(b"sloph trap", completed.stderr)
 
     def _compile_generated(self, generated: str, provider: str) -> subprocess.CompletedProcess[bytes]:
         with tempfile.TemporaryDirectory() as directory:

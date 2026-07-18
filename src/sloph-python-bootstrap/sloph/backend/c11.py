@@ -1,4 +1,4 @@
-"""A deliberately small, first-order C11 backend for Core v0.
+"""A deliberately small C11 backend for the implemented Core profiles.
 
 The accepted profile contains data globals and top-level functions represented by
 direct lambda chains.  Every call is a saturated call to one of those functions;
@@ -12,7 +12,9 @@ from dataclasses import dataclass
 from sloph.core.canonical import decimal_string
 from sloph.core.diagnostics import Span, fail
 from sloph.core.model import (
+    INT,
     AppExpr,
+    AppliedType,
     Binder,
     BytesExpr,
     CaseExpr,
@@ -22,6 +24,7 @@ from sloph.core.model import (
     Definition,
     Expr,
     FunctionType,
+    ForAllType,
     GlobalExpr,
     IntExpr,
     LamExpr,
@@ -29,6 +32,8 @@ from sloph.core.model import (
     LocalExpr,
     NamedType,
     PrimExpr,
+    TypeBinder,
+    TypeExpr,
 )
 from sloph.core.validate import validate
 
@@ -86,11 +91,11 @@ def validate_profile(unit: CoreUnit, symbol: str) -> None:
                         _unsupported_type(binder.type, binder.span, "function parameter")
                 if isinstance(_function_result(definition.type), FunctionType):
                     _unsupported_type(definition.type, definition.span, "function result")
-            _check_expression(function.body, definitions, functions, allow_higher_order=unit.version == 1)
+            _check_expression(function.body, definitions, functions, allow_higher_order=unit.version != 0)
         else:
             if unit.version == 0:
                 _check_data_type(definition.type, definition.span, "data global")
-            _check_expression(definition.value, definitions, functions, allow_higher_order=unit.version == 1)
+            _check_expression(definition.value, definitions, functions, allow_higher_order=unit.version != 0)
 
 
 def emit_c(unit: CoreUnit, symbol: str) -> str:
@@ -101,6 +106,9 @@ def emit_c(unit: CoreUnit, symbol: str) -> str:
 
 
 def _functions(unit: CoreUnit) -> dict[str, _Function]:
+    # TODO(generics-core-freeze): compare this post-validation type erasure with
+    # checked pre-Core erasure and bounded monomorphization before Core v2 is
+    # made permanent. The boxed bootstrap ABI makes erasure sufficient here.
     result: dict[str, _Function] = {}
     for definition in sorted(unit.definitions, key=lambda item: item.name):
         arity = _function_arity(definition.type)
@@ -108,7 +116,11 @@ def _functions(unit: CoreUnit) -> dict[str, _Function]:
             continue
         parameters: list[Binder] = []
         body = definition.value
+        while isinstance(body, LamExpr) and isinstance(body.binder, TypeBinder):
+            body = body.body
         while isinstance(body, LamExpr):
+            if isinstance(body.binder, TypeBinder):
+                fail("backend.c11.function_shape", "backend", "type binders must precede term binders", body.span)
             parameters.append(body.binder)
             body = body.body
         if len(parameters) != arity:
@@ -127,6 +139,8 @@ def _functions(unit: CoreUnit) -> dict[str, _Function]:
 
 def _function_arity(type_: CoreType) -> int:
     count = 0
+    while isinstance(type_, ForAllType):
+        type_ = type_.body
     while isinstance(type_, FunctionType):
         count += 1
         type_ = type_.result
@@ -134,6 +148,8 @@ def _function_arity(type_: CoreType) -> int:
 
 
 def _function_result(type_: CoreType) -> CoreType:
+    while isinstance(type_, ForAllType):
+        type_ = type_.body
     while isinstance(type_, FunctionType):
         type_ = type_.result
     return type_
@@ -195,7 +211,12 @@ def _check_expression(
                 function=expression.name,
             )
         return
+    if isinstance(expression, TypeExpr):
+        return
     if isinstance(expression, LamExpr):
+        if isinstance(expression.binder, TypeBinder):
+            _check_expression(expression.body, definitions, functions, allow_higher_order=allow_higher_order)
+            return
         if allow_higher_order:
             _check_expression(expression.body, definitions, functions, allow_higher_order=True)
             return
@@ -206,6 +227,9 @@ def _check_expression(
             expression.span,
         )
     if isinstance(expression, AppExpr):
+        if isinstance(expression.argument, TypeExpr):
+            _check_expression(expression.function, definitions, functions, allow_higher_order=allow_higher_order)
+            return
         if allow_higher_order:
             _check_expression(expression.function, definitions, functions, allow_higher_order=True)
             _check_expression(expression.argument, definitions, functions, allow_higher_order=True)
@@ -272,7 +296,7 @@ def _expression_children(expression: Expr) -> tuple[Expr, ...]:
 
 def _free_locals(expression: Expr, bound: frozenset[str]) -> set[str]:
     if isinstance(expression, LocalExpr): return set() if expression.name in bound else {expression.name}
-    if isinstance(expression, LamExpr): return _free_locals(expression.body, bound | {expression.binder.name})
+    if isinstance(expression, LamExpr): return _free_locals(expression.body, bound if isinstance(expression.binder, TypeBinder) else bound | {expression.binder.name})
     if isinstance(expression, LetExpr):
         return _free_locals(expression.value, bound) | _free_locals(expression.body, bound | {expression.binder.name})
     if isinstance(expression, CaseExpr):
@@ -592,6 +616,10 @@ class _Emitter:
         def collect(expression: Expr) -> None:
             nonlocal next_lambda
             if isinstance(expression, LamExpr):
+                if isinstance(expression.binder, TypeBinder):
+                    for child in _expression_children(expression):
+                        collect(child)
+                    return
                 self.lambdas[id(expression)] = _Lambda(
                     next_lambda,
                     expression,
@@ -750,13 +778,19 @@ class _Emitter:
             else:
                 lines.append(f"{indent}SlValue *{result}=sl_g{self._gid(expression.name)}();")
             return result
+        if isinstance(expression, TypeExpr):
+            raise AssertionError("type expression reached runtime emission")
         if isinstance(expression, AppExpr):
+            if isinstance(expression.argument, TypeExpr):
+                return self._expr(expression.function, environment, lines, indent)
             if self.unit.version == 0:
                 target,args=_flatten_application(expression); values=[self._expr(item,environment,lines,indent) for item in args]
                 result=self._new(); lines.append(f"{indent}SlValue *{result}=sl_f{self._gid(target.name)}({', '.join(values)});"); return result
             function=self._expr(expression.function,environment,lines,indent); argument=self._expr(expression.argument,environment,lines,indent)
             result=self._new(); lines.append(f"{indent}SlValue *{result}=sl_apply({function},{argument});"); return result
         if isinstance(expression, LamExpr):
+            if isinstance(expression.binder, TypeBinder):
+                return self._expr(expression.body, environment, lines, indent)
             item=self.lambdas[id(expression)]; result=self._new()
             if item.captures:
                 captured=self._new(); values=", ".join(environment[name] for name in item.captures)
@@ -782,13 +816,14 @@ class _Emitter:
                 binding=self.foreign_bindings[expression.name]
                 if binding.adapter != "borrowed_bytes_write":
                     fail("backend.c11.foreign_adapter", "backend", f"unsupported foreign adapter {binding.adapter!r}", expression.span, binding=expression.name)
-                if not isinstance(binding.result, NamedType):
-                    fail("backend.c11.foreign_adapter", "backend", "borrowed-bytes write result must be a named enum", expression.span, binding=expression.name)
-                result_type=binding.result.name
-                written_tag=self.constructor_ids[f"{result_type}::Written"]
-                interrupted_tag=self.constructor_ids[f"{result_type}::Interrupted"]
-                error_tag=self.constructor_ids[f"{result_type}::Error"]
-                fd=self._new(); offset=self._new(); count=self._new(); native=self._new(); error=self._new(); field=self._new()
+                if not isinstance(binding.result, AppliedType) or binding.result.constructor != "core::Result" or len(binding.result.arguments) != 2 or binding.result.arguments[0] != INT or not isinstance(binding.result.arguments[1], NamedType):
+                    fail("backend.c11.foreign_adapter", "backend", "borrowed-bytes write result must be Result[Int, NativeWriteError]", expression.span, binding=expression.name)
+                error_type=binding.result.arguments[1].name
+                ok_tag=self.constructor_ids["core::Result::Ok"]
+                err_tag=self.constructor_ids["core::Result::Err"]
+                interrupted_tag=self.constructor_ids[f"{error_type}::Interrupted"]
+                native_error_tag=self.constructor_ids[f"{error_type}::Native"]
+                fd=self._new(); offset=self._new(); count=self._new(); native=self._new(); error=self._new(); field=self._new(); wrapped=self._new(); error_value=self._new()
                 lines.append(f'{indent}uint64_t {fd}=sl_int_u64_value({values[0]},"file descriptor is outside C int range");')
                 lines.append(f'{indent}if({fd}>(uint64_t)INT_MAX)sl_die("file descriptor is outside C int range");')
                 lines.append(f'{indent}if({values[1]}->kind!=2u)sl_die("foreign write received non-Bytes value");')
@@ -797,7 +832,7 @@ class _Emitter:
                 lines.append(f'{indent}if({offset}>(uint64_t){values[1]}->as.bytes.len||{count}>(uint64_t){values[1]}->as.bytes.len-{offset}||{count}>(uint64_t)(SIZE_MAX>>1u))sl_die("foreign write range is invalid");')
                 lines.append(f"{indent}errno=0;ssize_t {native}={binding.symbol}((int){fd},{values[1]}->as.bytes.data+(size_t){offset},(size_t){count});int {error}=errno;")
                 lines.append(f"{indent}SlValue *{result}=NULL;")
-                lines.append(f"{indent}if({native}>=0){{SlValue *{field}[]={{sl_int_u64((uint64_t){native})}};{result}=sl_con({written_tag}u,1u,{field});}}else if({error}==EINTR){{{result}=sl_con({interrupted_tag}u,0u,NULL);}}else{{SlValue *{field}[]={{sl_int_u64((uint64_t)(unsigned){error})}};{result}=sl_con({error_tag}u,1u,{field});}}")
+                lines.append(f"{indent}if({native}>=0){{SlValue *{field}[]={{sl_int_u64((uint64_t){native})}};{result}=sl_con({ok_tag}u,1u,{field});}}else if({error}==EINTR){{SlValue *{error_value}=sl_con({interrupted_tag}u,0u,NULL);SlValue *{wrapped}[]={{{error_value}}};{result}=sl_con({err_tag}u,1u,{wrapped});}}else{{SlValue *{field}[]={{sl_int_u64((uint64_t)(unsigned){error})}};SlValue *{error_value}=sl_con({native_error_tag}u,1u,{field});SlValue *{wrapped}[]={{{error_value}}};{result}=sl_con({err_tag}u,1u,{wrapped});}}")
             elif expression.name in ("int.equal", "int.less"):
                 false_tag=self.constructor_ids["core::Bool::False"]
                 true_tag=self.constructor_ids["core::Bool::True"]

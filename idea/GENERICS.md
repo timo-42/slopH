@@ -1,15 +1,17 @@
 # IDEA: Minimal Generics with Bounded Compilation Cost
 
-Status: exploratory, non-normative.
+Status: parametric Core selected and implemented for the initial unconstrained
+Source v1 profile; constraints, witnesses, specialization, and final
+representation policy remain exploratory.
 
 SlopH should support parametric generic types and functions in the first stable
 language. Reusable data structures alone require this facility: collections,
 `Option`, `Result`, tuples, tasks, iterators, and user-defined containers must
 not need a separately copied declaration for every element type.
 
-The broader design already assumes generic parameters, explicit type arguments
-in Core, and separately compiled generic code. The experimental Core v0 profile
-is deliberately monomorphic and does not implement this idea.
+The broader design assumes generic parameters, explicit type arguments in Core,
+and separately compiled generic code. Core v0 remains monomorphic; the Python
+bootstrap implements the initial design in Core v2.
 
 Generics are admitted only with bounded, observable compilation work. The
 default compiler must not recursively monomorphize an entire dependency graph
@@ -21,24 +23,25 @@ The initial surface language should support generic nominal types and generic
 functions:
 
 ```text
-type List[T] {
-    Nil
-    Cons(T, List[T])
+type List[Item] {
+    Nil();
+    Cons(head: Item, tail: List[Item]);
 }
 
-fn identity[T](value: T) T {
+fn identity[Item](value: Item) -> Item {
     value
 }
 
-fn map[A, B](items: List[A], transform: fn(A) B) List[B] {
+fn map[Input, Output](items: List[Input], transform: fn(Input) -> Output) -> List[Output] {
     ...
 }
 ```
 
 Generic parameters are in scope only within their declaration. Public
-declarations explicitly list their generic parameters and constraints. Calls
-may infer type arguments from ordinary arguments and the expected result type;
-ambiguous arguments require an explicit type application.
+declarations explicitly list their generic parameters. Every generic type,
+function call, and constructor call supplies all type arguments explicitly.
+The initial profile performs no type-argument inference. Case patterns omit
+type arguments because the scrutinee fixes the enum instantiation.
 
 Generic code that performs an operation on an otherwise unknown type uses an
 explicit interface or trait constraint:
@@ -61,9 +64,10 @@ every concrete type argument.
 The initial design should include:
 
 - generic enums and their single-constructor struct form;
-- generic functions and methods;
+- generic functions;
 - recursive uses such as `List[T]` within their ordinary recursion rules;
-- constrained generic parameters using the selected coherent interface model;
+- constrained generic parameters using the selected coherent interface model
+  after the unconstrained profile is stable;
 - explicit generic parameters and constraints in compiled module interfaces;
 - an explicit validated compiler representation of type abstraction and
   application, retained in canonical typed Core only if the parametric-Core
@@ -95,7 +99,7 @@ declarations, and constraints in typed Core. A generic body is independently
 validated once, and later backend lowering supplies witnesses, representation
 metadata, or selective specializations.
 
-This is the preferred initial direction because it preserves generic module
+This is the selected initial direction because it preserves generic module
 interfaces, separate compilation, and independent Core validation without
 requiring a concrete instantiation. Its cost is a larger normative Core type
 system and validator.
@@ -203,6 +207,13 @@ semantics-preserving, observable in compiler statistics, independently
 cacheable, and subject to explicit limits. The ordinary development profile
 must remain usable with specialization disabled. Cross-module or whole-program
 specialization belongs to an optional optimization profile.
+
+> TODO before permanently freezing parametric Core: prototype and measure
+> checked pre-Core erasure and bounded pre-Core monomorphization against the
+> same correctness, compile-time, artifact-size, and runtime corpus. The
+> bootstrap currently validates parametric Core and then erases type binders
+> and applications for its uniform boxed C runtime; this implementation choice
+> is not evidence that every future backend must use the same representation.
 
 Generic body discovery, application instantiation, and helper emission should
 also follow the general
@@ -348,9 +359,10 @@ unbounded compilation.
 
 ## Questions to Resolve
 
-- The final generic declaration and explicit type-application syntax.
-- Whether the permanent typed Core is parametric, monomorphic after bounded
-  instantiation, or monomorphic over an erased representation.
+- Whether the implemented generic declaration and explicit type-application
+  syntax should be frozen unchanged.
+- Whether permanent typed Core remains parametric after the required erasure
+  and bounded-monomorphization measurements.
 - The small kind system needed to distinguish ordinary types and any permitted
   representation categories.
 - The coherent interface, implementation, and witness-selection rules.

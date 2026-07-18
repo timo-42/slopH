@@ -8,7 +8,7 @@ from sloph.syntax._integer import parse_decimal
 from sloph.syntax.model import (
     Availability, Binder, Block, BytesExpr, CallExpr, CaseAlternative, CaseExpr, ConditionalImportAlternative, ConditionalImportDecl, ConstructorDecl,
     ConstructorExpr, FieldDecl, FunctionDecl, GlobalExpr, ImportDecl, IntExpr,
-    FunctionType, IfExpr, InferredType, IntType, LambdaExpr, LetBinding, LocalExpr, Module, NamedType, PrimitiveExpr, TypeDecl,
+    AppliedType, FunctionType, IfExpr, InferredType, IntType, LambdaExpr, LetBinding, LocalExpr, Module, NamedType, PrimitiveExpr, TypeDecl,
     TargetConstantPattern, TargetPattern, TargetTuplePattern, TypeRef, ValueDecl,
 )
 
@@ -20,7 +20,7 @@ class _Token:
     end: int
 
 
-_PUNCT = frozenset("{}(),;:=|")
+_PUNCT = frozenset("{}[](),;:=|")
 _KEYWORDS = frozenset({"module", "import", "when", "is", "public", "type", "fn", "value", "const", "let", "case", "if", "else", "primitive"})
 
 
@@ -197,11 +197,39 @@ class _Parser:
                 type_ = FunctionType(parameter, type_, self.node(start, result.span.end))
             return type_
         name, span = self.path()
-        if name == "Int": return IntType(self.node(span.start, span.end))
+        if name == "Int":
+            if self.peek("["):
+                self.error("Int is not a generic type")
+            return IntType(self.node(span.start, span.end))
         if not name.split("::")[-1][0].isupper():
             fail("syntax.parse.invalid_name", "parse", "type name must start with an uppercase letter",
                  span, role="type", name=name)
+        if self.peek("["):
+            self.take("[")
+            arguments = self.comma_list(self.type_ref, close="]")
+            end = self.tokens[self.i - 1].end
+            if not arguments:
+                self.error("generic type applications require at least one type argument")
+            return AppliedType(name, arguments, self.node(span.start, end))
         return NamedType(name, self.node(span.start, span.end))
+
+    def type_parameters(self) -> tuple[str, ...]:
+        if not self.peek("["):
+            return ()
+        self.take("[")
+        values = self.comma_list(lambda: self.upper_ident("type parameter"), close="]")
+        if not values:
+            self.error("generic declarations require at least one type parameter")
+        return tuple(value.text for value in values)
+
+    def type_arguments(self) -> tuple[TypeRef, ...]:
+        if not self.peek("["):
+            return ()
+        self.take("[")
+        values = self.comma_list(self.type_ref, close="]")
+        if not values:
+            self.error("generic applications require at least one type argument")
+        return values
 
     def binder(self, *, allow_inferred: bool = False) -> Binder:
         start = self.token.start; name = self.lower_ident("binder")
@@ -238,9 +266,13 @@ class _Parser:
         self.enter()
         try:
             result = self.atom()
-            while self.peek("("):
-                start = result.span.start; self.take("("); args = self.comma_list(self.expr)
-                result = CallExpr(result, args, self.node(start, self.tokens[self.i - 1].end))
+            while self.peek("(") or self.peek("["):
+                start = result.span.start
+                type_arguments = self.type_arguments()
+                if not self.peek("("):
+                    self.error("type arguments must be followed by a call")
+                self.take("("); args = self.comma_list(self.expr)
+                result = CallExpr(result, args, self.node(start, self.tokens[self.i - 1].end), type_arguments)
             if self.version == 1:
                 precedence = {"==": 3, "<": 3, "+": 6, "-": 6, "*": 7}
                 primitive = {"==": "int.equal", "<": "int.less", "+": "int.add", "-": "int.sub", "*": "int.mul"}
@@ -309,15 +341,18 @@ class _Parser:
         if self.peek("("):
             self.take(); value = self.expr(); self.take(")"); return value
         name, span = self.path()
+        type_arguments = self.type_arguments()
         if self.peek("("):
             self.take(); args = self.comma_list(self.expr); end = self.tokens[self.i - 1].end
             if len(name.split("::")) >= 2 and name.split("::")[-1][:1].isupper():
-                return ConstructorExpr(name, args, self.node(span.start, end))
+                return ConstructorExpr(name, args, self.node(span.start, end), type_arguments)
             if name.split("::")[-1][0].isupper():
                 fail("syntax.parse.invalid_name", "parse", "constructor calls must be qualified through their type",
                      span, role="constructor", name=name)
             fn = LocalExpr(name, self.node(span.start, span.end)) if "::" not in name else GlobalExpr(name, self.node(span.start, span.end))
-            return CallExpr(fn, args, self.node(span.start, end))
+            return CallExpr(fn, args, self.node(span.start, end), type_arguments)
+        if type_arguments:
+            self.error("type arguments must be followed by a call")
         if name.split("::")[-1][0].isupper():
             fail("syntax.parse.invalid_name", "parse", "value names must start with a lowercase letter or underscore",
                  span, role="value", name=name)
@@ -422,24 +457,24 @@ class _Parser:
         return ImportDecl(import_.module, import_.names, self.node(start, end))
 
     def type_decl(self, public: bool, start: int) -> TypeDecl:
-        self.take("type"); name = self.upper_ident("type"); self.take("{"); ctors = []
+        self.take("type"); name = self.upper_ident("type"); type_parameters = self.type_parameters(); self.take("{"); ctors = []
         while not self.peek("}"):
             cstart = self.token.start; ctor = self.upper_ident("constructor"); self.take("(")
             fields = self.comma_list(lambda: self.field())
             cend = self.take(";").end
             ctors.append(ConstructorDecl(ctor.text, fields, self.node(cstart, cend)))
         end = self.take("}").end
-        return TypeDecl(name.text, tuple(ctors), public, self.node(start, end))
+        return TypeDecl(name.text, tuple(ctors), public, self.node(start, end), type_parameters)
 
     def field(self) -> FieldDecl:
         start = self.token.start; binder = self.binder()
         return FieldDecl(binder.name, binder.type, self.node(start, binder.span.end))
 
     def fn_decl(self, public: bool, start: int) -> FunctionDecl:
-        self.take("fn"); name = self.lower_ident("function"); self.take("("); params = self.comma_list(self.binder)
+        self.take("fn"); name = self.lower_ident("function"); type_parameters = self.type_parameters(); self.take("("); params = self.comma_list(self.binder)
         self.take("->"); result = self.type_ref()
         body = self.function_clauses(params, result) if self.version == 1 and self.peek("|") else self.block()
-        return FunctionDecl(name.text, params, result, body, public, self.node(start, body.span.end))
+        return FunctionDecl(name.text, params, result, body, public, self.node(start, body.span.end), type_parameters)
 
     def function_clauses(self, params: tuple[Binder, ...], result: TypeRef) -> Block:
         """Parse the v1 ordered exact-Int clause subset into ordinary cases.

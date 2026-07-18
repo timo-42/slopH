@@ -3,7 +3,7 @@ import unittest
 
 from sloph.syntax import (
     CaseExpr, ConstructorExpr, DiagnosticError, Limits, LocalExpr,
-    format_source, parse_source, syntax_from_json, syntax_to_json,
+    format_source, parse_source, parse_source_v1, syntax_from_json, syntax_to_json,
 )
 
 
@@ -149,6 +149,32 @@ class SourceSyntaxTests(unittest.TestCase):
         with self.assertRaises(DiagnosticError) as raised:
             syntax_from_json(json.dumps(document))
         self.assertEqual("syntax.validate.invalid_name", raised.exception.diagnostic.code)
+
+    def test_v1_generics_format_and_json_round_trip(self) -> None:
+        source = """module example::generic;
+public type Box[Item] {
+  Box(item: Item);
+}
+
+public fn wrap[Item](item: Item) -> Box[Item] {
+  Box::Box[Item](item)
+}
+
+const main: Box[Int] { wrap[Int](42) }
+"""
+        module = parse_source_v1(source)
+        self.assertEqual(("Item",), module.types[0].type_parameters)
+        self.assertEqual(("Item",), module.functions[0].type_parameters)
+        rendered = format_source(module, version=1)
+        self.assertEqual(rendered, format_source(parse_source_v1(rendered), version=1))
+        encoded = syntax_to_json(module, version=1)
+        self.assertEqual(module, syntax_from_json(encoded, version=1))
+        self.assertIn('"type_arguments"', encoded)
+
+    def test_v0_rejects_generic_syntax(self) -> None:
+        with self.assertRaises(DiagnosticError) as raised:
+            parse_source("module x; type Box[Item] { Box(item: Item); }")
+        self.assertEqual("syntax.validate.wrong_node", raised.exception.diagnostic.code)
 
 
 if __name__ == "__main__":

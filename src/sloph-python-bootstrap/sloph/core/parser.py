@@ -9,6 +9,7 @@ from sloph.core.limits import Limits
 from sloph.core.model import (
     INT,
     Alternative,
+    AppliedType,
     AppExpr,
     Binder,
     BytesExpr,
@@ -22,6 +23,7 @@ from sloph.core.model import (
     Expr,
     FieldDecl,
     FunctionType,
+    ForAllType,
     ForeignBinding,
     GlobalExpr,
     IntExpr,
@@ -30,6 +32,9 @@ from sloph.core.model import (
     LocalExpr,
     NamedType,
     PrimExpr,
+    TypeBinder,
+    TypeExpr,
+    TypeVariable,
 )
 
 
@@ -190,18 +195,19 @@ def _decode_unit(node: SExpr, limits: Limits) -> CoreUnit:
     if len(items) not in (4, 5):
         fail("core.parse.arity", "parse", "core form must contain types, defs, and optional foreign bindings", node.span)
     version_atom = _atom(items[1], "Core version")
-    if version_atom.value not in ("0", "1"):
+    if version_atom.value not in ("0", "1", "2"):
         fail(
             "core.parse.unsupported_version",
             "parse",
-            "only Core versions 0 and 1 are supported",
+            "only Core versions 0, 1, and 2 are supported",
             version_atom.span,
             version=version_atom.value,
         )
     type_items = _tagged(items[2], "types", minimum=1)
     def_items = _tagged(items[3], "defs", minimum=1)
-    types = tuple(_decode_enum(item, limits) for item in type_items[1:])
-    definitions = tuple(_decode_definition(item, limits) for item in def_items[1:])
+    version = int(version_atom.value)
+    types = tuple(_decode_enum(item, limits, version) for item in type_items[1:])
+    definitions = tuple(_decode_definition(item, limits, version) for item in def_items[1:])
     bindings: tuple[ForeignBinding, ...] = ()
     if len(items) == 5:
         binding_items = _tagged(items[4], "foreign", minimum=1)
@@ -242,11 +248,17 @@ def _decode_foreign(node: SExpr) -> ForeignBinding:
     )
 
 
-def _decode_enum(node: SExpr, limits: Limits) -> EnumDecl:
-    items = _tagged(node, "enum", minimum=2)
+def _decode_enum(node: SExpr, limits: Limits, version: int) -> EnumDecl:
+    items = _tagged(node, "enum", minimum=3 if version == 2 else 2)
     name = _atom(items[1], "enum identity")
-    constructors = tuple(_decode_constructor(item, limits) for item in items[2:])
-    return EnumDecl(name.value, constructors, node.span)
+    offset = 2
+    type_parameters: tuple[str, ...] = ()
+    if version == 2:
+        params = _tagged(items[2], "params", minimum=1)
+        type_parameters = tuple(_atom(item, "type parameter").value for item in params[1:])
+        offset = 3
+    constructors = tuple(_decode_constructor(item, limits) for item in items[offset:])
+    return EnumDecl(name.value, constructors, node.span, type_parameters)
 
 
 def _decode_constructor(node: SExpr, limits: Limits) -> ConstructorDecl:
@@ -270,13 +282,13 @@ def _decode_field(node: SExpr, limits: Limits) -> FieldDecl:
     return FieldDecl(name.value, field_type, node.span)
 
 
-def _decode_definition(node: SExpr, limits: Limits) -> Definition:
+def _decode_definition(node: SExpr, limits: Limits, version: int) -> Definition:
     items = _tagged(node, "def", exact=4)
     name = _atom(items[1], "definition identity")
     return Definition(
         name.value,
         _decode_type(items[2]),
-        _decode_expr(items[3], limits),
+        _decode_expr(items[3], limits, version),
         node.span,
     )
 
@@ -297,9 +309,24 @@ def _decode_type(node: SExpr) -> CoreType:
     if tag.value == "named":
         items = _tagged(node, "named", exact=2)
         return NamedType(_atom(items[1], "named type identity").value)
+    if tag.value == "var":
+        items = _tagged(node, "var", exact=2)
+        return TypeVariable(_atom(items[1], "type variable").value)
+    if tag.value == "apply":
+        items = _tagged(node, "apply", minimum=3)
+        return AppliedType(
+            _atom(items[1], "type constructor identity").value,
+            tuple(_decode_type(item) for item in items[2:]),
+        )
     if tag.value == "fn":
         items = _tagged(node, "fn", exact=3)
         return FunctionType(_decode_type(items[1]), _decode_type(items[2]))
+    if tag.value == "forall":
+        items = _tagged(node, "forall", exact=3)
+        return ForAllType(
+            _atom(items[1], "type parameter").value,
+            _decode_type(items[2]),
+        )
     fail(
         "core.parse.unknown_type",
         "parse",
@@ -308,13 +335,16 @@ def _decode_type(node: SExpr) -> CoreType:
     )
 
 
-def _decode_binder(node: SExpr) -> Binder:
+def _decode_binder(node: SExpr) -> Binder | TypeBinder:
+    if isinstance(node, ListNode) and node.items and isinstance(node.items[0], Atom) and node.items[0].value == "type-bind":
+        items = _tagged(node, "type-bind", exact=2)
+        return TypeBinder(_atom(items[1], "type binder").value, node.span)
     items = _tagged(node, "bind", exact=3)
     name = _atom(items[1], "binder name")
     return Binder(name.value, _decode_type(items[2]), node.span)
 
 
-def _decode_expr(node: SExpr, limits: Limits) -> Expr:
+def _decode_expr(node: SExpr, limits: Limits, version: int) -> Expr:
     if not isinstance(node, ListNode) or not node.items:
         fail(
             "core.parse.expression_form",
@@ -344,22 +374,25 @@ def _decode_expr(node: SExpr, limits: Limits) -> Expr:
     if tag.value == "global":
         items = _tagged(node, "global", exact=2)
         return GlobalExpr(_atom(items[1], "global identity").value, node.span)
+    if tag.value == "type":
+        items = _tagged(node, "type", exact=2)
+        return TypeExpr(_decode_type(items[1]), node.span)
     if tag.value == "lam":
         items = _tagged(node, "lam", exact=3)
-        return LamExpr(_decode_binder(items[1]), _decode_expr(items[2], limits), node.span)
+        return LamExpr(_decode_binder(items[1]), _decode_expr(items[2], limits, version), node.span)
     if tag.value == "app":
         items = _tagged(node, "app", exact=3)
         return AppExpr(
-            _decode_expr(items[1], limits),
-            _decode_expr(items[2], limits),
+            _decode_expr(items[1], limits, version),
+            _decode_expr(items[2], limits, version),
             node.span,
         )
     if tag.value == "let":
         items = _tagged(node, "let", exact=4)
         return LetExpr(
             _decode_binder(items[1]),
-            _decode_expr(items[2], limits),
-            _decode_expr(items[3], limits),
+            _decode_expr(items[2], limits, version),
+            _decode_expr(items[3], limits, version),
             node.span,
         )
     if tag.value == "prim":
@@ -367,23 +400,30 @@ def _decode_expr(node: SExpr, limits: Limits) -> Expr:
         name = _atom(items[1], "primitive name")
         return PrimExpr(
             name.value,
-            tuple(_decode_expr(item, limits) for item in items[2:]),
+            tuple(_decode_expr(item, limits, version) for item in items[2:]),
             node.span,
         )
     if tag.value == "con":
-        items = _tagged(node, "con", minimum=2)
+        items = _tagged(node, "con", minimum=3 if version == 2 else 2)
         name = _atom(items[1], "constructor identity")
+        offset = 2
+        type_arguments: tuple[CoreType, ...] = ()
+        if version == 2:
+            types = _tagged(items[2], "types", minimum=1)
+            type_arguments = tuple(_decode_type(item) for item in types[1:])
+            offset = 3
         return ConExpr(
             name.value,
-            tuple(_decode_expr(item, limits) for item in items[2:]),
+            tuple(_decode_expr(item, limits, version) for item in items[offset:]),
             node.span,
+            type_arguments,
         )
     if tag.value == "case":
         items = _tagged(node, "case", minimum=3)
         return CaseExpr(
-            _decode_expr(items[1], limits),
+            _decode_expr(items[1], limits, version),
             _decode_type(items[2]),
-            tuple(_decode_alternative(item, limits) for item in items[3:]),
+            tuple(_decode_alternative(item, limits, version) for item in items[3:]),
             node.span,
         )
     fail(
@@ -394,11 +434,11 @@ def _decode_expr(node: SExpr, limits: Limits) -> Expr:
     )
 
 
-def _decode_alternative(node: SExpr, limits: Limits) -> Alternative:
+def _decode_alternative(node: SExpr, limits: Limits, version: int) -> Alternative:
     items = _tagged(node, "alt", minimum=3)
     constructor = _atom(items[1], "alternative constructor")
     binders = tuple(_decode_binder(item) for item in items[2:-1])
-    body = _decode_expr(items[-1], limits)
+    body = _decode_expr(items[-1], limits, version)
     return Alternative(constructor.value, binders, body, node.span)
 
 

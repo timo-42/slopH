@@ -7,6 +7,7 @@ from sloph.core.diagnostics import Span, fail
 from sloph.core.model import (
     INT,
     Alternative,
+    AppliedType,
     AppExpr,
     BytesExpr,
     CaseExpr,
@@ -18,6 +19,7 @@ from sloph.core.model import (
     EnumDecl,
     Expr,
     FunctionType,
+    ForAllType,
     GlobalExpr,
     IntExpr,
     IntType,
@@ -26,6 +28,9 @@ from sloph.core.model import (
     LocalExpr,
     NamedType,
     PrimExpr,
+    TypeBinder,
+    TypeExpr,
+    TypeVariable,
 )
 
 
@@ -61,17 +66,17 @@ class _Context:
 
 
 def validate(unit: CoreUnit) -> None:
-    if unit.version not in (0, 1):
+    if unit.version not in (0, 1, 2):
         fail(
             "core.validate.unsupported_version",
             "validate",
-            "only Core versions 0 and 1 are supported",
+            "only Core versions 0, 1, and 2 are supported",
             unit.span,
             version=unit.version,
         )
     context = _Context(unit)
     if unit.version == 0 and unit.foreign_bindings:
-        fail("core.validate.foreign_version", "validate", "foreign bindings require Core version 1", unit.span)
+        fail("core.validate.foreign_version", "validate", "foreign bindings require Core version 1 or later", unit.span)
     if len({item.identity for item in unit.foreign_bindings}) != len(unit.foreign_bindings):
         fail("core.validate.foreign_duplicate", "validate", "foreign binding identities must be unique", unit.span)
     _collect_declarations(context)
@@ -84,8 +89,8 @@ def validate(unit: CoreUnit) -> None:
         if not HEADER_RE.fullmatch(binding.header):
             fail("core.validate.foreign_header", "validate", f"invalid foreign header {binding.header!r}", unit.span)
         for parameter in binding.parameters:
-            _well_formed_type(context, parameter, unit.span)
-        _well_formed_type(context, binding.result, unit.span)
+            _well_formed_type(context, parameter, unit.span, set())
+        _well_formed_type(context, binding.result, unit.span, set())
     _validate_global_cycles(context)
     for definition in sorted(unit.definitions, key=lambda item: item.name):
         _validate_definition(context, definition)
@@ -97,6 +102,12 @@ def _collect_declarations(context: _Context) -> None:
         if enum.name in context.enums:
             _duplicate("type", enum.name, enum.span)
         context.enums[enum.name] = enum
+        if enum.type_parameters and context.unit.version != 2:
+            fail("core.validate.generic_version", "validate", "generic declarations require Core version 2", enum.span)
+        if len(set(enum.type_parameters)) != len(enum.type_parameters):
+            fail("core.validate.duplicate_type_parameter", "validate", "type parameters must be unique", enum.span, type=enum.name)
+        for parameter in enum.type_parameters:
+            _local_id(parameter, enum.span, "type parameter")
         constructor_names: set[str] = set()
         for constructor in enum.constructors:
             _global_id(constructor.name, constructor.span, "constructor")
@@ -131,6 +142,7 @@ def _collect_declarations(context: _Context) -> None:
 
 def _validate_declaration_types(context: _Context) -> None:
     for enum in sorted(context.unit.types, key=lambda item: item.name):
+        type_variables = set(enum.type_parameters)
         for constructor in enum.constructors:
             for field in constructor.fields:
                 if context.unit.version == 0 and isinstance(field.type, FunctionType):
@@ -140,15 +152,15 @@ def _validate_declaration_types(context: _Context) -> None:
                         "Core v0 nominal fields cannot have function type",
                         field.span,
                     )
-                _well_formed_type(context, field.type, field.span)
+                _well_formed_type(context, field.type, field.span, type_variables)
     for definition in sorted(context.unit.definitions, key=lambda item: item.name):
-        _well_formed_type(context, definition.type, definition.span)
+        _well_formed_type(context, definition.type, definition.span, set())
 
 
-def _well_formed_type(context: _Context, type_: CoreType, span: Span) -> None:
-    pending = [type_]
+def _well_formed_type(context: _Context, type_: CoreType, span: Span, type_variables: set[str]) -> None:
+    pending: list[tuple[CoreType, set[str]]] = [(type_, set(type_variables))]
     while pending:
-        current = pending.pop()
+        current, scope = pending.pop()
         if isinstance(current, IntType):
             continue
         if isinstance(current, NamedType):
@@ -161,10 +173,36 @@ def _well_formed_type(context: _Context, type_: CoreType, span: Span) -> None:
                     span,
                     type=current.name,
                 )
+            if context.enums[current.name].type_parameters:
+                fail("core.validate.type_arity", "validate", f"generic type {current.name!r} requires type arguments", span, type=current.name, expected=len(context.enums[current.name].type_parameters), actual=0)
+            continue
+        if isinstance(current, TypeVariable):
+            _local_id(current.name, span, "type variable")
+            if current.name not in scope:
+                fail("core.validate.free_type_variable", "validate", f"free type variable {current.name!r}", span, variable=current.name)
+            continue
+        if isinstance(current, AppliedType):
+            _global_id(current.constructor, span, "type reference")
+            enum = context.enums.get(current.constructor)
+            if enum is None:
+                fail("core.validate.unknown_type", "validate", f"unknown nominal type {current.constructor!r}", span, type=current.constructor)
+            if len(current.arguments) != len(enum.type_parameters):
+                fail("core.validate.type_arity", "validate", f"type {current.constructor!r} expects {len(enum.type_parameters)} arguments", span, type=current.constructor, expected=len(enum.type_parameters), actual=len(current.arguments))
+            pending.extend((argument, set(scope)) for argument in current.arguments)
             continue
         if isinstance(current, FunctionType):
-            pending.append(current.result)
-            pending.append(current.parameter)
+            pending.append((current.result, set(scope)))
+            pending.append((current.parameter, set(scope)))
+            continue
+        if isinstance(current, ForAllType):
+            if context.unit.version != 2:
+                fail("core.validate.generic_version", "validate", "universal types require Core version 2", span)
+            _local_id(current.parameter, span, "type parameter")
+            if current.parameter in scope:
+                fail("core.validate.duplicate_type_parameter", "validate", f"duplicate type parameter {current.parameter!r}", span)
+            nested = set(scope)
+            nested.add(current.parameter)
+            pending.append((current.body, nested))
             continue
         fail(
             "core.validate.type_form",
@@ -192,7 +230,7 @@ def _validate_global_cycles(context: _Context) -> None:
         # A v1 function definition evaluates to its closure without evaluating
         # the body. Recursive references in that body are therefore not a
         # value-initialization cycle. Data definitions remain acyclic.
-        if context.unit.version == 1 and isinstance(definition.type, FunctionType):
+        if context.unit.version in (1, 2) and isinstance(_strip_forall(definition.type), FunctionType):
             names = set()
         graph[definition.name] = names
         for name in names:
@@ -285,7 +323,7 @@ def _global_references(expression: Expr) -> list[tuple[str, Span]]:
 
 def _validate_definition(context: _Context, definition: Definition) -> None:
     all_binders: set[str] = set()
-    actual = _infer(context, definition.value, {}, all_binders)
+    actual = _infer(context, definition.value, {}, all_binders, set())
     if actual != definition.type:
         fail(
             "core.validate.definition_type",
@@ -303,12 +341,13 @@ def _infer(
     expression: Expr,
     environment: dict[str, CoreType],
     all_binders: set[str],
+    type_variables: set[str],
 ) -> CoreType:
     if isinstance(expression, IntExpr):
         return INT
     if isinstance(expression, BytesExpr):
-        if context.unit.version != 1:
-            fail("core.validate.expression_form", "validate", "byte literals require Core version 1", expression.span)
+        if context.unit.version < 1:
+            fail("core.validate.expression_form", "validate", "byte literals require Core version 1 or later", expression.span)
         return NamedType("core::Bytes")
     if isinstance(expression, LocalExpr):
         if expression.name not in environment:
@@ -331,15 +370,32 @@ def _infer(
                 global_id=expression.name,
             )
         return definition.type
+    if isinstance(expression, TypeExpr):
+        fail("core.validate.type_expression_position", "validate", "type arguments are only valid as application arguments", expression.span)
     if isinstance(expression, LamExpr):
-        _register_binder(context, expression.binder, all_binders)
+        if isinstance(expression.binder, TypeBinder):
+            if context.unit.version != 2:
+                fail("core.validate.generic_version", "validate", "type abstractions require Core version 2", expression.span)
+            _local_id(expression.binder.name, expression.binder.span, "type binder")
+            if expression.binder.name in type_variables:
+                fail("core.validate.duplicate_type_parameter", "validate", f"duplicate type binder {expression.binder.name!r}", expression.binder.span)
+            nested_types = set(type_variables)
+            nested_types.add(expression.binder.name)
+            body_type = _infer(context, expression.body, environment, all_binders, nested_types)
+            return ForAllType(expression.binder.name, body_type)
+        _register_binder(context, expression.binder, all_binders, type_variables)
         local_environment = dict(environment)
         local_environment[expression.binder.name] = expression.binder.type
-        body_type = _infer(context, expression.body, local_environment, all_binders)
+        body_type = _infer(context, expression.body, local_environment, all_binders, type_variables)
         return FunctionType(expression.binder.type, body_type)
     if isinstance(expression, AppExpr):
-        function_type = _infer(context, expression.function, environment, all_binders)
-        argument_type = _infer(context, expression.argument, environment, all_binders)
+        function_type = _infer(context, expression.function, environment, all_binders, type_variables)
+        if isinstance(expression.argument, TypeExpr):
+            if not isinstance(function_type, ForAllType):
+                fail("core.validate.not_polymorphic", "validate", "type application target is not polymorphic", expression.function.span)
+            _well_formed_type(context, expression.argument.type, expression.argument.span, type_variables)
+            return _substitute(function_type.body, {function_type.parameter: expression.argument.type})
+        argument_type = _infer(context, expression.argument, environment, all_binders, type_variables)
         if not isinstance(function_type, FunctionType):
             fail(
                 "core.validate.not_function",
@@ -351,17 +407,17 @@ def _infer(
             _type_mismatch(expression.argument.span, function_type.parameter, argument_type)
         return function_type.result
     if isinstance(expression, LetExpr):
-        value_type = _infer(context, expression.value, environment, all_binders)
-        _register_binder(context, expression.binder, all_binders)
+        value_type = _infer(context, expression.value, environment, all_binders, type_variables)
+        _register_binder(context, expression.binder, all_binders, type_variables)
         if value_type != expression.binder.type:
             _type_mismatch(expression.value.span, expression.binder.type, value_type)
         local_environment = dict(environment)
         local_environment[expression.binder.name] = expression.binder.type
-        return _infer(context, expression.body, local_environment, all_binders)
+        return _infer(context, expression.body, local_environment, all_binders, type_variables)
     if isinstance(expression, PrimExpr):
-        catalog = V1_PRIMITIVES if context.unit.version == 1 else PRIMITIVES
+        catalog = V1_PRIMITIVES if context.unit.version >= 1 else PRIMITIVES
         signature = catalog.get(expression.name)
-        if signature is None and context.unit.version == 1:
+        if signature is None and context.unit.version >= 1:
             binding = context.foreign_bindings.get(expression.name)
             if binding is not None:
                 signature = (binding.parameters, binding.result)
@@ -384,7 +440,7 @@ def _infer(
                 actual=len(expression.arguments),
             )
         for argument, parameter in zip(expression.arguments, parameters):
-            actual = _infer(context, argument, environment, all_binders)
+            actual = _infer(context, argument, environment, all_binders, type_variables)
             if actual != parameter:
                 _type_mismatch(argument.span, parameter, actual)
         return result
@@ -399,6 +455,11 @@ def _infer(
                 constructor=expression.constructor,
             )
         enum, constructor = found
+        if len(expression.type_arguments) != len(enum.type_parameters):
+            fail("core.validate.constructor_type_arity", "validate", f"constructor {constructor.name!r} expects {len(enum.type_parameters)} type arguments", expression.span, expected=len(enum.type_parameters), actual=len(expression.type_arguments))
+        for argument in expression.type_arguments:
+            _well_formed_type(context, argument, expression.span, type_variables)
+        substitutions = dict(zip(enum.type_parameters, expression.type_arguments, strict=True))
         if len(expression.fields) != len(constructor.fields):
             fail(
                 "core.validate.constructor_arity",
@@ -409,12 +470,13 @@ def _infer(
                 actual=len(expression.fields),
             )
         for value, field in zip(expression.fields, constructor.fields):
-            actual = _infer(context, value, environment, all_binders)
-            if actual != field.type:
-                _type_mismatch(value.span, field.type, actual)
-        return NamedType(enum.name)
+            actual = _infer(context, value, environment, all_binders, type_variables)
+            expected = _substitute(field.type, substitutions)
+            if actual != expected:
+                _type_mismatch(value.span, expected, actual)
+        return AppliedType(enum.name, expression.type_arguments) if enum.type_parameters else NamedType(enum.name)
     if isinstance(expression, CaseExpr):
-        return _infer_case(context, expression, environment, all_binders)
+        return _infer_case(context, expression, environment, all_binders, type_variables)
     fail(
         "core.validate.expression_form",
         "validate",
@@ -428,9 +490,10 @@ def _infer_case(
     expression: CaseExpr,
     environment: dict[str, CoreType],
     all_binders: set[str],
+    type_variables: set[str],
 ) -> CoreType:
-    scrutinee_type = _infer(context, expression.scrutinee, environment, all_binders)
-    if not isinstance(scrutinee_type, NamedType):
+    scrutinee_type = _infer(context, expression.scrutinee, environment, all_binders, type_variables)
+    if not isinstance(scrutinee_type, (NamedType, AppliedType)):
         fail(
             "core.validate.case_scrutinee",
             "validate",
@@ -438,8 +501,11 @@ def _infer_case(
             expression.scrutinee.span,
             actual=_type_text(scrutinee_type),
         )
-    _well_formed_type(context, expression.result_type, expression.span)
-    enum = context.enums[scrutinee_type.name]
+    _well_formed_type(context, expression.result_type, expression.span, type_variables)
+    enum_name = scrutinee_type.name if isinstance(scrutinee_type, NamedType) else scrutinee_type.constructor
+    enum = context.enums[enum_name]
+    arguments = () if isinstance(scrutinee_type, NamedType) else scrutinee_type.arguments
+    substitutions = dict(zip(enum.type_parameters, arguments, strict=True))
     provided: dict[str, Alternative] = {}
     for alternative in expression.alternatives:
         if alternative.constructor in provided:
@@ -469,11 +535,12 @@ def _infer_case(
             )
         local_environment = dict(environment)
         for binder, field in zip(alternative.binders, constructor.fields):
-            _register_binder(context, binder, all_binders)
-            if binder.type != field.type:
-                _type_mismatch(binder.span, field.type, binder.type)
+            _register_binder(context, binder, all_binders, type_variables)
+            expected_field = _substitute(field.type, substitutions)
+            if binder.type != expected_field:
+                _type_mismatch(binder.span, expected_field, binder.type)
             local_environment[binder.name] = binder.type
-        body_type = _infer(context, alternative.body, local_environment, all_binders)
+        body_type = _infer(context, alternative.body, local_environment, all_binders, type_variables)
         if body_type != expression.result_type:
             _type_mismatch(
                 alternative.body.span, expression.result_type, body_type
@@ -481,9 +548,9 @@ def _infer_case(
     return expression.result_type
 
 
-def _register_binder(context: _Context, binder, all_binders: set[str]) -> None:
+def _register_binder(context: _Context, binder, all_binders: set[str], type_variables: set[str]) -> None:
     _local_id(binder.name, binder.span, "binder")
-    _well_formed_type(context, binder.type, binder.span)
+    _well_formed_type(context, binder.type, binder.span, type_variables)
     if binder.name in all_binders:
         fail(
             "core.validate.duplicate_local",
@@ -544,6 +611,32 @@ def _type_text(type_: CoreType) -> str:
         return "Int"
     if isinstance(type_, NamedType):
         return f"(named {type_.name})"
+    if isinstance(type_, TypeVariable):
+        return f"(var {type_.name})"
+    if isinstance(type_, AppliedType):
+        return f"(apply {type_.constructor} {' '.join(_type_text(item) for item in type_.arguments)})"
     if isinstance(type_, FunctionType):
         return f"(fn {_type_text(type_.parameter)} {_type_text(type_.result)})"
+    if isinstance(type_, ForAllType):
+        return f"(forall {type_.parameter} {_type_text(type_.body)})"
     return "<invalid-type>"
+
+
+def _substitute(type_: CoreType, substitutions: dict[str, CoreType]) -> CoreType:
+    if isinstance(type_, TypeVariable):
+        return substitutions.get(type_.name, type_)
+    if isinstance(type_, AppliedType):
+        return AppliedType(type_.constructor, tuple(_substitute(item, substitutions) for item in type_.arguments))
+    if isinstance(type_, FunctionType):
+        return FunctionType(_substitute(type_.parameter, substitutions), _substitute(type_.result, substitutions))
+    if isinstance(type_, ForAllType):
+        nested = dict(substitutions)
+        nested.pop(type_.parameter, None)
+        return ForAllType(type_.parameter, _substitute(type_.body, nested))
+    return type_
+
+
+def _strip_forall(type_: CoreType) -> CoreType:
+    while isinstance(type_, ForAllType):
+        type_ = type_.body
+    return type_

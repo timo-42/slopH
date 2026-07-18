@@ -38,7 +38,9 @@ sloph run examples/hello-world
 
 Core v0 is a monomorphic, pure subset used to test the typed Core
 representation before the full source language is fixed. The Python 3.11+
-implementation has no third-party runtime dependencies and exposes:
+implementation also supports explicit Source v1 generics in canonical Core v2,
+with generic `Option` and `Result` in `core` and recoverable
+`std::io::try_write`. It has no third-party runtime dependencies and exposes:
 
 ```text
 sloph unstable core check

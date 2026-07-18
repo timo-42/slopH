@@ -20,18 +20,41 @@ class NamedType:
 
 
 @dataclass(frozen=True, slots=True)
+class TypeVariable:
+    name: str
+
+
+@dataclass(frozen=True, slots=True)
+class AppliedType:
+    constructor: str
+    arguments: tuple["CoreType", ...]
+
+
+@dataclass(frozen=True, slots=True)
 class FunctionType:
     parameter: "CoreType"
     result: "CoreType"
 
 
-CoreType: TypeAlias = IntType | NamedType | FunctionType
+@dataclass(frozen=True, slots=True)
+class ForAllType:
+    parameter: str
+    body: "CoreType"
+
+
+CoreType: TypeAlias = IntType | NamedType | TypeVariable | AppliedType | FunctionType | ForAllType
 
 
 @dataclass(frozen=True, slots=True)
 class Binder:
     name: str
     type: CoreType
+    span: Span = UNKNOWN_SPAN
+
+
+@dataclass(frozen=True, slots=True)
+class TypeBinder:
+    name: str
     span: Span = UNKNOWN_SPAN
 
 
@@ -60,8 +83,14 @@ class GlobalExpr:
 
 
 @dataclass(frozen=True, slots=True)
+class TypeExpr:
+    type: CoreType
+    span: Span = UNKNOWN_SPAN
+
+
+@dataclass(frozen=True, slots=True)
 class LamExpr:
-    binder: Binder
+    binder: Binder | TypeBinder
     body: "Expr"
     span: Span = UNKNOWN_SPAN
 
@@ -93,6 +122,7 @@ class ConExpr:
     constructor: str
     fields: tuple["Expr", ...]
     span: Span = UNKNOWN_SPAN
+    type_arguments: tuple[CoreType, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -116,6 +146,7 @@ Expr: TypeAlias = (
     | BytesExpr
     | LocalExpr
     | GlobalExpr
+    | TypeExpr
     | LamExpr
     | AppExpr
     | LetExpr
@@ -144,6 +175,7 @@ class EnumDecl:
     name: str
     constructors: tuple[ConstructorDecl, ...]
     span: Span = UNKNOWN_SPAN
+    type_parameters: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

@@ -27,6 +27,8 @@ from sloph.core.model import (
     LetExpr,
     LocalExpr,
     PrimExpr,
+    TypeBinder,
+    TypeExpr,
 )
 from sloph.core.validate import validate
 
@@ -172,16 +174,22 @@ class _Machine:
                         control = self.definitions[expression.name].value
                         environment = {}
                 elif isinstance(expression, LamExpr):
-                    control = self._closure(
-                        expression.binder, expression.body, environment, expression.span
-                    )
+                    if isinstance(expression.binder, TypeBinder):
+                        control = expression.body
+                    else:
+                        control = self._closure(
+                            expression.binder, expression.body, environment, expression.span
+                        )
                 elif isinstance(expression, AppExpr):
-                    self._push(
-                        frames,
-                        _AppFunction(expression.argument, environment),
-                        expression.span,
-                    )
+                    if not isinstance(expression.argument, TypeExpr):
+                        self._push(
+                            frames,
+                            _AppFunction(expression.argument, environment),
+                            expression.span,
+                        )
                     control = expression.function
+                elif isinstance(expression, TypeExpr):
+                    fail("core.eval.type_expression", "eval", "a type argument cannot be evaluated directly", expression.span)
                 elif isinstance(expression, LetExpr):
                     self._push(
                         frames,

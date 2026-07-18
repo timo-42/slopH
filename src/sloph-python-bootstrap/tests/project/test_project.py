@@ -7,7 +7,7 @@ import unittest
 from unittest.mock import patch
 
 from sloph.core import DiagnosticError, Limits, evaluate, format_value
-from sloph.project import elaborate_project, load_project, resolve_bundled_packages
+from sloph.project import elaborate_project, elaborate_project_v1, load_project, resolve_bundled_packages
 
 
 MANIFEST = """format = 0
@@ -237,6 +237,55 @@ value main: Int { identity }
                     raised.exception.diagnostic.code,
                     {"project.manifest.package", "project.manifest.entry"},
                 )
+
+    def test_v1_generics_cross_module_boundary(self) -> None:
+        generic = """module demo::generic;
+public type Box[Item] { Box(item: Item); }
+public fn wrap[Item](item: Item) -> Box[Item] {
+  Box::Box[Item](item)
+}
+"""
+        main = """module demo::main;
+import demo::generic::{Box, wrap};
+const main: Int {
+  let box: Box[Int] = wrap[Int](42);
+  case box -> Int {
+    Box::Box(item) => { item }
+  }
+}
+"""
+        unit = elaborate_project_v1(
+            self._project({"generic.sloph": generic, "main.sloph": main})
+        )
+        self.assertEqual(
+            "(value 0 (int 42))\n",
+            format_value(evaluate(unit, "demo::main::main")),
+        )
+
+    def test_v1_requires_explicit_generic_arguments(self) -> None:
+        cases = (
+            "fn identity[Item](item: Item) -> Item { item } const main: Int { identity(42) }",
+            "const main: Option[Int] { Option::Some(42) }",
+            "const main: Option { Option::None[Int]() }",
+        )
+        for declarations in cases:
+            with self.subTest(declarations=declarations), self.assertRaises(DiagnosticError) as raised:
+                elaborate_project_v1(
+                    self._project({"main.sloph": f"module demo::main; {declarations}"})
+                )
+            self.assertIn("arity", raised.exception.diagnostic.code)
+
+    def test_v1_checks_substituted_generic_types(self) -> None:
+        cases = (
+            'fn identity[Item](item: Item) -> Item { item } const main: Int { identity[Int]("wrong") }',
+            'const main: Option[Int] { Option::Some[Int]("wrong") }',
+        )
+        for declarations in cases:
+            with self.subTest(declarations=declarations), self.assertRaises(DiagnosticError) as raised:
+                elaborate_project_v1(
+                    self._project({"main.sloph": f"module demo::main; {declarations}"})
+                )
+            self.assertEqual("core.validate.type_mismatch", raised.exception.diagnostic.code)
 
 
 if __name__ == "__main__":
