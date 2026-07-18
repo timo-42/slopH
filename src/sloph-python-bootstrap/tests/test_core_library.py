@@ -37,13 +37,15 @@ class CoreLibraryTests(unittest.TestCase):
                 [output], check=True, capture_output=True
             ).stdout
 
-    def test_bool_is_declared_by_the_implicitly_loaded_core_library(self) -> None:
+    def test_mandatory_types_are_declared_by_the_core_library(self) -> None:
         project = load_project(self._project("Bool::True()"), source_version=1)
         core_module = next(module for module in project.modules if module.name == "core")
         self.assertTrue(core_module.bundled)
         unit = elaborate_project_v1(project)
         rendered = format_core(unit)
         self.assertEqual(1, rendered.count("(enum core::Bool"))
+        self.assertEqual(1, rendered.count("(enum core::Unit"))
+        self.assertIn("(ctor core::Unit::Unit)", rendered)
         self.assertIn("(def core::not\n", rendered)
         self.assertIn("(def core::equal\n", rendered)
         self.assertIn("(def core::not_equal\n", rendered)

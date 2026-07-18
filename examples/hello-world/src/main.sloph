@@ -1,5 +1,6 @@
 module hello::main;
 
+import os::process::{Exit};
 import std::io::{write};
 
 public fn main() -> Exit {

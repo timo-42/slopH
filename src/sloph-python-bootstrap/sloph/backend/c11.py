@@ -600,8 +600,8 @@ class _Emitter:
         keep = "(void)&sl_int_literal;(void)&sl_int_add;(void)&sl_int_sub;(void)&sl_int_mul;(void)&sl_int_compare;(void)&sl_con;(void)&sl_bytes;(void)&sl_closure;(void)&sl_apply;(void)&sl_int_u64;(void)&sl_int_u64_value;(void)&sl_trap_bytes;(void)&sl_exit_code;(void)&sl_print_value;"
         if self.symbol in self.functions:
             unit = self.constructor_ids["core::Unit::Unit"]
-            success = self.constructor_ids["core::Exit::Success"]
-            failure = self.constructor_ids["core::Exit::Failure"]
+            success = self.constructor_ids["os::process::Exit::Success"]
+            failure = self.constructor_ids["os::process::Exit::Failure"]
             output.append(
                 f"int main(void){{{keep}SlValue *argument=sl_con({unit}u,0u,NULL);SlValue *result=sl_f{entry}(argument);if(result->kind!=1u)sl_die(\"main did not return Exit\");int status=2;if(result->as.con.tag=={success}u)status=0;else if(result->as.con.tag=={failure}u&&result->as.con.count==1u)status=sl_exit_code(result->as.con.field[0]);else sl_die(\"main returned invalid Exit\");if(fflush(stdout)!=0||ferror(stdout))sl_die(\"stdout write failed\");sl_destroy();return status;}}\n"
             )

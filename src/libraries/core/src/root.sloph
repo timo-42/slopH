@@ -1,5 +1,9 @@
 module core;
 
+public type Unit {
+  Unit();
+}
+
 public type Bool {
   False();
   True();
