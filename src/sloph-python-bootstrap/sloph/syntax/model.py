@@ -143,6 +143,30 @@ class ImportDecl:
 
 
 @dataclass(frozen=True, slots=True)
+class Availability:
+    selector: str
+    values: tuple[str, ...]
+    span: Span = UNKNOWN_SPAN
+
+
+@dataclass(frozen=True, slots=True)
+class ConditionalImportAlternative:
+    values: tuple[str, ...]
+    import_: ImportDecl
+    span: Span = UNKNOWN_SPAN
+
+
+@dataclass(frozen=True, slots=True)
+class ConditionalImportDecl:
+    selector: str
+    alternatives: tuple[ConditionalImportAlternative, ...]
+    span: Span = UNKNOWN_SPAN
+
+
+Import: TypeAlias = ImportDecl | ConditionalImportDecl
+
+
+@dataclass(frozen=True, slots=True)
 class FieldDecl:
     name: str
     type: TypeRef
@@ -186,8 +210,9 @@ class ValueDecl:
 @dataclass(frozen=True, slots=True)
 class Module:
     name: str
-    imports: tuple[ImportDecl, ...]
+    imports: tuple[Import, ...]
     types: tuple[TypeDecl, ...]
     functions: tuple[FunctionDecl, ...]
     values: tuple[ValueDecl, ...]
     span: Span = UNKNOWN_SPAN
+    availability: Availability | None = None

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-import platform
 import subprocess
 import tempfile
 import unittest
@@ -9,15 +8,15 @@ import unittest
 from sloph.backend import emit_c
 from sloph.core import format_core, parse_core
 from sloph.core import DiagnosticError
-from sloph.project import elaborate_project_v1, load_project
+from sloph.project import CompilerSpecials, elaborate_project_v1, load_project
 
 
 COMPONENT = Path(__file__).resolve().parents[1]
 ROOT = COMPONENT.parents[1]
 LIBRARY = COMPONENT.parent / "libraries" / "syscall"
 CC = "/usr/bin/cc"
-PLATFORM = "macos" if platform.system() == "Darwin" else "linux"
-PLATFORM_ROOT = LIBRARY / "platform" / PLATFORM
+SPECIALS = CompilerSpecials.host()
+PLATFORM_ROOT = LIBRARY / "src" / "posix" / SPECIALS.os / SPECIALS.arch
 
 
 class PosixLibraryTests(unittest.TestCase):
@@ -30,7 +29,7 @@ class PosixLibraryTests(unittest.TestCase):
                 encoding="ascii",
             )
             (root / "src" / "main.sloph").write_text(
-                'module demo::main; const main: Int { primitive foreign.syscall.posix_write(1, "x", 0, 1) }',
+                'module demo::main; const main: Int { primitive foreign.demo.write(1, "x", 0, 1) }',
                 encoding="ascii",
             )
             with self.assertRaises(DiagnosticError) as caught:
@@ -71,10 +70,39 @@ int main(void) {
         project = load_project(ROOT / "examples" / "hello-world", source_version=1)
         unit = elaborate_project_v1(project)
         text = format_core(unit)
-        self.assertIn("(binding foreign.syscall.posix_write", text)
+        self.assertIn(
+            f"(binding foreign.syscall.posix.{SPECIALS.os}.{SPECIALS.arch}.write",
+            text,
+        )
+        self.assertIn(
+            f"(provider syscall::posix::{SPECIALS.os}::{SPECIALS.arch})", text
+        )
         self.assertIn("(effects io)", text)
         self.assertIn("(fact pointer_retention none)", text)
         self.assertEqual(text, format_core(parse_core(text)))
+
+    def test_sloph_selects_exactly_one_platform_provider(self) -> None:
+        cases = (
+            (CompilerSpecials("linux", "amd64"), "syscall::posix::linux::amd64"),
+            (CompilerSpecials("darwin", "arm64"), "syscall::posix::darwin::arm64"),
+        )
+        for specials, expected in cases:
+            with self.subTest(expected=expected):
+                project = load_project(
+                    ROOT / "examples" / "hello-world",
+                    source_version=1,
+                    specials=specials,
+                )
+                modules = {module.name for module in project.modules}
+                providers = {binding.provider for binding in project.foreign_bindings}
+                self.assertIn(expected, modules)
+                self.assertEqual({expected}, providers)
+                self.assertNotIn(
+                    "syscall::posix::darwin::arm64"
+                    if specials.os == "linux"
+                    else "syscall::posix::linux::amd64",
+                    modules,
+                )
 
     def test_std_write_retries_short_write_and_eintr(self) -> None:
         unit = elaborate_project_v1(

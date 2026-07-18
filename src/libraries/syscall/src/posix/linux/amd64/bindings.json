@@ -5,7 +5,7 @@
       "arguments": ["c_int", "bytes_pointer_at", "c_size"],
       "result": "ssize_errno",
       "sloph_parameters": ["Int", "Bytes", "Int", "Int"],
-      "sloph_result": "syscall::posix::WriteResult"
+      "sloph_result": "syscall::posix::native::NativeWriteResult"
     },
     "c_parameters": ["int", "const void *", "size_t"],
     "c_result": "ssize_t",
@@ -20,11 +20,11 @@
       "result": "must_use"
     },
     "header": "syscall.h",
-    "identity": "foreign.syscall.posix_write",
+    "identity": "foreign.syscall.posix.linux.amd64.write",
     "provenance": "compiler-bundled-reviewed",
+    "provider": "syscall::posix::linux::amd64",
     "requires": ["backend.native", "foreign.c", "host.posix.fd-io"],
-    "symbol": "sloph_syscall_write",
-    "targets": ["aarch64-macos", "x86_64-linux"]
+    "symbol": "sloph_syscall_write"
   },
   {
     "c_parameters": ["int", "void *", "size_t"],
@@ -40,10 +40,10 @@
       "result": "must_use"
     },
     "header": "syscall.h",
-    "identity": "foreign.syscall.posix_read",
+    "identity": "foreign.syscall.posix.linux.amd64.read",
     "provenance": "compiler-bundled-reviewed",
+    "provider": "syscall::posix::linux::amd64",
     "requires": ["backend.native", "foreign.c", "host.posix.fd-io"],
-    "symbol": "sloph_syscall_read",
-    "targets": ["aarch64-macos", "x86_64-linux"]
+    "symbol": "sloph_syscall_read"
   }
 ]

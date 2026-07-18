@@ -4,7 +4,7 @@ from sloph.core.diagnostics import fail
 from sloph.core.limits import Limits
 from sloph.syntax._integer import format_decimal
 from sloph.syntax.model import (
-    Block, BytesExpr, CallExpr, CaseExpr, ConstructorExpr, Expr, FunctionType, GlobalExpr, IfExpr, InferredType, IntExpr, LambdaExpr,
+    Block, BytesExpr, CallExpr, CaseExpr, ConditionalImportDecl, ConstructorExpr, Expr, FunctionType, GlobalExpr, IfExpr, InferredType, IntExpr, LambdaExpr,
     IntType, LocalExpr, Module, NamedType, PrimitiveExpr, TypeRef,
 )
 
@@ -82,11 +82,24 @@ def format_source(
     actual = limits or Limits()
     from sloph.syntax.validate import validate_syntax
     validate_syntax(module, actual, version=version)
-    lines = [f"module {module.name};"]
+    availability = ""
+    if module.availability is not None:
+        availability = f" when {module.availability.selector} {', '.join(module.availability.values)}"
+    lines = [f"module {module.name}{availability};"]
     if module.imports:
         lines.append("")
         for item in module.imports:
-            lines.append(f"import {item.module}::{{{', '.join(item.names)}}};")
+            if isinstance(item, ConditionalImportDecl):
+                lines.append(f"import case {item.selector} {{")
+                for alternative in item.alternatives:
+                    selected = alternative.import_
+                    lines.append(
+                        f"  {', '.join(alternative.values)} => "
+                        f"{selected.module}::{{{', '.join(selected.names)}}};"
+                    )
+                lines.append("}")
+            else:
+                lines.append(f"import {item.module}::{{{', '.join(item.names)}}};")
     declarations: list[str] = []
     for declaration in module.types:
         prefix = "public " if declaration.public else ""

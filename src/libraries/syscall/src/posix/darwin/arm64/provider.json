@@ -1,0 +1,1 @@
+{"bindings":"bindings.json","format":0,"module":"syscall::posix::darwin::arm64","sources":["syscall.S"]}

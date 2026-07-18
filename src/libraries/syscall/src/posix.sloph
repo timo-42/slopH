@@ -1,5 +1,11 @@
 module syscall::posix;
 
+import syscall::posix::native::{NativeWriteResult};
+import case SPECIAL_PLATFORM {
+  linux, amd64 => syscall::posix::linux::amd64::{native_write_once};
+  darwin, arm64 => syscall::posix::darwin::arm64::{native_write_once};
+}
+
 public type WriteResult {
   Written(count: Int);
   Interrupted();
@@ -12,5 +18,16 @@ public fn write_once(
   offset: Int,
   count: Int
 ) -> WriteResult {
-  primitive foreign.syscall.posix_write(descriptor, bytes, offset, count)
+  let result = native_write_once(descriptor, bytes, offset, count);
+  case result -> WriteResult {
+    NativeWriteResult::Written(written) => {
+      WriteResult::Written(written)
+    }
+    NativeWriteResult::Interrupted() => {
+      WriteResult::Interrupted()
+    }
+    NativeWriteResult::Error(native_code) => {
+      WriteResult::Error(native_code)
+    }
+  }
 }

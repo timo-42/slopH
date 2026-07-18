@@ -210,16 +210,17 @@ def _decode_unit(node: SExpr, limits: Limits) -> CoreUnit:
 
 
 def _decode_foreign(node: SExpr) -> ForeignBinding:
-    items = _tagged(node, "binding", exact=13)
+    items = _tagged(node, "binding", exact=14)
     params = _tagged(items[4], "params", minimum=1)
     result = _tagged(items[5], "result", exact=2)
     c_params = _tagged(items[6], "c-params", minimum=1)
     c_result = _tagged(items[7], "c-result", exact=2)
-    requires = _tagged(items[8], "requires", minimum=1)
-    effects = _tagged(items[9], "effects", minimum=1)
-    targets = _tagged(items[10], "targets", minimum=1)
-    facts = _tagged(items[11], "facts", minimum=1)
-    provenance = _tagged(items[12], "provenance", exact=2)
+    provider = _tagged(items[8], "provider", exact=2)
+    header = _tagged(items[9], "header", exact=2)
+    requires = _tagged(items[10], "requires", minimum=1)
+    effects = _tagged(items[11], "effects", minimum=1)
+    facts = _tagged(items[12], "facts", minimum=1)
+    provenance = _tagged(items[13], "provenance", exact=2)
     pairs = []
     for fact in facts[1:]:
         fact_items = _tagged(fact, "fact", exact=3)
@@ -232,9 +233,10 @@ def _decode_foreign(node: SExpr) -> ForeignBinding:
         _atom(items[3], "adapter").value,
         tuple(unquote(_atom(item, "C parameter").value) for item in c_params[1:]),
         unquote(_atom(c_result[1], "C result").value),
+        _atom(provider[1], "provider").value,
+        unquote(_atom(header[1], "header").value),
         tuple(_atom(item, "requirement").value for item in requires[1:]),
         tuple(_atom(item, "effect").value for item in effects[1:]),
-        tuple(_atom(item, "target").value for item in targets[1:]),
         tuple(pairs),
         _atom(provenance[1], "provenance").value,
     )

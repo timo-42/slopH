@@ -31,6 +31,8 @@ from sloph.core.model import (
 
 SEGMENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
 FOREIGN_RE = re.compile(r"foreign(?:\.[A-Za-z_][A-Za-z0-9_]*)+\Z")
+PROVIDER_RE = re.compile(r"[a-z_][A-Za-z0-9_]*(?:::[a-z_][A-Za-z0-9_]*)+\Z")
+HEADER_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_.-]*\Z")
 PRIMITIVES: dict[str, tuple[tuple[CoreType, ...], CoreType]] = {
     "int.add": ((INT, INT), INT),
     "int.sub": ((INT, INT), INT),
@@ -76,6 +78,10 @@ def validate(unit: CoreUnit) -> None:
     for binding in unit.foreign_bindings:
         if not FOREIGN_RE.fullmatch(binding.identity):
             fail("core.validate.foreign_identity", "validate", f"invalid foreign binding identity {binding.identity!r}", unit.span)
+        if not PROVIDER_RE.fullmatch(binding.provider):
+            fail("core.validate.foreign_provider", "validate", f"invalid foreign provider identity {binding.provider!r}", unit.span)
+        if not HEADER_RE.fullmatch(binding.header):
+            fail("core.validate.foreign_header", "validate", f"invalid foreign header {binding.header!r}", unit.span)
         for parameter in binding.parameters:
             _well_formed_type(context, parameter, unit.span)
         _well_formed_type(context, binding.result, unit.span)

@@ -1,0 +1,7 @@
+module syscall::posix::native;
+
+public type NativeWriteResult {
+  Written(count: Int);
+  Interrupted();
+  Error(native_code: Int);
+}

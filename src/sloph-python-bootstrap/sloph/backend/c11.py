@@ -27,6 +27,7 @@ from sloph.core.model import (
     LamExpr,
     LetExpr,
     LocalExpr,
+    NamedType,
     PrimExpr,
 )
 from sloph.core.validate import validate
@@ -292,8 +293,6 @@ _RUNTIME = r'''#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "syscall.h"
-
 #define SL_MAX_LIMBS 512u
 #define SL_DECIMAL_CHUNKS 549u
 #define SL_MAX_VALUES 100000u
@@ -584,7 +583,11 @@ class _Emitter:
         self.temp = 0
 
     def emit(self) -> str:
-        runtime = _RUNTIME if self.unit.foreign_bindings else _RUNTIME.replace('#include "syscall.h"\n', '')
+        headers = "".join(
+            f'#include "{header}"\n'
+            for header in sorted({item.header for item in self.unit.foreign_bindings})
+        )
+        runtime = headers + _RUNTIME
         output = [runtime]
         output.append(self._declarations())
         output.append(self._dispatch())
@@ -753,9 +756,12 @@ class _Emitter:
                 binding=self.foreign_bindings[expression.name]
                 if binding.adapter != "borrowed_bytes_write":
                     fail("backend.c11.foreign_adapter", "backend", f"unsupported foreign adapter {binding.adapter!r}", expression.span, binding=expression.name)
-                written_tag=self.constructor_ids["syscall::posix::WriteResult::Written"]
-                interrupted_tag=self.constructor_ids["syscall::posix::WriteResult::Interrupted"]
-                error_tag=self.constructor_ids["syscall::posix::WriteResult::Error"]
+                if not isinstance(binding.result, NamedType):
+                    fail("backend.c11.foreign_adapter", "backend", "borrowed-bytes write result must be a named enum", expression.span, binding=expression.name)
+                result_type=binding.result.name
+                written_tag=self.constructor_ids[f"{result_type}::Written"]
+                interrupted_tag=self.constructor_ids[f"{result_type}::Interrupted"]
+                error_tag=self.constructor_ids[f"{result_type}::Error"]
                 fd=self._new(); offset=self._new(); count=self._new(); native=self._new(); error=self._new(); field=self._new()
                 lines.append(f'{indent}uint64_t {fd}=sl_int_u64_value({values[0]},"file descriptor is outside C int range");')
                 lines.append(f'{indent}if({fd}>(uint64_t)INT_MAX)sl_die("file descriptor is outside C int range");')

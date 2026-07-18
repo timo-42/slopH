@@ -32,12 +32,19 @@ def _encode(value: Any) -> dict[str, Any]:
     if isinstance(value, CaseAlternative): return common | {"constructor": value.constructor, "binders": [_encode(x) for x in value.binders], "body": _encode(value.body)}
     if isinstance(value, CaseExpr): return common | {"scrutinee": _encode(value.scrutinee), "result_type": _encode(value.result_type), "alternatives": [_encode(x) for x in value.alternatives]}
     if isinstance(value, ImportDecl): return common | {"module": value.module, "names": list(value.names)}
+    if isinstance(value, Availability): return common | {"selector": value.selector, "values": list(value.values)}
+    if isinstance(value, ConditionalImportAlternative): return common | {"values": list(value.values), "import": _encode(value.import_)}
+    if isinstance(value, ConditionalImportDecl): return common | {"selector": value.selector, "alternatives": [_encode(x) for x in value.alternatives]}
     if isinstance(value, FieldDecl): return common | {"name": value.name, "type": _encode(value.type)}
     if isinstance(value, ConstructorDecl): return common | {"name": value.name, "fields": [_encode(x) for x in value.fields]}
     if isinstance(value, TypeDecl): return common | {"name": value.name, "constructors": [_encode(x) for x in value.constructors], "public": value.public}
     if isinstance(value, FunctionDecl): return common | {"name": value.name, "parameters": [_encode(x) for x in value.parameters], "result_type": _encode(value.result_type), "body": _encode(value.body), "public": value.public}
     if isinstance(value, ValueDecl): return common | {"name": value.name, "type": _encode(value.type), "value": _encode(value.value), "public": value.public}
-    if isinstance(value, Module): return common | {"name": value.name, "imports": [_encode(x) for x in value.imports], "types": [_encode(x) for x in value.types], "functions": [_encode(x) for x in value.functions], "values": [_encode(x) for x in value.values]}
+    if isinstance(value, Module):
+        result = common | {"name": value.name, "imports": [_encode(x) for x in value.imports], "types": [_encode(x) for x in value.types], "functions": [_encode(x) for x in value.functions], "values": [_encode(x) for x in value.values]}
+        if value.availability is not None:
+            result["availability"] = _encode(value.availability)
+        return result
     raise TypeError(f"unknown syntax node: {type(value).__name__}")
 
 
@@ -102,13 +109,19 @@ class _Decoder:
                 "LetBinding": {"binder", "value"}, "Block": {"bindings", "result"},
                 "CaseAlternative": {"constructor", "binders", "body"}, "CaseExpr": {"scrutinee", "result_type", "alternatives"},
                 "ImportDecl": {"module", "names"}, "FieldDecl": {"name", "type"},
+                "Availability": {"selector", "values"},
+                "ConditionalImportAlternative": {"values", "import"},
+                "ConditionalImportDecl": {"selector", "alternatives"},
                 "ConstructorDecl": {"name", "fields"}, "TypeDecl": {"name", "constructors", "public"},
                 "FunctionDecl": {"name", "parameters", "result_type", "body", "public"},
                 "ValueDecl": {"name", "type", "value", "public"},
-                "Module": {"name", "imports", "types", "functions", "values"},
+                "Module": {"name", "imports", "types", "functions", "values", "availability"},
             }
             if kind not in fields: self.bad("unknown node kind", kind=kind)
-            obj = self.obj(value, {"kind", "span"} | fields[kind], kind); span = self.span(obj["span"])
+            expected_fields = fields[kind]
+            if kind == "Module" and "availability" not in value:
+                expected_fields = expected_fields - {"availability"}
+            obj = self.obj(value, {"kind", "span"} | expected_fields, kind); span = self.span(obj["span"])
             s, n, a = self.string, self.node, self.array
             if kind == "IntType": return IntType(span)
             if kind == "NamedType": return NamedType(s(obj["name"], "name"), span)
@@ -139,12 +152,17 @@ class _Decoder:
             if kind == "CaseAlternative": return CaseAlternative(s(obj["constructor"], "constructor"), a(obj["binders"], n), n(obj["body"]), span)
             if kind == "CaseExpr": return CaseExpr(n(obj["scrutinee"]), n(obj["result_type"]), a(obj["alternatives"], n), span)
             if kind == "ImportDecl": return ImportDecl(s(obj["module"], "module"), a(obj["names"], lambda x: s(x, "name")), span)
+            if kind == "Availability": return Availability(s(obj["selector"], "selector"), a(obj["values"], lambda x: s(x, "value")), span)
+            if kind == "ConditionalImportAlternative": return ConditionalImportAlternative(a(obj["values"], lambda x: s(x, "value")), n(obj["import"]), span)
+            if kind == "ConditionalImportDecl": return ConditionalImportDecl(s(obj["selector"], "selector"), a(obj["alternatives"], n), span)
             if kind == "FieldDecl": return FieldDecl(s(obj["name"], "name"), n(obj["type"]), span)
             if kind == "ConstructorDecl": return ConstructorDecl(s(obj["name"], "name"), a(obj["fields"], n), span)
             if kind == "TypeDecl": return TypeDecl(s(obj["name"], "name"), a(obj["constructors"], n), self.boolean(obj["public"], "public"), span)
             if kind == "FunctionDecl": return FunctionDecl(s(obj["name"], "name"), a(obj["parameters"], n), n(obj["result_type"]), n(obj["body"]), self.boolean(obj["public"], "public"), span)
             if kind == "ValueDecl": return ValueDecl(s(obj["name"], "name"), n(obj["type"]), n(obj["value"]), self.boolean(obj["public"], "public"), span)
-            if kind == "Module": return Module(s(obj["name"], "name"), a(obj["imports"], n), a(obj["types"], n), a(obj["functions"], n), a(obj["values"], n), span)
+            if kind == "Module":
+                availability = None if "availability" not in obj or obj["availability"] is None else n(obj["availability"])
+                return Module(s(obj["name"], "name"), a(obj["imports"], n), a(obj["types"], n), a(obj["functions"], n), a(obj["values"], n), span, availability)
             raise AssertionError(kind)
         finally: self.depth -= 1
 

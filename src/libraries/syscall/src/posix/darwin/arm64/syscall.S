@@ -1,7 +1,6 @@
 #include "syscall.h"
 
 .text
-
 .p2align 2
 .globl _sloph_syscall_read
 _sloph_syscall_read:

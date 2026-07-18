@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 import os
 from pathlib import Path
 import platform
@@ -84,15 +85,25 @@ def _compile(
     destination.parent.mkdir(parents=True, exist_ok=True)
     compiler = _resolve_compiler(cc)
     flags = _target_flags()
-    include_root, provider = _native_boundary()
+    native_inputs = _native_inputs(unit)
     with tempfile.TemporaryDirectory(prefix="sloph-c11-") as directory:
         root = Path(directory)
         source_path = root / "program.c"
         binary_path = root / "program"
         source_path.write_text(c_source, encoding="ascii", newline="\n")
+        include_arguments = [
+            argument
+            for include_root, _ in native_inputs
+            for argument in ("-I", str(include_root))
+        ]
+        provider_sources = [
+            str(source)
+            for _, sources in native_inputs
+            for source in sources
+        ]
         command = [
-            compiler, *flags, "-I", str(include_root), str(source_path),
-            str(provider), "-o", str(binary_path),
+            compiler, *flags, *include_arguments, str(source_path),
+            *provider_sources, "-o", str(binary_path),
         ]
         returncode, stderr_bytes = _run_compiler_bounded(command, compiler)
         if returncode != 0:
@@ -295,21 +306,28 @@ def _target_flags() -> list[str]:
     )
 
 
-def _native_boundary() -> tuple[Path, Path]:
-    root = libraries_root() / "syscall"
-    system = platform.system()
-    machine = platform.machine().lower()
-    if system == "Darwin" and machine == "arm64":
-        provider = root / "platform" / "macos" / "syscall.S"
-    elif system == "Linux" and machine in ("x86_64", "amd64"):
-        provider = root / "platform" / "linux" / "syscall.S"
-    else:
-        fail(
-            "compiler.c11.unsupported_host", "environment",
-            "the experimental native bridge supports only macOS ARM64 and Linux AMD64",
-            system=system, machine=machine,
-        )
-    return provider.parent, provider
+def _native_inputs(unit: CoreUnit) -> tuple[tuple[Path, tuple[Path, ...]], ...]:
+    result = []
+    for identity in sorted({binding.provider for binding in unit.foreign_bindings}):
+        parts = identity.split("::")
+        if len(parts) < 2 or any(not part or not part.replace("_", "a").isalnum() for part in parts):
+            fail("compiler.provider.identity", "backend", "invalid native provider identity", provider=identity)
+        root = libraries_root() / parts[0] / "src" / Path(*parts[1:])
+        manifest_path = root / "provider.json"
+        try:
+            metadata = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as error:
+            fail("compiler.provider.metadata", "environment", f"native provider metadata could not be loaded: {error}", provider=identity, path=str(manifest_path))
+        if not isinstance(metadata, dict) or set(metadata) != {"format", "module", "bindings", "sources"} or metadata.get("format") != 0 or metadata.get("module") != identity:
+            fail("compiler.provider.metadata", "environment", "native provider metadata is invalid", provider=identity, path=str(manifest_path))
+        names = metadata["sources"]
+        if not isinstance(names, list) or not names or not all(isinstance(name, str) and Path(name).name == name for name in names):
+            fail("compiler.provider.metadata", "environment", "native provider sources are invalid", provider=identity, path=str(manifest_path))
+        sources = tuple(root / name for name in names)
+        if any(not source.is_file() for source in sources):
+            fail("compiler.provider.source", "environment", "native provider source is missing", provider=identity)
+        result.append((root, sources))
+    return tuple(result)
 
 
 def _atomic_text(path: Path, content: str) -> None:
