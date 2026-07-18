@@ -3,11 +3,11 @@ from sloph.core.limits import Limits
 from sloph.syntax.format import format_source
 from sloph.syntax.json import syntax_from_json, syntax_to_json
 from sloph.syntax.model import *
-from sloph.syntax.parser import parse_source
+from sloph.syntax.parser import parse_source, parse_source_v1
 from sloph.syntax.validate import validate_syntax
 
 __all__ = [
-    "Diagnostic", "DiagnosticError", "Span", "Limits", "parse_source",
+    "Diagnostic", "DiagnosticError", "Span", "Limits", "parse_source", "parse_source_v1",
     "format_source", "syntax_to_json", "syntax_from_json", "validate_syntax",
     "IntType", "NamedType", "TypeRef", "Binder", "IntExpr", "LocalExpr",
     "GlobalExpr", "CallExpr", "ConstructorExpr", "PrimitiveExpr", "LetBinding",

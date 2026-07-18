@@ -57,19 +57,49 @@ def elaborate_project(
     """Resolve and lower the complete project to a validated Core v0 unit."""
 
     project = path if isinstance(path, Project) else load_project(path, limits)
+    return _elaborate(project, version=0)
+
+
+def elaborate_project_v1(
+    path: str | Path | Project, limits: Limits | None = None
+) -> CoreUnit:
+    """Resolve Source v1 into independently validated Core v1."""
+    project = path if isinstance(path, Project) else load_project(
+        path, limits, source_version=1
+    )
+    return _elaborate(project, version=1)
+
+
+def _elaborate(project: Project, *, version: int) -> CoreUnit:
     scopes = _build_scopes(project)
     enums: list[EnumDecl] = []
+    if version == 1:
+        enums.extend(
+            (
+                EnumDecl(
+                    "core::Bool",
+                    (
+                        ConstructorDecl("core::Bool::False", ()),
+                        ConstructorDecl("core::Bool::True", ()),
+                    ),
+                ),
+                EnumDecl(
+                    "core::Unit",
+                    (ConstructorDecl("core::Unit::Unit", ()),),
+                ),
+            )
+        )
     definitions: list[Definition] = []
     for module in project.modules:
         scope = scopes[module.name]
         for declaration in _sequence(module.syntax, "types"):
             enums.append(_lower_enum(scope, declaration))
         for declaration in _sequence(module.syntax, "functions"):
-            definitions.append(_lower_function(scope, declaration))
+            definitions.append(_lower_function(scope, declaration, version=version))
         for declaration in _sequence(module.syntax, "values"):
             definitions.append(_lower_value(scope, declaration))
     unit = CoreUnit(
-        0,
+        version,
         tuple(sorted(enums, key=lambda item: item.name)),
         tuple(sorted(definitions, key=lambda item: item.name)),
     )
@@ -185,10 +215,10 @@ def _lower_enum(scope: _Scope, declaration: Any) -> EnumDecl:
     return EnumDecl(symbol.global_name, tuple(constructors), _span(declaration))
 
 
-def _lower_function(scope: _Scope, declaration: Any) -> Definition:
+def _lower_function(scope: _Scope, declaration: Any, *, version: int = 0) -> Definition:
     symbol = scope.own[declaration.name]
     parameters = _sequence(declaration, "parameters")
-    if not parameters:
+    if not parameters and version == 0:
         fail(
             "project.resolve.zero_parameter_function",
             "resolve",
@@ -203,6 +233,11 @@ def _lower_function(scope: _Scope, declaration: Any) -> Definition:
     locals_: dict[str, CoreType] = {}
     used: set[str] = set()
     binders: list[Binder] = []
+    if not parameters:
+        unit = NamedType("core::Unit")
+        type_ = FunctionType(unit, type_)
+        binders.append(Binder("_unit", unit, _span(declaration)))
+        used.add("_unit")
     for parameter in parameters:
         binder = _new_binder(scope, parameter, locals_, used)
         binders.append(binder)
@@ -310,6 +345,8 @@ def _lower_expr(
                 actual=len(arguments),
             )
         result = GlobalExpr(symbol.global_name, _span(target))
+        if expected == 0:
+            return AppExpr(result, ConExpr("core::Unit::Unit", (), span), span)
         for argument in arguments:
             result = AppExpr(
                 result, _lower_expr(scope, argument, locals_, used), span
@@ -383,6 +420,10 @@ def _resolve_type(scope: _Scope, source_type: Any) -> CoreType:
     if _class(source_type) == "IntType":
         return INT
     if _class(source_type) == "NamedType":
+        if source_type.name in ("Bool", "core::Bool"):
+            return NamedType("core::Bool")
+        if source_type.name in ("Unit", "core::Unit"):
+            return NamedType("core::Unit")
         symbol = _resolve_symbol(scope, source_type.name, _span(source_type))
         if symbol.kind != "type":
             fail(
@@ -421,6 +462,17 @@ def _resolve_symbol(scope: _Scope, name: str, span: Span) -> _Symbol:
 
 
 def _resolve_constructor(scope: _Scope, name: str, span: Span) -> tuple[str, Any]:
+    builtins = {
+        "Bool::False": ("core::Bool::False", ()),
+        "Bool::True": ("core::Bool::True", ()),
+        "core::Bool::False": ("core::Bool::False", ()),
+        "core::Bool::True": ("core::Bool::True", ()),
+        "Unit::Unit": ("core::Unit::Unit", ()),
+        "core::Unit::Unit": ("core::Unit::Unit", ()),
+    }
+    if name in builtins:
+        global_name, fields = builtins[name]
+        return global_name, type("BuiltinConstructor", (), {"fields": fields})()
     if name in scope.constructors:
         return scope.constructors[name]
     for local_name, result in scope.constructors.items():

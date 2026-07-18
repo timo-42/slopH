@@ -108,6 +108,50 @@ def _parser() -> argparse.ArgumentParser:
     run_command.add_argument("--cc", default="cc", metavar="PATH")
     run_command.add_argument("--emit-c", metavar="PATH")
     run_command.add_argument("--timings", action="store_true")
+
+    stable_check = commands.add_parser("check", help="check a Source v1 project")
+    stable_check.add_argument("input", metavar="PROJECT")
+
+    stable_format = commands.add_parser("format", help="format a Source v1 file")
+    stable_format.add_argument("input", metavar="INPUT")
+    stable_format_mode = stable_format.add_mutually_exclusive_group()
+    stable_format_mode.add_argument("--write", action="store_true")
+    stable_format_mode.add_argument("--check", action="store_true")
+    stable_format_mode.add_argument("--stdout", action="store_true")
+
+    stable_ast = commands.add_parser("ast", help="public Source v1 AST tools")
+    stable_ast_commands = stable_ast.add_subparsers(dest="ast_command", required=True)
+    stable_ast_print = stable_ast_commands.add_parser("print", help="print Source v1 AST JSON")
+    stable_ast_print.add_argument("input", metavar="INPUT")
+    stable_ast_print.add_argument("--input-format", choices=("source", "json"), default="source")
+    stable_ast_print.add_argument("--format", choices=("json",), default="json")
+    stable_ast_print.add_argument("-o", "--output", default="-")
+    stable_ast_check = stable_ast_commands.add_parser("check", help="validate Source v1 or AST JSON")
+    stable_ast_check.add_argument("input", metavar="INPUT")
+    stable_ast_check.add_argument("--input-format", choices=("source", "json"), default="source")
+
+    stable_core = commands.add_parser("core", help="public Core v1 tools")
+    stable_core_commands = stable_core.add_subparsers(dest="core_command", required=True)
+    stable_core_check = stable_core_commands.add_parser("check", help="validate Core v1")
+    stable_core_check.add_argument("input", metavar="INPUT")
+    stable_core_check.add_argument("--input-format", choices=("text", "source"), default="text")
+    stable_core_print = stable_core_commands.add_parser("print", help="print canonical Core v1")
+    stable_core_print.add_argument("input", metavar="INPUT")
+    stable_core_print.add_argument("--input-format", choices=("text", "source"), default="source")
+    stable_core_print.add_argument("-o", "--output", default="-")
+
+    stable_compile = commands.add_parser("compile", help="compile Source v1 through C11")
+    stable_compile.add_argument("input", metavar="PROJECT")
+    stable_compile.add_argument("-o", "--output", required=True)
+    stable_compile.add_argument("--cc", default="cc", metavar="PATH")
+    stable_compile.add_argument("--emit-c", metavar="PATH")
+    stable_compile.add_argument("--timings", action="store_true")
+
+    stable_run = commands.add_parser("run", help="compile and run a Source v1 project")
+    stable_run.add_argument("input", metavar="PROJECT")
+    stable_run.add_argument("--cc", default="cc", metavar="PATH")
+    stable_run.add_argument("--emit-c", metavar="PATH")
+    stable_run.add_argument("--timings", action="store_true")
     return parser
 
 
@@ -165,6 +209,8 @@ def _write_output(path: str, content: str, *, preserve_mode: bool = False) -> No
 
 
 def _run(args: argparse.Namespace) -> int:
+    if args.command != "unstable":
+        return _run_v1(args)
     limits = Limits()
     if getattr(args, "fuel", None) is not None:
         limits = limits.with_fuel(args.fuel)
@@ -261,6 +307,82 @@ def _run(args: argparse.Namespace) -> int:
             sys.stderr.buffer.write(completed.stderr)
         return 1
     raise AssertionError(f"unsupported unstable command {args.unstable_command!r}")
+
+
+def _run_v1(args: argparse.Namespace) -> int:
+    limits = Limits()
+    if args.command == "check":
+        from sloph.project import elaborate_project_v1
+        elaborate_project_v1(args.input, limits)
+        return 0
+    if args.command == "format":
+        from sloph.syntax import format_source, parse_source_v1
+        data = _read_input(args.input, limits, profile="syntax")
+        rendered = format_source(parse_source_v1(data, limits), limits, version=1)
+        if args.write:
+            if args.input == "-":
+                raise _UsageError("--write requires a file input")
+            _write_output(args.input, rendered, preserve_mode=True)
+        elif args.check:
+            return 0 if data == rendered.encode("ascii") else 1
+        else:
+            sys.stdout.write(rendered)
+        return 0
+    if args.command == "ast":
+        from sloph.syntax import parse_source_v1, syntax_from_json, syntax_to_json
+        data = _read_input(args.input, limits, profile="syntax")
+        module = (
+            parse_source_v1(data, limits)
+            if args.input_format == "source"
+            else syntax_from_json(data, limits, version=1)
+        )
+        if args.ast_command == "print":
+            _write_output(args.output, syntax_to_json(module, limits, version=1))
+        return 0
+    if args.command == "core":
+        from sloph.project import elaborate_project_v1
+        if args.input_format == "source":
+            unit = elaborate_project_v1(args.input, limits)
+        else:
+            unit = parse_core(_read_input(args.input, limits), limits)
+            if unit.version != 1:
+                fail(
+                    "core.validate.unsupported_version",
+                    "validate",
+                    "stable Core commands require Core version 1",
+                    unit.span,
+                    version=unit.version,
+                )
+        validate(unit)
+        if args.core_command == "print":
+            _write_output(args.output, format_core(unit, limits))
+        return 0
+    if args.command == "compile":
+        from sloph.compiler import compile_project
+        result = compile_project(
+            args.input,
+            args.output,
+            cc=args.cc,
+            emit_c_path=args.emit_c,
+            source_version=1,
+        )
+        if args.timings:
+            _render_timings(result.timings_ns, args.diagnostics)
+        return 0
+    if args.command == "run":
+        from sloph.compiler import run_project
+        result, completed = run_project(
+            args.input,
+            cc=args.cc,
+            emit_c_path=args.emit_c,
+            source_version=1,
+        )
+        if args.timings:
+            _render_timings(result.timings_ns, args.diagnostics)
+        sys.stdout.buffer.write(completed.stdout)
+        sys.stderr.buffer.write(completed.stderr)
+        return 0 if completed.returncode == 0 else 1
+    raise AssertionError(f"unsupported stable command {args.command!r}")
 
 
 def _render_timings(values: dict[str, int], diagnostics: str) -> None:

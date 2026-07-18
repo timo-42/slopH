@@ -48,12 +48,14 @@ def _block(value: Block, indent: int) -> str:
     return "\n".join(lines)
 
 
-def format_source(module: Module, limits: Limits | None = None) -> str:
+def format_source(
+    module: Module, limits: Limits | None = None, *, version: int = 0
+) -> str:
     """Return the deterministic canonical source spelling."""
     if not isinstance(module, Module): raise TypeError("module must be a syntax Module")
     actual = limits or Limits()
     from sloph.syntax.validate import validate_syntax
-    validate_syntax(module, actual)
+    validate_syntax(module, actual, version=version)
     lines = [f"module {module.name};"]
     if module.imports:
         lines.append("")

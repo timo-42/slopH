@@ -21,7 +21,7 @@ def _upper(name: str) -> bool: return _ident(name) and name[0].isupper()
 
 
 class _Validator:
-    def __init__(self, limits: Limits): self.limits, self.nodes, self.depth = limits, 0, 0
+    def __init__(self, limits: Limits, version: int = 0): self.limits, self.version, self.nodes, self.depth = limits, version, 0, 0
 
     def visit(self, node: Any) -> None:
         self.nodes += 1; self.depth += 1
@@ -89,7 +89,7 @@ class _Validator:
     def v_CallExpr(self, node):
         if not isinstance(node.function, (LocalExpr, GlobalExpr)):
             _bad("dynamic_call", "calls must directly name a function", node)
-        if not node.arguments:
+        if self.version == 0 and not node.arguments:
             _bad("call_arity", "Source v0 calls require at least one argument", node)
         self.expr(node.function)
         for x in node.arguments: self.expr(x)
@@ -98,7 +98,10 @@ class _Validator:
         if len(parts) < 2 or not _upper(parts[-1]) or not _upper(parts[-2]) or not all(_lower(x) for x in parts[:-2]): _bad("invalid_name", "constructor must be qualified through an uppercase type", node, name=node.constructor)
         for x in node.arguments: self.expr(x)
     def v_PrimitiveExpr(self, node):
-        if node.name not in {"int.add", "int.sub", "int.mul"}: _bad("invalid_primitive", "unknown source primitive", node, name=node.name)
+        primitives = {"int.add", "int.sub", "int.mul"}
+        if self.version == 1:
+            primitives |= {"int.equal", "int.less"}
+        if node.name not in primitives: _bad("invalid_primitive", "unknown source primitive", node, name=node.name)
         if len(node.arguments) != 2: _bad("primitive_arity", "integer primitive requires exactly two arguments", node, name=node.name)
         for x in node.arguments: self.expr(x)
     def v_LetBinding(self, node): self.binder(node.binder); self.expr(node.value)
@@ -136,7 +139,7 @@ class _Validator:
             self.visit(x)
     def v_FunctionDecl(self, node):
         if not isinstance(node.public, bool) or not _lower(node.name): _bad("invalid_declaration", "function must have boolean visibility and lowercase name", node)
-        if not node.parameters: _bad("function_arity", "Source v0 functions require at least one parameter", node)
+        if self.version == 0 and not node.parameters: _bad("function_arity", "Source v0 functions require at least one parameter", node)
         for x in node.parameters: self.binder(x)
         self.typ(node.result_type); self.block(node.body)
     def v_ValueDecl(self, node):
@@ -151,10 +154,12 @@ class _Validator:
                 self.visit(value)
 
 
-def validate_syntax(module: Module, limits: Limits | None = None) -> None:
+def validate_syntax(module: Module, limits: Limits | None = None, *, version: int = 0) -> None:
     """Validate an in-memory public Syntax AST without resolving names or types."""
     if not isinstance(module, Module): raise TypeError("module must be a syntax Module")
-    _Validator(limits or Limits()).visit(module)
+    if version not in (0, 1):
+        raise ValueError("syntax version must be 0 or 1")
+    _Validator(limits or Limits(), version).visit(module)
 
 
 __all__ = ["validate_syntax"]

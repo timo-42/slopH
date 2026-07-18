@@ -288,7 +288,7 @@ class _Machine:
             return alternative.body, environment
         raise AssertionError(f"unknown evaluator frame {type(frame)!r}")
 
-    def _primitive(self, name: str, values: list[Value], span: Span) -> IntValue:
+    def _primitive(self, name: str, values: list[Value], span: Span) -> Value:
         left, right = values
         if not isinstance(left, IntValue) or not isinstance(right, IntValue):
             fail(
@@ -299,6 +299,10 @@ class _Machine:
             )
         left_limbs = _limbs(left.value)
         right_limbs = _limbs(right.value)
+        if name in ("int.equal", "int.less"):
+            self._consume(1 + left_limbs + right_limbs, span)
+            truth = left.value == right.value if name == "int.equal" else left.value < right.value
+            return ConValue(f"core::Bool::{'True' if truth else 'False'}", (), 1)
         if name == "int.mul":
             self._consume(1 + left_limbs * right_limbs, span)
             maximum_bits = _bits(left.value) + _bits(right.value)
