@@ -1,0 +1,9 @@
+module std::bytes;
+
+public fn length(bytes: Bytes) -> Int {
+  primitive bytes.length(bytes)
+}
+
+public fn is_empty(bytes: Bytes) -> Bool {
+  length(bytes) == 0
+}
