@@ -4,7 +4,7 @@ from sloph.core.diagnostics import fail
 from sloph.core.limits import Limits
 from sloph.syntax._integer import format_decimal
 from sloph.syntax.model import (
-    Block, CallExpr, CaseExpr, ConstructorExpr, Expr, GlobalExpr, IntExpr,
+    Block, BytesExpr, CallExpr, CaseExpr, ConstructorExpr, Expr, GlobalExpr, IntExpr,
     IntType, LocalExpr, Module, NamedType, PrimitiveExpr, TypeRef,
 )
 
@@ -17,6 +17,7 @@ def _type(value: TypeRef) -> str:
 
 def _expr(value: Expr, indent: int) -> str:
     if isinstance(value, IntExpr): return format_decimal(value.value)
+    if isinstance(value, BytesExpr): return _bytes(value.value)
     if isinstance(value, (LocalExpr, GlobalExpr)): return value.name
     if isinstance(value, CallExpr):
         return f"{_expr(value.function, indent)}({', '.join(_expr(a, indent) for a in value.arguments)})"
@@ -34,6 +35,20 @@ def _expr(value: Expr, indent: int) -> str:
         lines.append(f"{pad}}}")
         return "\n".join(lines)
     raise TypeError(f"unknown syntax expression: {type(value).__name__}")
+
+
+def _bytes(value: bytes) -> str:
+    simple = {0: "\\0", 9: "\\t", 10: "\\n", 13: "\\r", 34: '\\"', 92: "\\\\"}
+    parts = ['"']
+    for byte in value:
+        if byte in simple:
+            parts.append(simple[byte])
+        elif 32 <= byte <= 126:
+            parts.append(chr(byte))
+        else:
+            parts.append(f"\\x{byte:02x}")
+    parts.append('"')
+    return "".join(parts)
 
 
 def _block(value: Block, indent: int) -> str:

@@ -7,6 +7,7 @@ from sloph.core.model import (
     Alternative,
     AppExpr,
     Binder,
+    BytesExpr,
     CaseExpr,
     ConExpr,
     CoreType,
@@ -57,7 +58,7 @@ def format_core(unit: CoreUnit, limits: Limits | None = None) -> str:
         limit_fail("print", "output_bytes", limits.output_bytes, unit.span)
     form: Form = (
         "core",
-        "0",
+        str(canonical.version),
         ("types", *(_enum_form(enum) for enum in canonical.types)),
         ("defs", *(_definition_form(definition) for definition in canonical.definitions)),
     )
@@ -133,6 +134,8 @@ def _binder_size(binder: Binder) -> int:
 def _expression_size(expression: Expr) -> int:
     if isinstance(expression, IntExpr):
         return _list_size((len("int"), len(decimal_string(expression.value))))
+    if isinstance(expression, BytesExpr):
+        return _list_size((len("bytes"), 1 + len(expression.value) * 2))
     if isinstance(expression, LocalExpr):
         return _list_size((len("local"), len(expression.name)))
     if isinstance(expression, GlobalExpr):
@@ -217,7 +220,7 @@ def _rename_expr(
     counter: list[int],
     constructors: dict[str, EnumDecl],
 ) -> Expr:
-    if isinstance(expression, (IntExpr, GlobalExpr)):
+    if isinstance(expression, (IntExpr, BytesExpr, GlobalExpr)):
         return expression
     if isinstance(expression, LocalExpr):
         return replace(expression, name=environment[expression.name])
@@ -335,6 +338,8 @@ def _binder_form(binder: Binder) -> Form:
 def _expr_form(expression: Expr) -> Form:
     if isinstance(expression, IntExpr):
         return ("int", decimal_string(expression.value))
+    if isinstance(expression, BytesExpr):
+        return ("bytes", "x" + expression.value.hex())
     if isinstance(expression, LocalExpr):
         return ("local", expression.name)
     if isinstance(expression, GlobalExpr):

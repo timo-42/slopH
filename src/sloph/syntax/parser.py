@@ -6,7 +6,7 @@ from sloph.core.diagnostics import DiagnosticError, Span, fail
 from sloph.core.limits import Limits
 from sloph.syntax._integer import parse_decimal
 from sloph.syntax.model import (
-    Binder, Block, CallExpr, CaseAlternative, CaseExpr, ConstructorDecl,
+    Binder, Block, BytesExpr, CallExpr, CaseAlternative, CaseExpr, ConstructorDecl,
     ConstructorExpr, FieldDecl, FunctionDecl, GlobalExpr, ImportDecl, IntExpr,
     IntType, LetBinding, LocalExpr, Module, NamedType, PrimitiveExpr, TypeDecl,
     TypeRef, ValueDecl,
@@ -94,6 +94,19 @@ def _lex(data: bytes, limits: Limits, *, version: int = 0) -> tuple[_Token, ...]
             i += 2
         elif version == 1 and text.startswith("==", i):
             i += 2
+        elif version == 1 and ch == '"':
+            i += 1
+            while i < len(text) and text[i] != '"':
+                if text[i] in "\r\n":
+                    fail("syntax.parse.byte_literal", "parse", "newline in byte literal", Span(start, i + 1))
+                if text[i] == "\\":
+                    i += 1
+                    if i >= len(text):
+                        break
+                i += 1
+            if i >= len(text):
+                fail("syntax.parse.byte_literal", "parse", "unterminated byte literal", Span(start, len(text)))
+            i += 1
         elif version == 1 and ch in "+-*<":
             i += 1
         elif ch in _PUNCT:
@@ -228,6 +241,9 @@ class _Parser:
 
     def atom(self):
         token = self.token
+        if self.version == 1 and token.text.startswith('"'):
+            self.take()
+            return BytesExpr(_decode_bytes(token, self.error), self.node(token.start, token.end))
         if self.version == 1 and token.text == "-":
             start = self.take("-").start
             literal = self.token
@@ -427,3 +443,32 @@ def parse_source_v1(source: str | bytes, limits: Limits | None = None) -> Module
 
 
 __all__ = ["DiagnosticError", "parse_source", "parse_source_v1"]
+
+
+def _decode_bytes(token: _Token, error) -> bytes:
+    text = token.text[1:-1]
+    output = bytearray()
+    index = 0
+    escapes = {"n": 10, "r": 13, "t": 9, "0": 0, "\\": 92, '"': 34}
+    while index < len(text):
+        character = text[index]
+        if character != "\\":
+            output.extend(character.encode("utf-8"))
+            index += 1
+            continue
+        index += 1
+        if index >= len(text):
+            error("unfinished byte escape", token)
+        escape = text[index]
+        index += 1
+        if escape in escapes:
+            output.append(escapes[escape])
+            continue
+        if escape == "x" and index + 2 <= len(text):
+            digits = text[index:index + 2]
+            if all(value in "0123456789abcdefABCDEF" for value in digits):
+                output.append(int(digits, 16))
+                index += 2
+                continue
+        error("unknown byte escape", token)
+    return bytes(output)

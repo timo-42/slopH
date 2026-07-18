@@ -6,7 +6,7 @@ import tempfile
 import unittest
 
 from sloph.compiler import compile_project
-from sloph.core import format_core
+from sloph.core import format_core, parse_core
 from sloph.project import elaborate_project_v1
 from sloph.syntax import parse_source_v1
 
@@ -113,6 +113,23 @@ value main: Int { factorial(6) }
             parse_source_v1(
                 "module demo; fn only_zero(n: Int) -> Int | 0 => { 1 }"
             )
+
+    def test_bytes_are_source_core_and_runtime_values(self) -> None:
+        project = self._project(
+            'module demo::main; value main: Bytes { "hello\\n\\x00\\xff" }'
+        )
+        unit = elaborate_project_v1(project)
+        core = format_core(unit)
+        self.assertIn("(bytes x68656c6c6f0a00ff)", core)
+        self.assertEqual(core, format_core(parse_core(core.encode("ascii"))))
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "bytes"
+            compile_project(project, output, source_version=1)
+            completed = subprocess.run([output], check=False, capture_output=True)
+        self.assertEqual(0, completed.returncode)
+        self.assertEqual(
+            b"(value 0 (bytes x68656c6c6f0a00ff))\n", completed.stdout
+        )
 
 
 if __name__ == "__main__":

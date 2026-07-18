@@ -16,6 +16,7 @@ from sloph.core.model import (
     Alternative,
     AppExpr,
     Binder,
+    BytesExpr,
     CaseExpr,
     ConExpr,
     CoreUnit,
@@ -36,6 +37,11 @@ class IntValue:
 
 
 @dataclass(frozen=True, slots=True)
+class BytesValue:
+    value: bytes
+
+
+@dataclass(frozen=True, slots=True)
 class ConValue:
     constructor: str
     fields: tuple["Value", ...]
@@ -49,7 +55,7 @@ class Closure:
     environment: dict[str, "Value"]
 
 
-Value: TypeAlias = IntValue | ConValue | Closure
+Value: TypeAlias = IntValue | BytesValue | ConValue | Closure
 
 
 @dataclass(slots=True)
@@ -137,7 +143,7 @@ class _Machine:
         frames: list[Frame] = []
         try:
             while True:
-                if isinstance(control, (IntValue, ConValue, Closure)):
+                if isinstance(control, (IntValue, BytesValue, ConValue, Closure)):
                     if not frames:
                         return control
                     frame = frames.pop()
@@ -149,6 +155,9 @@ class _Machine:
                 if isinstance(expression, IntExpr):
                     self._check_integer(expression.value, expression.span)
                     control = self._int_value(expression.value, expression.span)
+                elif isinstance(expression, BytesExpr):
+                    self._consume(1 + len(expression.value), expression.span)
+                    control = BytesValue(expression.value)
                 elif isinstance(expression, LocalExpr):
                     control = environment[expression.name]
                 elif isinstance(expression, GlobalExpr):
@@ -413,6 +422,8 @@ def format_value(value: Value, limits: Limits | None = None) -> str:
             limit_fail("eval", "value_nodes", limits.value_nodes)
         if isinstance(item, IntValue):
             append("(int " + decimal_string(item.value) + ")")
+        elif isinstance(item, BytesValue):
+            append("(bytes x" + item.value.hex() + ")")
         elif isinstance(item, Closure):
             fail(
                 "core.eval.non_printable_result",

@@ -14,6 +14,7 @@ from sloph.core.diagnostics import Span, fail
 from sloph.core.model import (
     AppExpr,
     Binder,
+    BytesExpr,
     CaseExpr,
     ConExpr,
     CoreType,
@@ -168,6 +169,8 @@ def _check_expression(
                 configured=MAX_INTEGER_BITS,
             )
         return
+    if isinstance(expression, BytesExpr):
+        return
     if isinstance(expression, LocalExpr):
         return
     if isinstance(expression, GlobalExpr):
@@ -256,7 +259,8 @@ typedef struct SlChunk SlChunk;
 
 struct SlBig { int sign; size_t len; uint32_t limb[]; };
 typedef struct { uint32_t tag; size_t count; SlValue **field; } SlCon;
-struct SlValue { uint32_t kind; union { SlBig *integer; SlCon con; } as; };
+typedef struct { size_t len; unsigned char *data; } SlBytes;
+struct SlValue { uint32_t kind; union { SlBig *integer; SlCon con; SlBytes bytes; } as; };
 struct SlChunk { SlChunk *next; size_t used; size_t cap; max_align_t align; unsigned char data[]; };
 
 static SlChunk *sl_arena = NULL;
@@ -435,6 +439,12 @@ static SlValue *sl_con(uint32_t tag, size_t count, SlValue **fields) {
     return value;
 }
 
+static SlValue *sl_bytes(const unsigned char *data, size_t len) {
+    if (++sl_value_count > SL_MAX_VALUES) sl_die("value-node limit exceeded (100000)");
+    SlValue *value=(SlValue *)sl_alloc(sizeof(SlValue));value->kind=2u;value->as.bytes.len=len;
+    value->as.bytes.data=len?(unsigned char *)sl_alloc(len):NULL;if(len)memcpy(value->as.bytes.data,data,len);return value;
+}
+
 static void sl_print_big(const SlBig *value) {
     if (!value->sign) { sl_text("0"); return; }
     uint32_t work[SL_MAX_LIMBS], chunks[SL_DECIMAL_CHUNKS]; size_t len=value->len,count=0u; memcpy(work,value->limb,len*4u);
@@ -473,7 +483,7 @@ class _Emitter:
                 output.append(self._global(definition))
         entry = self._gid(self.symbol)
         output.append(
-            f"int main(void) {{ (void)&sl_int_add; (void)&sl_int_sub; (void)&sl_int_mul; (void)&sl_int_compare; (void)&sl_con; SlValue *result=sl_g{entry}(); sl_print_value(result); sl_char('\\n'); if(fflush(stdout)!=0||ferror(stdout))sl_die(\"stdout write failed\"); sl_destroy(); return 0; }}\n"
+            f"int main(void) {{ (void)&sl_int_literal; (void)&sl_int_add; (void)&sl_int_sub; (void)&sl_int_mul; (void)&sl_int_compare; (void)&sl_con; (void)&sl_bytes; SlValue *result=sl_g{entry}(); sl_print_value(result); sl_char('\\n'); if(fflush(stdout)!=0||ferror(stdout))sl_die(\"stdout write failed\"); sl_destroy(); return 0; }}\n"
         )
         return "\n".join(output)
 
@@ -499,6 +509,7 @@ class _Emitter:
             "static void sl_print_node(SlValue *value) {\n"
             "  if(++sl_print_depth>SL_MAX_DEPTH)sl_die(\"print depth exceeds 4096\");\n"
             "  if(value->kind==0u){sl_text(\"(int \");sl_print_big(value->as.integer);sl_char(')');--sl_print_depth;return;}\n"
+            "  if(value->kind==2u){static const char h[]=\"0123456789abcdef\";sl_text(\"(bytes x\");for(size_t i=0u;i<value->as.bytes.len;++i){char b[2]={h[value->as.bytes.data[i]>>4u],h[value->as.bytes.data[i]&15u]};sl_write(b,2u);}sl_char(')');--sl_print_depth;return;}\n"
             f"  switch(value->as.con.tag){{{switch} default:sl_die(\"invalid constructor tag\");}}\n"
             "  for(size_t i=0u;i<value->as.con.count;++i){sl_char(' ');sl_print_node(value->as.con.field[i]);}sl_char(')');--sl_print_depth;\n"
             "}\n"
@@ -547,6 +558,15 @@ class _Emitter:
     def _expr(self, expression: Expr, environment: dict[str, str], lines: list[str], indent: str) -> str:
         if isinstance(expression, IntExpr):
             result=self._new(); lines.append(f'{indent}SlValue *{result}=sl_int_literal("{decimal_string(expression.value)}");'); return result
+        if isinstance(expression, BytesExpr):
+            result=self._new()
+            if expression.value:
+                array=self._new(); data=", ".join(f"0x{byte:02x}u" for byte in expression.value)
+                lines.append(f"{indent}const unsigned char {array}[]={{ {data} }};")
+                lines.append(f"{indent}SlValue *{result}=sl_bytes({array},{len(expression.value)}u);")
+            else:
+                lines.append(f"{indent}SlValue *{result}=sl_bytes(NULL,0u);")
+            return result
         if isinstance(expression, LocalExpr): return environment[expression.name]
         if isinstance(expression, GlobalExpr):
             result=self._new(); lines.append(f"{indent}SlValue *{result}=sl_g{self._gid(expression.name)}();"); return result
