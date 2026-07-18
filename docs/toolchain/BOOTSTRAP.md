@@ -23,8 +23,9 @@ deferred until the Core and runtime semantics are sufficiently stable.
 - Make every stage deterministic, bounded, inspectable, and independently
   testable.
 - Keep the permanent C trust root to one small file.
-- Verify that checked-in compiler Core corresponds to compiler source.
-- Reach a byte-identical native self-compilation fixed point.
+- Verify that checked-in seed-compiler Core corresponds to seed-compiler
+  source.
+- Reach a byte-identical native distribution fixed point.
 - Require no registry, network, populated cache, or downloaded binary artifact.
 
 ## Non-Goals
@@ -62,7 +63,59 @@ The C compiler and linker remain trusted inputs in this path. A later project
 may reduce that trust root further, but doing so is outside this language's
 bootstrap scope.
 
+## Bootstrap Products
+
+The bootstrap does not attempt to implement the complete user-facing toolchain
+in B0 or Bootstrap Core. It first produces a deliberately small **seed
+compiler**. This is distinct from `seed.c`: `seed.c` only establishes the
+portable RV32IM environment, while the seed compiler understands enough SlopH
+to build the production compiler from authored source.
+
+The seed compiler contains only the facilities required to cross the trust
+gap:
+
+- the source and Core frontend needed by production compiler source;
+- mandatory `core`-library support and the required runtime boundary;
+- deterministic native object generation for the bootstrap targets;
+- enough package-graph and link-plan handling to build declared local sources;
+- no registry client or server, HTTP stack, remote cache, language server, or
+  other network-dependent tool.
+
+After the native seed compiler exists, it builds the production compiler
+engine. That engine builds the independently versioned official packages and
+links the complete single-binary toolchain. In the proposed library layering,
+HTTP, networking, crypto providers, and cache/registry service code belong to
+the official package bundle rather than the mandatory `core` library. The
+toolchain may link those packages into its distributed executable without
+making them bootstrap dependencies or implicit dependencies of user programs.
+
+Conceptually, the two products are:
+
+```text
+bootstrap chain -> small native seed compiler
+
+small native seed compiler
+    -> production compiler engine
+    -> official package bundle (networking, HTTP, crypto, ...)
+    -> CLI, package client, cache/registry server, LSP, ...
+    -> complete single-binary toolchain
+```
+
+The complete binary must still build correctly from local declared sources
+with an empty cache and no network. Its HTTP cache server is a tool it can
+build and run, never an input required to establish the compiler.
+
 ## Bootstrap Chain
+
+The chain can be expressed as compiler tombstone diagrams. In each T, the left
+arm is the accepted source language, the right arm is the emitted target, and
+the stem is the language or machine implementing that compiler. The C90 seed is
+shown separately because it establishes the RV32IM assembler and interpreter
+rather than compiling the later language directly.
+
+![SlopH bootstrap as tombstone diagrams](./BOOTSTRAP_TOMBSTONE.svg)
+
+The equivalent linear sequence is:
 
 ```text
 hosted C90 compiler
@@ -82,9 +135,9 @@ tiny structured B0 language
         v
 restricted Bootstrap-Core profile
         |
-        | compile checked-in compiler Core
+        | compile checked-in seed-compiler Core
         v
-real compiler running on RV32IM
+small seed compiler running on RV32IM
         |
         | emit target-native object
         v
@@ -92,11 +145,15 @@ Mach-O ARM64 on macOS | ELF x86-64 on Linux
         |
         | first link using the host C toolchain
         v
-native self-hosted compiler
+native seed compiler
         |
-        | rebuild until fixed point
+        | build production compiler and official packages
         v
-byte-identical release compiler
+complete single-binary toolchain
+        |
+        | rebuild complete distribution until fixed point
+        v
+byte-identical release distribution
 ```
 
 Every transition consumes declared files and produces content-addressed
@@ -261,12 +318,12 @@ The Bootstrap-Core implementation must validate at least:
 It need not perform source parsing, macro expansion, name resolution, type
 inference, optimization, package resolution, or native code generation.
 
-## Checked-In Compiler Core
+## Checked-In Seed-Compiler Core
 
-The repository stores a canonical textual Core snapshot of the real compiler.
-This is an auditable derived source artifact, not an opaque executable. It is
-compiled by the B0 Bootstrap-Core implementation into an RV32IM image of the
-real compiler.
+The repository stores a canonical textual Core snapshot of the small seed
+compiler. This is an auditable derived source artifact, not an opaque
+executable. It is compiled by the B0 Bootstrap-Core implementation into an
+RV32IM image of the seed compiler.
 
 The snapshot includes:
 
@@ -276,19 +333,19 @@ The snapshot includes:
 - no absolute paths, timestamps, caches, or undeclared environment data;
 - only constructs permitted by the Bootstrap-Core profile.
 
-The resulting real compiler must compile its corresponding authored source back
+The resulting seed compiler must compile its corresponding authored source back
 to canonical Core. That output must equal the checked-in snapshot after removal
 of explicitly non-semantic provenance fields. A difference fails the bootstrap
 before native generation.
 
-Changes to compiler source that alter canonical Core must update the snapshot
-through an independently reviewable regeneration step. The change shows both
-the authored source diff and canonical Core diff.
+Changes to seed-compiler source that alter canonical Core must update the
+snapshot through an independently reviewable regeneration step. The change
+shows both the authored source diff and canonical Core diff.
 
 ## Native Handoff
 
-The real compiler first runs as an RV32IM bootstrap program. From the same
-compiler source and Core semantics it emits a native object for the host:
+The seed compiler first runs as an RV32IM bootstrap program. From the same
+seed-compiler source and Core semantics it emits a native object for the host:
 
 - Mach-O ARM64 for Apple Silicon macOS;
 - ELF x86-64 for AMD64 Linux.
@@ -307,21 +364,30 @@ The target-independent RV32IM artifacts produced before this handoff must be
 byte-identical on macOS and Linux. Native artifacts differ by target but must be
 reproducible within the same declared target and linker environment.
 
-## Native Fixed Point
+## Production Toolchain and Native Fixed Point
 
-The newly linked native compiler recompiles the same compiler source and
-standard toolchain libraries. The result then recompiles the same inputs again.
-The last two release-mode compiler distributions must be byte-for-byte
-identical.
+The newly linked native seed compiler first builds the production compiler
+engine from local source. The production compiler then builds the selected
+official package bundle and all tool frontends and links the complete
+single-binary toolchain. Hosted packages used only by these tools may include
+networking, HTTP, TLS or crypto bindings, and the verified cache/registry
+server. They are outside the mandatory `core` library and outside the
+bootstrap-critical seed compiler.
+
+The complete toolchain recompiles the same compiler, package, and frontend
+sources. The result then recompiles those inputs again. The last two
+release-mode distributions must be byte-for-byte identical.
 
 Conceptually:
 
 ```text
-RV compiler compiles source     -> native stage N
-native stage N compiles source  -> native stage N+1
-native stage N+1 compiles source -> native stage N+2
+RV seed compiler compiles seed source -> native seed compiler
+native seed compiles compiler source  -> production compiler
+production compiler builds distribution -> distribution N
+distribution N rebuilds distribution    -> distribution N+1
+distribution N+1 rebuilds distribution  -> distribution N+2
 
-require bytes(stage N+1) == bytes(stage N+2)
+require bytes(distribution N+1) == bytes(distribution N+2)
 ```
 
 The comparison covers the compiler executable, standard toolchain libraries,
@@ -341,9 +407,10 @@ The full bootstrap verification must include:
 5. Run official or derived RV32I and M instruction vectors, including boundary
    and trap cases.
 6. Require the B0 compiler to reach a byte-identical self-hosted fixed point.
-7. Validate the checked-in compiler Core independently in B0.
-8. Require the real compiler to reproduce its checked-in Core from source.
-9. Build the native compiler on macOS ARM64 and Linux x86-64.
+7. Validate the checked-in seed-compiler Core independently in B0.
+8. Require the seed compiler to reproduce its checked-in Core from source.
+9. Build the native seed compiler and then the production toolchain on macOS
+   ARM64 and Linux x86-64.
 10. Require the final two native rebuilds to be byte-identical per target.
 11. Run the language conformance, Core-validation, backend-equivalence, and CLI
     suites with the fixed-point compiler.
@@ -361,9 +428,9 @@ complete the canonical bootstrap.
 
 ## Development and Release Policy
 
-Ordinary compiler development uses the latest trusted native compiler and the
-fast library-first workflow described in [CLI.md](./CLI.md). It does not rerun
-the interpreted chain after every edit.
+Ordinary compiler development uses the latest trusted production compiler and
+the fast library-first workflow described in [CLI.md](./CLI.md). It does not
+rerun the interpreted chain after every edit.
 
 The complete source-to-fixed-point bootstrap runs:
 
@@ -371,7 +438,7 @@ The complete source-to-fixed-point bootstrap runs:
 - for every release candidate;
 - for every final compiler release;
 - whenever the C seed, RISC-V profile, image format, B0 compiler,
-  Bootstrap-Core profile, runtime ABI, or checked-in compiler Core changes.
+  Bootstrap-Core profile, runtime ABI, or checked-in seed-compiler Core changes.
 
 A release is not reproducibly bootstrapped until both required host paths pass.
 Release provenance publishes the source hashes, stage graph, tool identities,
