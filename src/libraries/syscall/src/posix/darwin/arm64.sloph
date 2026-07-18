@@ -1,4 +1,4 @@
-module syscall::posix::darwin::arm64 when compiler::target::platform is (os::darwin, arch::arm64);
+module syscall::posix::darwin::arm64;
 
 import syscall::posix::native::{NativeWriteResult};
 
