@@ -4,7 +4,7 @@ from sloph.core.diagnostics import fail
 from sloph.core.limits import Limits
 from sloph.syntax._integer import format_decimal
 from sloph.syntax.model import (
-    Block, BytesExpr, CallExpr, CaseExpr, ConstructorExpr, Expr, FunctionType, GlobalExpr, IntExpr, LambdaExpr,
+    Block, BytesExpr, CallExpr, CaseExpr, ConstructorExpr, Expr, FunctionType, GlobalExpr, InferredType, IntExpr, LambdaExpr,
     IntType, LocalExpr, Module, NamedType, PrimitiveExpr, TypeRef,
 )
 
@@ -13,6 +13,7 @@ def _type(value: TypeRef) -> str:
     if isinstance(value, IntType): return "Int"
     if isinstance(value, NamedType): return value.name
     if isinstance(value, FunctionType): return f"fn({_type(value.parameter)}) -> {_type(value.result)}"
+    if isinstance(value, InferredType): return "_"
     raise TypeError(f"unknown syntax type: {type(value).__name__}")
 
 
@@ -61,7 +62,8 @@ def _block(value: Block, indent: int) -> str:
     for binding in value.bindings:
         b = binding.binder
         rendered = _expr(binding.value, indent + 2)
-        lines.append(f"{pad}  let {b.name}: {_type(b.type)} = {rendered};")
+        annotation = "" if isinstance(b.type, InferredType) else f": {_type(b.type)}"
+        lines.append(f"{pad}  let {b.name}{annotation} = {rendered};")
     lines.append(f"{pad}  {_expr(value.result, indent + 2)}")
     lines.append(f"{pad}}}")
     return "\n".join(lines)
@@ -98,7 +100,8 @@ def format_source(
         )
     for declaration in module.values:
         prefix = "public " if declaration.public else ""
-        declarations.append(f"{prefix}value {declaration.name}: {_type(declaration.type)} " + _block(declaration.value, 0))
+        keyword = "const" if version == 1 else "value"
+        declarations.append(f"{prefix}{keyword} {declaration.name}: {_type(declaration.type)} " + _block(declaration.value, 0))
     if declarations:
         lines.extend(["", "\n\n".join(declarations)])
     rendered = "\n".join(lines) + "\n"

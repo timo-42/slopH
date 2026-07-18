@@ -8,7 +8,7 @@ from sloph.syntax._integer import parse_decimal
 from sloph.syntax.model import (
     Binder, Block, BytesExpr, CallExpr, CaseAlternative, CaseExpr, ConstructorDecl,
     ConstructorExpr, FieldDecl, FunctionDecl, GlobalExpr, ImportDecl, IntExpr,
-    FunctionType, IntType, LambdaExpr, LetBinding, LocalExpr, Module, NamedType, PrimitiveExpr, TypeDecl,
+    FunctionType, InferredType, IntType, LambdaExpr, LetBinding, LocalExpr, Module, NamedType, PrimitiveExpr, TypeDecl,
     TypeRef, ValueDecl,
 )
 
@@ -21,7 +21,7 @@ class _Token:
 
 
 _PUNCT = frozenset("{}(),;:=|")
-_KEYWORDS = frozenset({"module", "import", "public", "type", "fn", "value", "let", "case", "primitive"})
+_KEYWORDS = frozenset({"module", "import", "public", "type", "fn", "value", "const", "let", "case", "primitive"})
 
 
 def _limit(name: str, configured: int, span: Span = Span(0, 0)) -> None:
@@ -203,8 +203,12 @@ class _Parser:
                  span, role="type", name=name)
         return NamedType(name, self.node(span.start, span.end))
 
-    def binder(self) -> Binder:
-        start = self.token.start; name = self.lower_ident("binder"); self.take(":"); typ = self.type_ref()
+    def binder(self, *, allow_inferred: bool = False) -> Binder:
+        start = self.token.start; name = self.lower_ident("binder")
+        if allow_inferred and not self.peek(":"):
+            typ = InferredType(self.node(name.end, name.end))
+        else:
+            self.take(":"); typ = self.type_ref()
         return Binder(name.text, typ, self.node(start, typ.span.end))
 
     def comma_list(self, parse_item, close: str = ")") -> tuple:
@@ -220,7 +224,7 @@ class _Parser:
     def block(self) -> Block:
         start = self.take("{").start; bindings = []
         while self.peek("let"):
-            bstart = self.take().start; binder = self.binder(); self.take("="); value = self.expr(); end = self.take(";").end
+            bstart = self.take().start; binder = self.binder(allow_inferred=self.version == 1); self.take("="); value = self.expr(); end = self.take(";").end
             bindings.append(LetBinding(binder, value, self.node(bstart, end)))
         result = self.expr()
         if self.peek(";"): self.take(";")
@@ -421,7 +425,7 @@ class _Parser:
         return fallback
 
     def value_decl(self, public: bool, start: int) -> ValueDecl:
-        self.take("value"); name = self.lower_ident("value"); self.take(":"); typ = self.type_ref(); body = self.block()
+        self.take("const" if self.version == 1 else "value"); name = self.lower_ident("value"); self.take(":"); typ = self.type_ref(); body = self.block()
         return ValueDecl(name.text, typ, body, public, self.node(start, body.span.end))
 
     def module(self) -> Module:
@@ -438,8 +442,8 @@ class _Parser:
             if self.peek("public"): public = True; self.take()
             if self.peek("type"): types.append(self.type_decl(public, dstart))
             elif self.peek("fn"): functions.append(self.fn_decl(public, dstart))
-            elif self.peek("value"): values.append(self.value_decl(public, dstart))
-            else: self.error("expected type, fn, or value declaration")
+            elif (self.version == 1 and self.peek("const")) or (self.version == 0 and self.peek("value")): values.append(self.value_decl(public, dstart))
+            else: self.error("expected type, fn, or const declaration" if self.version == 1 else "expected type, fn, or value declaration")
         end = self.token.end
         return Module(name, tuple(imports), tuple(types), tuple(functions), tuple(values), self.node(start, end))
 

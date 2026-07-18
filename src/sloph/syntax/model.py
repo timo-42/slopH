@@ -24,7 +24,12 @@ class FunctionType:
     span: Span = UNKNOWN_SPAN
 
 
-TypeRef: TypeAlias = IntType | NamedType | FunctionType
+@dataclass(frozen=True, slots=True)
+class InferredType:
+    span: Span = UNKNOWN_SPAN
+
+
+TypeRef: TypeAlias = IntType | NamedType | FunctionType | InferredType
 
 
 @dataclass(frozen=True, slots=True)

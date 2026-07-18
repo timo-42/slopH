@@ -17,6 +17,7 @@ def _encode(value: Any) -> dict[str, Any]:
     if isinstance(value, IntType): return common
     if isinstance(value, NamedType): return common | {"name": value.name}
     if isinstance(value, FunctionType): return common | {"parameter": _encode(value.parameter), "result": _encode(value.result)}
+    if isinstance(value, InferredType): return common
     if isinstance(value, Binder): return common | {"name": value.name, "type": _encode(value.type)}
     if isinstance(value, IntExpr): return common | {"value": format_decimal(value.value)}
     if isinstance(value, BytesExpr): return common | {"hex": value.value.hex()}
@@ -94,7 +95,7 @@ class _Decoder:
             if not isinstance(value, dict) or not isinstance(value.get("kind"), str): self.bad("node must have a string kind")
             kind = value["kind"]
             fields: dict[str, set[str]] = {
-                "IntType": set(), "NamedType": {"name"}, "FunctionType": {"parameter", "result"}, "Binder": {"name", "type"}, "IntExpr": {"value"}, "BytesExpr": {"hex"},
+                "IntType": set(), "NamedType": {"name"}, "FunctionType": {"parameter", "result"}, "InferredType": set(), "Binder": {"name", "type"}, "IntExpr": {"value"}, "BytesExpr": {"hex"},
                 "LocalExpr": {"name"}, "GlobalExpr": {"name"}, "CallExpr": {"function", "arguments"}, "LambdaExpr": {"parameters", "result_type", "body"},
                 "ConstructorExpr": {"constructor", "arguments"}, "PrimitiveExpr": {"name", "arguments"},
                 "LetBinding": {"binder", "value"}, "Block": {"bindings", "result"},
@@ -111,6 +112,7 @@ class _Decoder:
             if kind == "IntType": return IntType(span)
             if kind == "NamedType": return NamedType(s(obj["name"], "name"), span)
             if kind == "FunctionType": return FunctionType(n(obj["parameter"]), n(obj["result"]), span)
+            if kind == "InferredType": return InferredType(span)
             if kind == "Binder": return Binder(s(obj["name"], "name"), n(obj["type"]), span)
             if kind == "IntExpr":
                 raw = s(obj["value"], "value")

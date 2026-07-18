@@ -55,7 +55,7 @@ class _Validator:
         finally: self.depth -= 1
 
     def typ(self, node: Any) -> None:
-        if not isinstance(node, (IntType, NamedType, FunctionType)): _bad("wrong_node", "expected source type", node)
+        if not isinstance(node, (IntType, NamedType, FunctionType, InferredType)): _bad("wrong_node", "expected source type", node)
         self.visit(node)
 
     def expr(self, node: Any) -> None:
@@ -76,6 +76,8 @@ class _Validator:
         parts = node.name.split("::")
         if not parts or not _upper(parts[-1]) or not all(_lower(x) for x in parts[:-1]): _bad("invalid_name", "named type must have lowercase module components and an uppercase type name", node, name=node.name)
     def v_FunctionType(self, node): self.typ(node.parameter); self.typ(node.result)
+    def v_InferredType(self, node):
+        if self.version == 0: _bad("wrong_node", "inferred types require Source v1", node)
     def v_Binder(self, node):
         if not _lower(node.name): _bad("invalid_name", "binder must start with lowercase or underscore", node, name=node.name)
         self.typ(node.type)
@@ -148,7 +150,9 @@ class _Validator:
     def v_FunctionDecl(self, node):
         if not isinstance(node.public, bool) or not _lower(node.name): _bad("invalid_declaration", "function must have boolean visibility and lowercase name", node)
         if self.version == 0 and not node.parameters: _bad("function_arity", "Source v0 functions require at least one parameter", node)
-        for x in node.parameters: self.binder(x)
+        for x in node.parameters:
+            if isinstance(x.type, InferredType): _bad("missing_type", "function parameters require explicit types", x)
+            self.binder(x)
         self.typ(node.result_type); self.block(node.body)
     def v_ValueDecl(self, node):
         if not isinstance(node.public, bool) or not _lower(node.name): _bad("invalid_declaration", "value must have boolean visibility and lowercase name", node)
