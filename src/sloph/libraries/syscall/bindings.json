@@ -1,0 +1,49 @@
+[
+  {
+    "adapter": {
+      "kind": "borrowed_bytes_write",
+      "arguments": ["c_int", "bytes_pointer_at", "c_size"],
+      "result": "ssize_errno",
+      "sloph_parameters": ["Int", "Bytes", "Int", "Int"],
+      "sloph_result": "syscall::posix::WriteResult"
+    },
+    "c_parameters": ["int", "const void *", "size_t"],
+    "c_result": "ssize_t",
+    "effects": ["io"],
+    "facts": {
+      "blocking": "may",
+      "callbacks": "none",
+      "error": "minus_one_errno",
+      "host_allocation": "none",
+      "pointer_access": "read_buffer_count",
+      "pointer_retention": "none",
+      "result": "must_use"
+    },
+    "header": "include/syscall.h",
+    "identity": "foreign.syscall.posix_write",
+    "provenance": "compiler-bundled-reviewed",
+    "requires": ["backend.native", "foreign.c", "host.posix.fd-io"],
+    "symbol": "sloph_syscall_write",
+    "targets": ["aarch64-macos", "x86_64-linux"]
+  },
+  {
+    "c_parameters": ["int", "void *", "size_t"],
+    "c_result": "ssize_t",
+    "effects": ["io"],
+    "facts": {
+      "blocking": "may",
+      "callbacks": "none",
+      "error": "minus_one_errno",
+      "host_allocation": "none",
+      "pointer_access": "write_buffer_count",
+      "pointer_retention": "none",
+      "result": "must_use"
+    },
+    "header": "include/syscall.h",
+    "identity": "foreign.syscall.posix_read",
+    "provenance": "compiler-bundled-reviewed",
+    "requires": ["backend.native", "foreign.c", "host.posix.fd-io"],
+    "symbol": "sloph_syscall_read",
+    "targets": ["aarch64-macos", "x86_64-linux"]
+  }
+]

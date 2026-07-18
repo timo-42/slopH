@@ -1,0 +1,31 @@
+module std::io;
+
+import syscall::posix::{write_once, WriteResult};
+
+fn write_from(bytes: Bytes, offset: Int) -> Unit {
+  let length = primitive bytes.length(bytes);
+  if offset == length {
+    Unit::Unit()
+  } else {
+    let result = write_once(1, bytes, offset, length - offset);
+    case result -> Unit {
+      WriteResult::Written(count) => {
+        if count < 1 {
+          primitive runtime.trap("POSIX write made no progress")
+        } else {
+          write_from(bytes, offset + count)
+        }
+      }
+      WriteResult::Interrupted() => {
+        write_from(bytes, offset)
+      }
+      WriteResult::Error(native_code) => {
+        primitive runtime.trap("POSIX write failed")
+      }
+    }
+  }
+}
+
+public fn write(bytes: Bytes) -> Unit {
+  write_from(bytes, 0)
+}

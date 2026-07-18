@@ -83,12 +83,16 @@ def _compile(
     destination.parent.mkdir(parents=True, exist_ok=True)
     compiler = _resolve_compiler(cc)
     flags = _target_flags()
+    include_root, provider = _native_boundary()
     with tempfile.TemporaryDirectory(prefix="sloph-c11-") as directory:
         root = Path(directory)
         source_path = root / "program.c"
         binary_path = root / "program"
         source_path.write_text(c_source, encoding="ascii", newline="\n")
-        command = [compiler, *flags, str(source_path), "-o", str(binary_path)]
+        command = [
+            compiler, *flags, "-I", str(include_root), str(source_path),
+            str(provider), "-o", str(binary_path),
+        ]
         returncode, stderr_bytes = _run_compiler_bounded(command, compiler)
         if returncode != 0:
             stderr = stderr_bytes.decode("utf-8", errors="replace")
@@ -288,6 +292,23 @@ def _target_flags() -> list[str]:
         system=system,
         machine=machine,
     )
+
+
+def _native_boundary() -> tuple[Path, Path]:
+    root = Path(__file__).resolve().parents[1] / "libraries" / "syscall"
+    system = platform.system()
+    machine = platform.machine().lower()
+    if system == "Darwin" and machine == "arm64":
+        provider = root / "platform" / "macos" / "syscall.c"
+    elif system == "Linux" and machine in ("x86_64", "amd64"):
+        provider = root / "platform" / "linux" / "syscall.c"
+    else:
+        fail(
+            "compiler.c11.unsupported_host", "environment",
+            "the experimental native bridge supports only macOS ARM64 and Linux AMD64",
+            system=system, machine=machine,
+        )
+    return root / "include", provider
 
 
 def _atomic_text(path: Path, content: str) -> None:

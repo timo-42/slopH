@@ -155,8 +155,25 @@ class Definition:
 
 
 @dataclass(frozen=True, slots=True)
+class ForeignBinding:
+    identity: str
+    symbol: str
+    parameters: tuple[CoreType, ...]
+    result: CoreType
+    adapter: str
+    c_parameters: tuple[str, ...]
+    c_result: str
+    requires: tuple[str, ...] = ()
+    effects: tuple[str, ...] = ()
+    targets: tuple[str, ...] = ()
+    facts: tuple[tuple[str, str], ...] = ()
+    provenance: str = ""
+
+
+@dataclass(frozen=True, slots=True)
 class CoreUnit:
     version: int
     types: tuple[EnumDecl, ...]
     definitions: tuple[Definition, ...]
     span: Span = UNKNOWN_SPAN
+    foreign_bindings: tuple[ForeignBinding, ...] = ()
