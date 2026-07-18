@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from sloph.core import DiagnosticError, Limits, evaluate, format_value
-from sloph.project import elaborate_project, load_project
+from sloph.project import elaborate_project, load_project, resolve_bundled_packages
 
 
 MANIFEST = """format = 0
@@ -38,6 +40,28 @@ value main: Int {
 
 
 class ProjectTests(unittest.TestCase):
+    def test_bundled_packages_resolve_dependency_first(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for package, dependencies in (
+                ("base", []),
+                ("middle", ["base"]),
+                ("top", ["middle"]),
+            ):
+                package_root = root / package
+                package_root.mkdir()
+                (package_root / "library.json").write_text(
+                    json.dumps(
+                        {"dependencies": dependencies, "format": 0, "package": package},
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ),
+                    encoding="ascii",
+                )
+            with patch("sloph.project.load.libraries_root", return_value=root):
+                resolved = resolve_bundled_packages(("top",))
+        self.assertEqual(["base", "middle", "top"], [name for name, _ in resolved])
+
     def _project(self, files: dict[str, str] | None = None) -> Path:
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)

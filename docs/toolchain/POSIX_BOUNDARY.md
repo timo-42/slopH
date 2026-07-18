@@ -14,7 +14,7 @@ application.
    typed `compiler::target::platform` conditional import.
 2. `syscall::posix::linux::amd64` and
    `syscall::posix::darwin::arm64` each own their binding metadata,
-   `syscall.h`, and `syscall.S` resources.
+   `syscall.h`, and a prebuilt shared library.
 3. `syscall::posix::write_once` converts the selected native result into the
    portable `Written`, `Interrupted`, or `Error` API.
 4. `std::io::write` retries interruption and short writes until all bytes have
@@ -27,8 +27,10 @@ raw negative kernel errors into the public `-1` plus `errno` contract. macOS
 ARM64 tail-calls the public libSystem `read` and `write` symbols from assembly;
 it deliberately does not depend on private Darwin kernel trap numbers. The
 resolved SlopH dependency graph carries the provider identity. The backend
-reads its matching header and native sources from provider metadata and has no
-syscall-specific host-platform selector.
+reads its matching header and shared-library list from provider metadata and
+has no syscall-specific host-platform selector. The compiler never compiles
+`syscall.S`; the package-root `build.sh` produces the selected `.so` or
+`.dylib` before Source compilation begins.
 
 The complete generated C runtime still depends on libc. This boundary only
 makes descriptor I/O target-specific and keeps raw kernel details out of Core
@@ -44,8 +46,13 @@ form. The selected SlopH module is the compatibility authority; bindings no
 longer carry a handwritten multi-target list.
 
 `provider.json` is bounded inert metadata connecting the provider module to
-its binding file and native source filenames. Paths are local to the
-module-adjacent provider directory.
+its binding file and ordered shared-library filenames. Paths are local to the
+module-adjacent provider directory. Missing libraries are link-time errors.
+
+The bootstrap automatically executes dependency-package `build.sh` files for
+`compile` and `run`. This is temporary arbitrary code execution, not the final
+build-task model; its risks and replacement requirements are recorded in
+[Secure Package Build Tasks](../../idea/SECURITY.md).
 
 These facts are metadata only in v1. They support inspection and later
 capability/rule analysis, but the compiler does not yet propagate them through

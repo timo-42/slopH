@@ -346,6 +346,12 @@ returns a miss.
 
 ## Build Tasks
 
+The current bootstrap temporarily executes a dependency package's root
+`build.sh` before `compile` and `run`. This unsafe filename convention has
+ambient user authority and exists only to keep external native toolchains out
+of the language compiler. See [Secure Package Build Tasks](../../idea/SECURITY.md)
+for the threat model and removal criteria.
+
 External build tasks follow the capability and declaration rules in
 [MACRO.md](../language/MACRO.md). They are exceptional graph nodes, not an unrestricted
 escape from deterministic compilation.
