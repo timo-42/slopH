@@ -1,0 +1,1 @@
+{"code":"syntax.parse.unexpected_token","details":{"token":"when"},"message":"guards on integer function patterns are not supported","message_id":"syntax.parse.unexpected_token","phase":"parse","schema":"sloph.diagnostic","severity":"error","span":{"end":57,"start":53},"version":0}

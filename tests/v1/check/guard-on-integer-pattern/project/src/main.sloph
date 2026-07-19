@@ -1,0 +1,9 @@
+module guards::main;
+
+fn describe(n: Int) -> Int
+| 0 when 0 < n => 1
+| _ => 0
+
+public fn main() -> Int {
+  describe(3)
+}
