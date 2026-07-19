@@ -17,9 +17,15 @@ def _encode(value: Any) -> dict[str, Any]:
     if isinstance(value, IntType): return common
     if isinstance(value, NamedType): return common | {"name": value.name}
     if isinstance(value, AppliedType): return common | {"constructor": value.constructor, "arguments": [_encode(x) for x in value.arguments]}
-    if isinstance(value, FunctionType): return common | {"parameter": _encode(value.parameter), "result": _encode(value.result)}
+    if isinstance(value, FunctionType):
+        result = common | {"parameter": _encode(value.parameter), "result": _encode(value.result)}
+        if value.mode != "own": result["mode"] = value.mode
+        return result
     if isinstance(value, InferredType): return common
-    if isinstance(value, Binder): return common | {"name": value.name, "type": _encode(value.type)}
+    if isinstance(value, Binder):
+        result = common | {"name": value.name, "type": _encode(value.type)}
+        if value.mode != "own": result["mode"] = value.mode
+        return result
     if isinstance(value, IntExpr): return common | {"value": format_decimal(value.value)}
     if isinstance(value, BytesExpr): return common | {"hex": value.value.hex()}
     if isinstance(value, (LocalExpr, GlobalExpr)): return common | {"name": value.name}
@@ -30,6 +36,7 @@ def _encode(value: Any) -> dict[str, Any]:
     if isinstance(value, ConstructorExpr): return common | {"constructor": value.constructor, "arguments": [_encode(x) for x in value.arguments], "type_arguments": [_encode(x) for x in value.type_arguments]}
     if isinstance(value, PrimitiveExpr): return common | {"name": value.name, "arguments": [_encode(x) for x in value.arguments]}
     if isinstance(value, LetBinding): return common | {"binder": _encode(value.binder), "value": _encode(value.value)}
+    if isinstance(value, DeferCall): return common | {"call": _encode(value.call)}
     if isinstance(value, Block): return common | {"bindings": [_encode(x) for x in value.bindings], "result": _encode(value.result)}
     if isinstance(value, CaseAlternative): return common | {"constructor": value.constructor, "binders": [_encode(x) for x in value.binders], "body": _encode(value.body)}
     if isinstance(value, CaseExpr): return common | {"scrutinee": _encode(value.scrutinee), "result_type": _encode(value.result_type), "alternatives": [_encode(x) for x in value.alternatives]}
@@ -44,7 +51,10 @@ def _encode(value: Any) -> dict[str, Any]:
     if isinstance(value, ConditionalImportDecl): return common | {"selector": value.selector, "alternatives": [_encode(x) for x in value.alternatives]}
     if isinstance(value, FieldDecl): return common | {"name": value.name, "type": _encode(value.type)}
     if isinstance(value, ConstructorDecl): return common | {"name": value.name, "fields": [_encode(x) for x in value.fields]}
-    if isinstance(value, TypeDecl): return common | {"name": value.name, "constructors": [_encode(x) for x in value.constructors], "public": value.public, "type_parameters": list(value.type_parameters)}
+    if isinstance(value, TypeDecl):
+        result = common | {"name": value.name, "constructors": [_encode(x) for x in value.constructors], "public": value.public, "type_parameters": list(value.type_parameters)}
+        if value.owned: result["owned"] = True
+        return result
     if isinstance(value, IntrinsicTypeDecl): return common | {"name": value.name, "public": value.public}
     if isinstance(value, FunctionDecl): return common | {"name": value.name, "parameters": [_encode(x) for x in value.parameters], "result_type": _encode(value.result_type), "body": _encode(value.body), "public": value.public, "type_parameters": list(value.type_parameters)}
     if isinstance(value, IntrinsicFunctionDecl): return common | {"name": value.name, "parameters": [_encode(x) for x in value.parameters], "result_type": _encode(value.result_type), "intrinsic": value.intrinsic, "public": value.public}
@@ -113,17 +123,17 @@ class _Decoder:
             if not isinstance(value, dict) or not isinstance(value.get("kind"), str): self.bad("node must have a string kind")
             kind = value["kind"]
             fields: dict[str, set[str]] = {
-                "IntType": set(), "NamedType": {"name"}, "AppliedType": {"constructor", "arguments"}, "FunctionType": {"parameter", "result"}, "InferredType": set(), "Binder": {"name", "type"}, "IntExpr": {"value"}, "BytesExpr": {"hex"},
+                "IntType": set(), "NamedType": {"name"}, "AppliedType": {"constructor", "arguments"}, "FunctionType": {"parameter", "result", "mode"}, "InferredType": set(), "Binder": {"name", "type", "mode"}, "IntExpr": {"value"}, "BytesExpr": {"hex"},
                 "LocalExpr": {"name"}, "GlobalExpr": {"name"}, "CallExpr": {"function", "arguments", "type_arguments"}, "BinaryExpr": {"operator", "left", "right"}, "LambdaExpr": {"parameters", "result_type", "body"}, "IfExpr": {"condition", "then_body", "else_body"},
                 "ConstructorExpr": {"constructor", "arguments", "type_arguments"}, "PrimitiveExpr": {"name", "arguments"},
-                "LetBinding": {"binder", "value"}, "Block": {"bindings", "result"},
+                "LetBinding": {"binder", "value"}, "DeferCall": {"call"}, "Block": {"bindings", "result"},
                 "CaseAlternative": {"constructor", "binders", "body"}, "CaseExpr": {"scrutinee", "result_type", "alternatives"},
                 "ImportDecl": {"module", "names"}, "FieldDecl": {"name", "type"},
                 "TargetConstantPattern": {"name"}, "TargetTuplePattern": {"items"},
                 "Availability": {"selector", "pattern"},
                 "ConditionalImportAlternative": {"pattern", "import"},
                 "ConditionalImportDecl": {"selector", "alternatives"},
-                "ConstructorDecl": {"name", "fields"}, "TypeDecl": {"name", "constructors", "public", "type_parameters"},
+                "ConstructorDecl": {"name", "fields"}, "TypeDecl": {"name", "constructors", "public", "type_parameters", "owned"},
                 "IntrinsicTypeDecl": {"name", "public"},
                 "FunctionDecl": {"name", "parameters", "result_type", "body", "public", "type_parameters"},
                 "IntrinsicFunctionDecl": {"name", "parameters", "result_type", "intrinsic", "public"},
@@ -137,14 +147,18 @@ class _Decoder:
                 expected_fields = expected_fields - {"availability"}
             if kind == "ImportDecl" and "public" in value:
                 expected_fields = expected_fields | {"public"}
+            if kind in {"FunctionType", "Binder"} and "mode" not in value:
+                expected_fields = expected_fields - {"mode"}
+            if kind == "TypeDecl" and "owned" not in value:
+                expected_fields = expected_fields - {"owned"}
             obj = self.obj(value, {"kind", "span"} | expected_fields, kind); span = self.span(obj["span"])
             s, n, a = self.string, self.node, self.array
             if kind == "IntType": return IntType(span)
             if kind == "NamedType": return NamedType(s(obj["name"], "name"), span)
             if kind == "AppliedType": return AppliedType(s(obj["constructor"], "constructor"), a(obj["arguments"], n), span)
-            if kind == "FunctionType": return FunctionType(n(obj["parameter"]), n(obj["result"]), span)
+            if kind == "FunctionType": return FunctionType(n(obj["parameter"]), n(obj["result"]), span, s(obj["mode"], "mode") if "mode" in obj else "own")
             if kind == "InferredType": return InferredType(span)
-            if kind == "Binder": return Binder(s(obj["name"], "name"), n(obj["type"]), span)
+            if kind == "Binder": return Binder(s(obj["name"], "name"), n(obj["type"]), span, s(obj["mode"], "mode") if "mode" in obj else "own")
             if kind == "IntExpr":
                 raw = s(obj["value"], "value")
                 if raw == "-0" or not (raw.isdigit() or (raw.startswith("-") and raw[1:].isdigit())): self.bad("integer value must use canonical decimal spelling")
@@ -166,6 +180,7 @@ class _Decoder:
             if kind == "ConstructorExpr": return ConstructorExpr(s(obj["constructor"], "constructor"), a(obj["arguments"], n), span, a(obj["type_arguments"], n))
             if kind == "PrimitiveExpr": return PrimitiveExpr(s(obj["name"], "name"), a(obj["arguments"], n), span)
             if kind == "LetBinding": return LetBinding(n(obj["binder"]), n(obj["value"]), span)
+            if kind == "DeferCall": return DeferCall(n(obj["call"]), span)
             if kind == "Block": return Block(a(obj["bindings"], n), n(obj["result"]), span)
             if kind == "CaseAlternative": return CaseAlternative(s(obj["constructor"], "constructor"), a(obj["binders"], n), n(obj["body"]), span)
             if kind == "CaseExpr": return CaseExpr(n(obj["scrutinee"]), n(obj["result_type"]), a(obj["alternatives"], n), span)
@@ -177,7 +192,7 @@ class _Decoder:
             if kind == "ConditionalImportDecl": return ConditionalImportDecl(s(obj["selector"], "selector"), a(obj["alternatives"], n), span)
             if kind == "FieldDecl": return FieldDecl(s(obj["name"], "name"), n(obj["type"]), span)
             if kind == "ConstructorDecl": return ConstructorDecl(s(obj["name"], "name"), a(obj["fields"], n), span)
-            if kind == "TypeDecl": return TypeDecl(s(obj["name"], "name"), a(obj["constructors"], n), self.boolean(obj["public"], "public"), span, a(obj["type_parameters"], lambda x: s(x, "type parameter")))
+            if kind == "TypeDecl": return TypeDecl(s(obj["name"], "name"), a(obj["constructors"], n), self.boolean(obj["public"], "public"), span, a(obj["type_parameters"], lambda x: s(x, "type parameter")), self.boolean(obj["owned"], "owned") if "owned" in obj else False)
             if kind == "IntrinsicTypeDecl": return IntrinsicTypeDecl(s(obj["name"], "name"), self.boolean(obj["public"], "public"), span)
             if kind == "FunctionDecl": return FunctionDecl(s(obj["name"], "name"), a(obj["parameters"], n), n(obj["result_type"]), n(obj["body"]), self.boolean(obj["public"], "public"), span, a(obj["type_parameters"], lambda x: s(x, "type parameter")))
             if kind == "IntrinsicFunctionDecl": return IntrinsicFunctionDecl(s(obj["name"], "name"), a(obj["parameters"], n), n(obj["result_type"]), s(obj["intrinsic"], "intrinsic"), self.boolean(obj["public"], "public"), span)

@@ -1,0 +1,43 @@
+module syscall::memory;
+
+import syscall::memory::native::{NativeMapError};
+import case compiler::target::platform {
+  (os::linux, arch::amd64) => syscall::memory::linux::amd64::{native_map_pages, native_unmap_pages};
+  (os::darwin, arch::arm64) => syscall::memory::darwin::arm64::{native_map_pages, native_unmap_pages};
+}
+
+public type MapError {
+  InvalidSize();
+  Native(native_code: Int);
+}
+
+public owned type Page {
+  Page(token: Int, requested_size: Int);
+}
+
+public fn map_pages(size: Int) -> Result[Page, MapError] {
+  if (size < 0) {
+    Result::Err[Page, MapError](MapError::InvalidSize())
+  } else {
+    case native_map_pages(size) -> Result[Page, MapError] {
+      Result::Ok(token) => {
+        Result::Ok[Page, MapError](Page::Page(token, size))
+      }
+      Result::Err(error) => {
+        case error -> Result[Page, MapError] {
+          NativeMapError::Native(native_code) => {
+            Result::Err[Page, MapError](MapError::Native(native_code))
+          }
+        }
+      }
+    }
+  }
+}
+
+public fn unmap_pages(page: Page) -> Unit {
+  case page -> Unit {
+    Page::Page(token, requested_size) => {
+      native_unmap_pages(token)
+    }
+  }
+}

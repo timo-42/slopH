@@ -1,6 +1,6 @@
 # POSIX boundary
 
-Status: implemented experimental Source v1/Core v2 boundary.
+Status: implemented experimental Source v1/Core v2-v3 boundary.
 
 POSIX descriptor I/O is a normal bundled library, not a mandatory Core
 feature. A project opts in with `dependencies = ["syscall"]`, or indirectly
@@ -38,12 +38,23 @@ The complete generated C runtime still depends on libc. This boundary only
 makes descriptor I/O target-specific and keeps raw kernel details out of Core
 and ordinary packages.
 
+Virtual-memory acquisition uses a separate provider selected by
+`syscall::memory`, so descriptor-only programs do not link page operations.
+Linux and macOS providers expose reviewed `mmap`/`munmap` adapters. Generated C
+stores mapped addresses in a private token registry; Source sees only checked
+integer tokens wrapped by the owned `syscall::memory::Page` type. The ordinary
+`memory` library implements the initial page-per-allocation `Allocator` and
+`Buffer` policy and requires visible `defer memory::drop(buffer);` cleanup.
+Allocator policy is not a Core primitive. Foreign provider functions are
+package-internal imports, preventing applications from bypassing the checked
+`syscall::memory` wrapper with forged tokens.
+
 ## Binding metadata and capabilities
 
 Each provider's `bindings.json` records its owning SlopH provider, logical
 header, C signature, adapter, required capabilities, effects, provenance, and
 audit facts such as blocking behavior, allocation, callbacks, pointer access,
-and pointer retention. Core v2 carries this metadata in its canonical textual
+and pointer retention. Core v2 and v3 carry this metadata in their canonical textual
 form. The selected SlopH module is the compatibility authority; bindings no
 longer carry a handwritten multi-target list.
 

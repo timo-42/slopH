@@ -328,6 +328,7 @@ _RUNTIME = r'''#include <errno.h>
 typedef struct SlValue SlValue;
 typedef struct SlBig SlBig;
 typedef struct SlChunk SlChunk;
+typedef struct SlPage SlPage;
 
 struct SlBig { int sign; size_t len; uint32_t limb[]; };
 typedef struct { uint32_t tag; size_t count; SlValue **field; } SlCon;
@@ -335,11 +336,15 @@ typedef struct { size_t len; unsigned char *data; } SlBytes;
 typedef struct { uint32_t function; size_t arity; size_t count; SlValue **argument; size_t environment_count; SlValue **environment; } SlClosure;
 struct SlValue { uint32_t kind; union { SlBig *integer; SlCon con; SlBytes bytes; SlClosure closure; } as; };
 struct SlChunk { SlChunk *next; size_t used; size_t cap; max_align_t align; unsigned char data[]; };
+struct SlPage { SlPage *next; uint64_t token; void *address; size_t size; int active; };
 
 static SlChunk *sl_arena = NULL;
 static size_t sl_value_count = 0u;
 static size_t sl_output_left = SL_MAX_OUTPUT;
 static size_t sl_arena_bytes = 0u;
+static SlPage *sl_pages = NULL;
+static uint64_t sl_next_page_token = 1u;
+static size_t sl_active_pages = 0u;
 static size_t sl_work_left = SL_MAX_WORK;
 static size_t sl_eval_depth = 0u;
 static size_t sl_print_depth = 0u;
@@ -391,7 +396,20 @@ static void *sl_alloc(size_t size) {
     return result;
 }
 
+static uint64_t sl_page_register(void *address, size_t size) {
+    if(address==NULL||size==0u||sl_next_page_token==0u)sl_die("invalid mapped page");
+    SlPage *page=(SlPage *)sl_alloc(sizeof(SlPage));
+    page->next=sl_pages;page->token=sl_next_page_token++;page->address=address;page->size=size;page->active=1;
+    sl_pages=page;++sl_active_pages;return page->token;
+}
+
+static SlPage *sl_page_lookup(uint64_t token) {
+    for(SlPage *page=sl_pages;page!=NULL;page=page->next)if(page->token==token&&page->active)return page;
+    sl_die("invalid or already released page token");return NULL;
+}
+
 static void sl_destroy(void) {
+    if(sl_active_pages!=0u)sl_die("owned page reached process exit without explicit drop");
     while (sl_arena != NULL) { SlChunk *next = sl_arena->next; free(sl_arena); sl_arena = next; }
 }
 
@@ -652,7 +670,7 @@ class _Emitter:
             if definition.name not in self.functions:
                 output.append(self._global(definition))
         entry = self._gid(self.symbol)
-        keep = "(void)&sl_int_literal;(void)&sl_int_add;(void)&sl_int_sub;(void)&sl_int_mul;(void)&sl_int_compare;(void)&sl_int_to_bytes;(void)&sl_con;(void)&sl_bytes;(void)&sl_closure;(void)&sl_apply;(void)&sl_int_u64;(void)&sl_int_u64_value;(void)&sl_trap_bytes;(void)&sl_exit_code;(void)&sl_print_value;"
+        keep = "(void)&sl_int_literal;(void)&sl_int_add;(void)&sl_int_sub;(void)&sl_int_mul;(void)&sl_int_compare;(void)&sl_int_to_bytes;(void)&sl_con;(void)&sl_bytes;(void)&sl_closure;(void)&sl_apply;(void)&sl_int_u64;(void)&sl_int_u64_value;(void)&sl_trap_bytes;(void)&sl_exit_code;(void)&sl_print_value;(void)&sl_page_register;(void)&sl_page_lookup;"
         if self.symbol in self.functions:
             unit = self.constructor_ids["sloph::Unit::Unit"]
             success = self.constructor_ids["os::process::Exit::Success"]
@@ -814,6 +832,28 @@ class _Emitter:
                 lines.append(f"{indent}SlValue *{result}=NULL;")
             elif expression.name in self.foreign_bindings:
                 binding=self.foreign_bindings[expression.name]
+                if binding.adapter == "page_map":
+                    if not isinstance(binding.result, AppliedType) or binding.result.constructor != "sloph::Result" or len(binding.result.arguments) != 2 or binding.result.arguments[0] != INT or not isinstance(binding.result.arguments[1], NamedType):
+                        fail("backend.c11.foreign_adapter", "backend", "page-map result must be Result[Int, NativeMapError]", expression.span, binding=expression.name)
+                    error_type=binding.result.arguments[1].name
+                    ok_tag=self.constructor_ids["sloph::Result::Ok"]
+                    err_tag=self.constructor_ids["sloph::Result::Err"]
+                    native_error_tag=self.constructor_ids[f"{error_type}::Native"]
+                    requested=self._new(); mapped=self._new(); address=self._new(); error=self._new(); token=self._new(); field=self._new(); error_field=self._new(); error_value=self._new(); wrapped=self._new()
+                    lines.append(f'{indent}uint64_t {requested}=sl_int_u64_value({values[0]},"page allocation size is outside native range");')
+                    lines.append(f"{indent}SlValue *{result}=NULL;")
+                    lines.append(f"{indent}if({requested}>(uint64_t)SIZE_MAX||{requested}>(uint64_t)SL_MAX_ARENA){{SlValue *{error_field}[]={{sl_int_u64((uint64_t)ENOMEM)}};SlValue *{error_value}=sl_con({native_error_tag}u,1u,{error_field});SlValue *{wrapped}[]={{{error_value}}};{result}=sl_con({err_tag}u,1u,{wrapped});}}else{{size_t {mapped}=0u;errno=0;void *{address}={binding.symbol}((size_t){requested},&{mapped});int {error}=errno;if({address}!=NULL){{uint64_t {token}=sl_page_register({address},{mapped});SlValue *{field}[]={{sl_int_u64({token})}};{result}=sl_con({ok_tag}u,1u,{field});}}else{{unsigned native_error=(unsigned)({error}?{error}:ENOMEM);SlValue *{error_field}[]={{sl_int_u64((uint64_t)native_error)}};SlValue *{error_value}=sl_con({native_error_tag}u,1u,{error_field});SlValue *{wrapped}[]={{{error_value}}};{result}=sl_con({err_tag}u,1u,{wrapped});}}}}")
+                    return result
+                if binding.adapter == "page_unmap":
+                    if binding.result != NamedType("sloph::Unit"):
+                        fail("backend.c11.foreign_adapter", "backend", "page-unmap result must be Unit", expression.span, binding=expression.name)
+                    unit_tag=self.constructor_ids["sloph::Unit::Unit"]
+                    token=self._new(); page=self._new(); native=self._new(); error=self._new()
+                    lines.append(f'{indent}uint64_t {token}=sl_int_u64_value({values[0]},"page token is outside native range");')
+                    lines.append(f"{indent}SlPage *{page}=sl_page_lookup({token});errno=0;int {native}={binding.symbol}({page}->address,{page}->size);int {error}=errno;")
+                    lines.append(f'{indent}if({native}!=0){{(void){error};sl_die("native page release failed");}}{page}->active=0;--sl_active_pages;')
+                    lines.append(f"{indent}SlValue *{result}=sl_con({unit_tag}u,0u,NULL);")
+                    return result
                 if binding.adapter != "borrowed_bytes_write":
                     fail("backend.c11.foreign_adapter", "backend", f"unsupported foreign adapter {binding.adapter!r}", expression.span, binding=expression.name)
                 if not isinstance(binding.result, AppliedType) or binding.result.constructor != "sloph::Result" or len(binding.result.arguments) != 2 or binding.result.arguments[0] != INT or not isinstance(binding.result.arguments[1], NamedType):

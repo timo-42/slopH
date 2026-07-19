@@ -11,7 +11,8 @@ must remain monomorphic. Forms not identified below as implemented remain
 design work.
 
 The Python bootstrap also implements canonical Core v2 for the initial
-unconstrained generics profile. Core v2 adds:
+unconstrained generics profile and Core v3 for the explicit-ownership slice.
+Core v2 adds:
 
 ```text
 (var T)                         scoped type variable

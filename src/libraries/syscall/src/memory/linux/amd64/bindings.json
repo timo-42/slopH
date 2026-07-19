@@ -1,0 +1,56 @@
+[
+  {
+    "adapter": {
+      "kind": "page_map",
+      "arguments": ["c_size", "out_size"],
+      "result": "pointer_errno",
+      "sloph_parameters": ["Int"],
+      "sloph_result": "sloph::Result[Int, syscall::memory::native::NativeMapError]"
+    },
+    "c_parameters": ["size_t", "size_t *"],
+    "c_result": "void *",
+    "effects": ["io"],
+    "facts": {
+      "blocking": "may",
+      "callbacks": "none",
+      "error": "null_errno",
+      "host_allocation": "virtual_memory",
+      "pointer_access": "returns_owned_pages",
+      "pointer_retention": "runtime_registry",
+      "result": "must_use"
+    },
+    "header": "memory.h",
+    "identity": "foreign.syscall.memory.linux.amd64.map_pages",
+    "provenance": "compiler-bundled-reviewed",
+    "provider": "syscall::memory::linux::amd64",
+    "requires": ["backend.native", "foreign.c", "host.posix.virtual-memory"],
+    "symbol": "sloph_syscall_map_pages"
+  },
+  {
+    "adapter": {
+      "kind": "page_unmap",
+      "arguments": ["page_token"],
+      "result": "zero_errno",
+      "sloph_parameters": ["Int"],
+      "sloph_result": "sloph::Unit"
+    },
+    "c_parameters": ["void *", "size_t"],
+    "c_result": "int",
+    "effects": ["io"],
+    "facts": {
+      "blocking": "may",
+      "callbacks": "none",
+      "error": "minus_one_errno",
+      "host_allocation": "release_virtual_memory",
+      "pointer_access": "owned_pages",
+      "pointer_retention": "none",
+      "result": "must_use"
+    },
+    "header": "memory.h",
+    "identity": "foreign.syscall.memory.linux.amd64.unmap_pages",
+    "provenance": "compiler-bundled-reviewed",
+    "provider": "syscall::memory::linux::amd64",
+    "requires": ["backend.native", "foreign.c", "host.posix.virtual-memory"],
+    "symbol": "sloph_syscall_unmap_pages"
+  }
+]

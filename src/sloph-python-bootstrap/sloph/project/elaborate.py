@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, fields, is_dataclass
 from pathlib import Path
 from typing import Any
 
@@ -76,11 +76,26 @@ def elaborate_project(
 def elaborate_project_v1(
     path: str | Path | Project, limits: Limits | None = None
 ) -> CoreUnit:
-    """Resolve Source v1 into independently validated parametric Core v2."""
+    """Resolve Source v1 into independently validated parametric Core."""
     project = path if isinstance(path, Project) else load_project(
         path, limits, source_version=1
     )
-    return _elaborate(project, version=2)
+    return _elaborate(project, version=3 if _uses_ownership(project) else 2)
+
+
+def _uses_ownership(project: Project) -> bool:
+    pending: list[Any] = [module.syntax for module in project.modules]
+    while pending:
+        value = pending.pop()
+        if _class(value) == "TypeDecl" and bool(getattr(value, "owned", False)):
+            return True
+        if _class(value) == "DeferCall" or getattr(value, "mode", "own") != "own":
+            return True
+        if is_dataclass(value):
+            pending.extend(getattr(value, item.name) for item in fields(value))
+        elif isinstance(value, (tuple, list)):
+            pending.extend(value)
+    return False
 
 
 def _elaborate(project: Project, *, version: int) -> CoreUnit:
@@ -278,6 +293,18 @@ def _build_scopes(project: Project, *, version: int = 0) -> dict[str, _Scope]:
                         _span(import_decl),
                         declaration=symbol.global_name,
                     )
+                if (
+                    _class(symbol.declaration) == "ForeignFunctionDecl"
+                    and module.name.split("::", 1)[0]
+                    != symbol.module.split("::", 1)[0]
+                ):
+                    fail(
+                        "project.resolve.foreign_import",
+                        "resolve",
+                        "native provider functions are package-internal; import their safe wrapper instead",
+                        _span(import_decl),
+                        declaration=symbol.global_name,
+                    )
                 if name in scope.visible:
                     fail(
                         "project.resolve.import_collision",
@@ -292,7 +319,9 @@ def _build_scopes(project: Project, *, version: int = 0) -> dict[str, _Scope]:
                     if name in scope.exports:
                         fail("project.resolve.export_collision", "resolve", f"re-exported name {name!r} collides in module {module.name!r}", _span(import_decl), module=module.name, name=name)
                     scope.exports[name] = symbol
-                if symbol.kind == "type":
+                if symbol.kind == "type" and not bool(
+                    getattr(symbol.declaration, "owned", False)
+                ):
                     owner_scope = scopes[symbol.module]
                     prefix = symbol.name + "::"
                     for local_name, constructor in owner_scope.constructors.items():
@@ -314,7 +343,13 @@ def _lower_enum(scope: _Scope, declaration: Any) -> EnumDecl:
                 f"{symbol.global_name}::{constructor.name}", fields, _span(constructor)
             )
         )
-    return EnumDecl(symbol.global_name, tuple(constructors), _span(declaration), tuple(declaration.type_parameters))
+    return EnumDecl(
+        symbol.global_name,
+        tuple(constructors),
+        _span(declaration),
+        tuple(declaration.type_parameters),
+        bool(getattr(declaration, "owned", False)),
+    )
 
 
 def _lower_function(scope: _Scope, declaration: Any, *, version: int = 0) -> Definition:
@@ -334,7 +369,11 @@ def _lower_function(scope: _Scope, declaration: Any, *, version: int = 0) -> Def
     result = _resolve_type(scope, declaration.result_type, type_variables)
     type_: CoreType = result
     for parameter in reversed(parameters):
-        type_ = FunctionType(_resolve_type(scope, parameter.type, type_variables), type_)
+        type_ = FunctionType(
+            _resolve_type(scope, parameter.type, type_variables),
+            type_,
+            getattr(parameter, "mode", "own"),
+        )
     for type_parameter in reversed(type_parameters):
         type_ = ForAllType(type_parameter, type_)
     locals_: dict[str, CoreType] = {}
@@ -389,7 +428,16 @@ def _lower_body(
         return _lower_expr(scope, body, locals_, used, type_variables)
     active = dict(locals_)
     lowered: list[tuple[Binder, Any]] = []
+    deferred: list[tuple[Any, Span]] = []
     for binding in _sequence(body, "bindings", "lets"):
+        if _class(binding) == "DeferCall":
+            deferred.append(
+                (
+                    _lower_expr(scope, binding.call, active, used, type_variables),
+                    _span(binding),
+                )
+            )
+            continue
         value = _lower_expr(scope, binding.value, active, used, type_variables)
         inferred = (
             _infer_lowered_type(scope, value, active)
@@ -401,9 +449,29 @@ def _lower_body(
         )
         lowered.append((binder, value))
     result = _lower_expr(scope, body.result, active, used, type_variables)
+    if deferred:
+        result_type = _infer_lowered_type(scope, result, active)
+        result_name = _fresh_internal("defer_result", used, active)
+        result_binder = Binder(result_name, result_type, _span(body))
+        cleanup = LocalExpr(result_name, _span(body))
+        unit = NamedType("sloph::Unit")
+        for index, (call, span) in enumerate(deferred):
+            cleanup_name = _fresh_internal(f"defer_{index}", used, active)
+            cleanup = LetExpr(Binder(cleanup_name, unit, span), call, cleanup, span)
+        result = LetExpr(result_binder, result, cleanup, _span(body))
     for binder, value in reversed(lowered):
         result = LetExpr(binder, value, result, _span(body))
     return result
+
+
+def _fresh_internal(prefix: str, used: set[str], locals_: dict[str, CoreType]) -> str:
+    index = 0
+    while True:
+        name = f"_{prefix}_{index}"
+        if name not in used and name not in locals_:
+            used.add(name)
+            return name
+        index += 1
 
 
 def _lower_expr(
@@ -705,6 +773,7 @@ def _resolve_type(scope: _Scope, source_type: Any, type_variables: set[str] | No
         return FunctionType(
             _resolve_type(scope, source_type.parameter, type_variables),
             _resolve_type(scope, source_type.result, type_variables),
+            getattr(source_type, "mode", "own"),
         )
     fail(
         "project.lower.type",
@@ -801,7 +870,7 @@ def _new_binder(
     type_ = inferred_type or _resolve_type(scope, source_binder.type, type_variables)
     used.add(name)
     locals_[name] = type_
-    return Binder(name, type_, _span(source_binder))
+    return Binder(name, type_, _span(source_binder), getattr(source_binder, "mode", "own"))
 
 
 def _infer_lowered_type(
@@ -821,7 +890,11 @@ def _infer_lowered_type(
                     variables = set(parameters)
                     result = _resolve_type(symbol_scope, symbol.declaration.result_type, variables)
                     for parameter in reversed(_sequence(symbol.declaration, "parameters")):
-                        result = FunctionType(_resolve_type(symbol_scope, parameter.type, variables), result)
+                        result = FunctionType(
+                            _resolve_type(symbol_scope, parameter.type, variables),
+                            result,
+                            getattr(parameter, "mode", "own"),
+                        )
                     if not _sequence(symbol.declaration, "parameters"):
                         result = FunctionType(NamedType("sloph::Unit"), result)
                     for parameter in reversed(parameters):
@@ -832,7 +905,7 @@ def _infer_lowered_type(
     if isinstance(expression, LamExpr):
         if isinstance(expression.binder, TypeBinder):
             return ForAllType(expression.binder.name, _infer_lowered_type(scope, expression.body, locals_))
-        return FunctionType(expression.binder.type, _infer_lowered_type(scope, expression.body, locals_ | {expression.binder.name: expression.binder.type}))
+        return FunctionType(expression.binder.type, _infer_lowered_type(scope, expression.body, locals_ | {expression.binder.name: expression.binder.type}), expression.binder.mode)
     if isinstance(expression, AppExpr):
         function = _infer_lowered_type(scope, expression.function, locals_)
         if isinstance(expression.argument, TypeExpr):
@@ -873,7 +946,7 @@ def _validate_entry(project: Project, unit: CoreUnit) -> None:
         expected = FunctionType(
             NamedType("sloph::Unit"), NamedType("os::process::Exit")
         )
-        if unit.version != 2 or entry.type != expected:
+        if unit.version not in (2, 3) or entry.type != expected:
             fail(
                 "project.entry.function",
                 "resolve",
@@ -908,7 +981,7 @@ def _substitute_type(type_: CoreType, substitutions: dict[str, CoreType]) -> Cor
     if isinstance(type_, AppliedType):
         return AppliedType(type_.constructor, tuple(_substitute_type(item, substitutions) for item in type_.arguments))
     if isinstance(type_, FunctionType):
-        return FunctionType(_substitute_type(type_.parameter, substitutions), _substitute_type(type_.result, substitutions))
+        return FunctionType(_substitute_type(type_.parameter, substitutions), _substitute_type(type_.result, substitutions), type_.mode)
     if isinstance(type_, ForAllType):
         nested = dict(substitutions)
         nested.pop(type_.parameter, None)
