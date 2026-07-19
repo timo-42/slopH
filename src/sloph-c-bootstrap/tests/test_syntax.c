@@ -123,4 +123,26 @@ static void clause_binder_alias(void) {
     sloph_context_destroy(ctx);
 }
 
-int main(void) { basic_v0(); v1_transform(); rejects_v0_zero_parameters(); rich_json_roundtrip(); clause_binder_alias(); return 0; }
+static void mutable_borrow_round_trip(void) {
+    static const unsigned char source[] =
+        "module mutable; intrinsic type Cell; "
+        "intrinsic fn set(cell: borrow mut Cell, byte: Int) -> Int = cell.set; "
+        "const callback: fn(borrow mut Cell) -> Int { set }";
+    SlophContext *ctx = context();
+    SlophSyntaxModule *module = NULL;
+    SlophSyntaxText formatted = {0}, json = {0};
+    assert(sloph_syntax_parse(ctx, source, sizeof(source) - 1u, 1u,
+                              &module) == SLOPH_STATUS_OK);
+    assert(strcmp(module->functions[0].parameters[0].mode, "borrow-mut") == 0);
+    assert(sloph_syntax_format(ctx, module, &formatted) == SLOPH_STATUS_OK);
+    assert(strstr(formatted.data, "cell: borrow mut Cell") != NULL);
+    assert(strstr(formatted.data, "fn(borrow mut Cell) -> Int") != NULL);
+    assert(sloph_syntax_to_json(ctx, module, &json) == SLOPH_STATUS_OK);
+    assert(strstr(json.data, "\"mode\":\"borrow-mut\"") != NULL);
+    sloph_syntax_text_free(ctx, &formatted);
+    sloph_syntax_text_free(ctx, &json);
+    sloph_syntax_module_free(module);
+    sloph_context_destroy(ctx);
+}
+
+int main(void) { basic_v0(); v1_transform(); rejects_v0_zero_parameters(); rich_json_roundtrip(); clause_binder_alias(); mutable_borrow_round_trip(); return 0; }
