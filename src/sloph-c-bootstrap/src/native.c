@@ -93,16 +93,22 @@ static const char *native_libraries_root(void) {
 #endif
 }
 
+static void clear_resolved_provider(ResolvedProvider *provider) {
+    size_t source;
+    if (provider == NULL) return;
+    for (source = 0u; source < provider->source_count; ++source)
+        free(provider->sources[source]);
+    free(provider->sources);
+    free(provider->bindings_path);
+    free(provider->root);
+    memset(provider, 0, sizeof(*provider));
+}
+
 static void free_resolved_providers(ResolvedProvider *providers, size_t count) {
-    size_t index, source;
+    size_t index;
     if (providers == NULL) return;
-    for (index = 0u; index < count; ++index) {
-        for (source = 0u; source < providers[index].source_count; ++source)
-            free(providers[index].sources[source]);
-        free(providers[index].sources);
-        free(providers[index].bindings_path);
-        free(providers[index].root);
-    }
+    for (index = 0u; index < count; ++index)
+        clear_resolved_provider(&providers[index]);
     free(providers);
 }
 
@@ -254,10 +260,7 @@ invalid_metadata:
 done:
     if (stream != NULL) fclose(stream);
     yyjson_doc_free(document); free(data); free(manifest); free(bindings_path);
-    if (status != SLOPH_STATUS_OK) {
-        free_resolved_providers(out, 1u);
-        memset(out, 0, sizeof(*out));
-    }
+    if (status != SLOPH_STATUS_OK) clear_resolved_provider(out);
     return status;
 }
 
