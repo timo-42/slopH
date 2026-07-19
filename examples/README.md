@@ -1,7 +1,7 @@
 # SlopH Examples
 
-These projects are small, executable demonstrations of the stable SlopH v1
-command-line interface. Start with [Hello World](hello-world/README.md).
+These projects are small, executable demonstrations of the supported SlopH v1
+command-line interface defined by the [product contract](../docs/PRODUCT.md). Start with [Hello World](hello-world/README.md).
 
 Run an example from the repository root:
 

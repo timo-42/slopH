@@ -22,19 +22,25 @@ a primary goal.
 ## Start Here
 
 1. Read the governing [top-level requirements](REQUIREMENTS.md).
-2. Read the [research synthesis](docs/research/RESEARCH_SYNTHESIS.md) for the
+2. Read the normative [V1 product contract](docs/PRODUCT.md) to see what is
+   supported; the
+   [document-status inventory](.plan/00-product-definition/DOCUMENT_STATUS.md)
+   records which documents are binding.
+3. Read the [research synthesis](docs/research/RESEARCH_SYNTHESIS.md) for the
    rationale behind the current direction.
-3. Read the [Core design](docs/language/CORE.md) and
+4. Read the [Core design](docs/language/CORE.md) and
    [transformation design](docs/language/MACRO.md).
-4. Read the [experimental Core v0 profile](docs/language/CORE_V0.md) to
+5. Read the [experimental Core v0 profile](docs/language/CORE_V0.md) to
    understand the executable subset currently being tested.
-5. Read the [infrastructure requirements](docs/toolchain/INFRASTRUCTURE.md) and
+6. Read the [infrastructure requirements](docs/toolchain/INFRASTRUCTURE.md) and
    [bootstrap plan](docs/toolchain/BOOTSTRAP.md).
 
 ## Try SlopH
 
-The stable v1 vertical slice can check, format, inspect, compile, and run Source
-projects. The [examples](examples/README.md) are executable documentation and
+The supported v1 vertical slice, defined by the
+[product contract](docs/PRODUCT.md), can check, format, inspect, compile, and
+run Source projects. The [examples](examples/README.md) are executable
+documentation and
 are verified on every supported CI platform. After installing the checkout,
 run Hello World with:
 
@@ -104,7 +110,7 @@ replacement is tracked in [`idea/SECURITY.md`](idea/SECURITY.md).
 │       ├── sloph/        Hosted Python toolchain libraries and thin CLI
 │       ├── tests/        Python-bootstrap tests and portable-corpus adapter
 │       └── pyproject.toml
-├── examples/             CI-verified stable v1 projects
+├── examples/             CI-verified supported v1 projects
 ├── tests/                Portable Core/Source cases and golden files
 ├── .github/workflows/    Linux and macOS CI
 └── LICENSE
