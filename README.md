@@ -1,145 +1,124 @@
 # SlopH
 
 SlopH is the working name for a small, AI-first, general-purpose programming
-language intended to compile to native executables. The repository now contains
-experimental Core v0 tools and a deliberately small Source v0 to native C11
-vertical slice. These are executable design experiments, not yet the final
-source language, runtime, or native backend.
+language that compiles to native executables. The authoritative compiler in
+this repository is the hosted C11 implementation in `src/sloph-c-bootstrap`.
+It implements the supported Source v1 path as well as the versioned Source v0
+and Core v0 compatibility experiments.
 
 In project terminology, **SlopH** is the user-facing language and **SlopH
-Core** (or **Core**) is its canonical typed intermediate language. “Source v0”
-and “Source v1” name versioned implementation profiles rather than separate
-languages. The lowercase `sloph` package owns ordinary language-level data,
-the lowercase `core` package exposes fixed Core types and primitives, and the
-mandatory `prelude` re-exports their fundamental types. See the normative
-[v1 terminology](docs/language/V1.md#terminology).
+Core** (or **Core**) is its canonical typed intermediate language. The named
+compiler representations are:
+
+```text
+SlopH source -> Canopy -> Crown -> Heartwood -> Timber -> native executable
+```
+
+- **Canopy** is parsed source syntax.
+- **Crown** is deterministic transformed/desugared AST JSON.
+- **Heartwood** is validated, elaborated typed Core.
+- **Timber** is deterministic portable C11 passed to the host C compiler.
+
+See the [pipeline and T-diagrams](docs/toolchain/PIPELINE.md) for the stage
+contracts.
 
 The design prioritizes code that AI systems can generate and reason about,
 human reviewability, a specification small enough to fit in an AI context
-window, and fast compilation. Easy manual authoring by humans is explicitly not
-a primary goal.
+window, and fast compilation. Easy manual authoring by humans is not a primary
+goal.
 
-## Start Here
+## Build and test
 
-1. Read the governing [top-level requirements](REQUIREMENTS.md).
-2. Read the normative [V1 product contract](docs/PRODUCT.md) to see what is
-   supported; the
-   [document-status inventory](.plan/00-product-definition/DOCUMENT_STATUS.md)
-   records which documents are binding.
-3. Read the [research synthesis](docs/research/RESEARCH_SYNTHESIS.md) for the
-   rationale behind the current direction.
-4. Read the [Core design](docs/language/CORE.md) and
+A C11 compiler, `make`, `ar`, and the platform linker are required. The build
+is offline: yyjson is pinned under `src/sloph-c-bootstrap/vendor/yyjson`.
+
+```text
+make
+make test
+make cases
+make check
+make sanitize
+```
+
+The compiler is written to `src/sloph-c-bootstrap/build/bin/sloph`. The
+`cases` target runs the Core, Source, native, and bundled-library suites.
+
+Run the checked-in example with:
+
+```text
+src/sloph-c-bootstrap/build/bin/sloph run examples/hello-world
+```
+
+The supported public commands are:
+
+```text
+sloph check
+sloph format
+sloph ast print
+sloph ast check
+sloph core print
+sloph core check
+sloph compile
+sloph run
+```
+
+The explicit stage commands are:
+
+```text
+sloph canopy-to-crown
+sloph crown-to-heartwood
+sloph heartwood-to-timber
+```
+
+Use `sloph COMMAND --help` for exact arguments.
+
+## Projects and native providers
+
+Projects use strict `sloph.json` format 1 manifests. Unknown or duplicate
+keys, malformed JSON, wrong value shapes, unsupported formats, and source-root
+escapes are rejected. Bundled dependencies are named explicitly by the
+manifest.
+
+Native providers use strict `provider.json` format 1 metadata plus versioned
+`bindings.json`. A provider declares reviewed local `.c` and `.S` source files;
+the compiler passes those files directly to the host C compiler. Dependency
+scripts are never executed, prebuilt shared providers are not loaded, and no
+runtime rpath is installed.
+
+## Start here
+
+1. Read the governing [requirements](REQUIREMENTS.md).
+2. Read the normative [V1 product contract](docs/PRODUCT.md) and
+   [language profile](docs/language/V1.md).
+3. Read the [Core design](docs/language/CORE.md) and
    [transformation design](docs/language/MACRO.md).
-5. Read the [compiler representations and T-diagrams](docs/toolchain/PIPELINE.md)
-   for the Canopy, Crown, Heartwood, and Timber pipeline.
-6. Read the [experimental Core v0 profile](docs/language/CORE_V0.md) to
-   understand the executable subset currently being tested.
-7. Read the [infrastructure requirements](docs/toolchain/INFRASTRUCTURE.md) and
-   [bootstrap plan](docs/toolchain/BOOTSTRAP.md).
+4. Read the [pipeline and T-diagrams](docs/toolchain/PIPELINE.md),
+   [CLI contract](docs/toolchain/CLI.md), and
+   [testing guide](docs/toolchain/TESTING.md).
+5. Read the [infrastructure requirements](docs/toolchain/INFRASTRUCTURE.md) and
+   future [minimal-trust bootstrap plan](docs/toolchain/BOOTSTRAP.md).
 
-## Try SlopH
-
-The supported v1 vertical slice, defined by the
-[product contract](docs/PRODUCT.md), can check, format, inspect, compile, and
-run Source projects. The [examples](examples/README.md) are executable
-documentation and
-are verified on every supported CI platform. After installing the checkout,
-run Hello World with:
+## Repository layout
 
 ```text
-sloph run examples/hello-world
-```
-
-## Experimental Tools
-
-Core v0 is a monomorphic, pure subset used to test the typed Core
-representation before the full source language is fixed. The Python 3.11+
-implementation also supports explicit Source v1 generics in canonical Core v2,
-with generic `Option` and `Result` in `sloph` and recoverable
-`std::io::try_write`. It has no third-party runtime dependencies and exposes:
-
-```text
-sloph unstable core check
-sloph unstable core print
-sloph unstable core eval
-sloph unstable check
-sloph unstable format
-sloph unstable ast print
-sloph unstable ast check
-sloph unstable compile
-sloph unstable run
-```
-
-Core commands accept the canonical tagged S-expression text format. The source
-profile adds multi-module parsing, formatting, AST JSON, Core lowering, and a
-first-order C11 native bridge. Neither profile provides Core JSON/binary,
-optimization, effects, higher-order native functions, or a final application
-ABI. See the [Core v0 specification](docs/language/CORE_V0.md),
-[experimental CLI profile](docs/toolchain/CLI.md#experimental-source-to-native-v0-tools),
-and [v0 test profile](docs/toolchain/TESTING.md#experimental-v0-test-profile).
-The new vertical slice is specified by
-[Source v0](docs/language/SOURCE_V0.md) and the
-[experimental C11 backend](docs/toolchain/C_BACKEND_V0.md).
-
-Python 3.11 or newer and `uv` are required. Run the hosted Python bootstrap and
-its complete test suite directly from a checkout without installing a project:
-
-```text
-uv run --no-project --directory src/sloph-python-bootstrap python -m sloph --help
-uv run --no-project --directory src/sloph-python-bootstrap \
-  python -m unittest discover \
-  -s ../../tests/implementation/python -t ../../tests/implementation/python
-uv run --no-project --directory src/sloph-python-bootstrap \
-  ../libraries/run-tests.sh python -m sloph
-```
-
-Native providers declare reviewed local `.c` and `.S` inputs in strict
-`provider.json` metadata. The compiler passes those sources directly to the
-host C compiler; dependency packages do not execute build scripts.
-
-## Repository Layout
-
-~~~text
 .
-├── REQUIREMENTS.md       Governing goals and non-goals
+├── REQUIREMENTS.md
 ├── docs/
-│   ├── language/         Language and Core design
-│   ├── toolchain/        Compiler, CLI, testing, and bootstrap design
-│   └── research/         Academic and practitioner research
+│   ├── language/             language and Core design
+│   ├── toolchain/            compiler, CLI, testing, and bootstrap design
+│   └── research/             clearly non-normative research
 ├── src/
-│   ├── libraries/        Bundled SlopH libraries and native boundaries
-│   └── sloph-python-bootstrap/
-│       ├── sloph/        Hosted Python toolchain libraries and thin CLI
-│       └── pyproject.toml
-├── examples/             CI-verified supported v1 projects
-├── tests/                Portable cases plus implementation adapters/tests
-├── .github/workflows/    Linux and macOS CI
-└── LICENSE
-~~~
+│   ├── libraries/            bundled SlopH libraries and native boundaries
+│   └── sloph-c-bootstrap/    authoritative hosted C11 compiler
+├── examples/                 CI-verified Source v1 projects
+├── tests/                    portable cases and implementation adapters
+└── .github/workflows/        Linux and macOS CI
+```
 
-### Language design
+## Further reading
 
-- [Small typed Core](docs/language/CORE.md)
-- [Experimental Core v0 profile](docs/language/CORE_V0.md)
-- [Experimental Source v0 profile](docs/language/SOURCE_V0.md)
-- [Enums, structs, Unit, and Bool](docs/language/ENUM.md)
-- [Integers and bounded integers](docs/language/INTEGER.md)
-- [Floating point and bounded floats](docs/language/FLOAT.md)
-- [Memory management](docs/language/MEMORY.md)
-- [Macros, sugar, and transformations](docs/language/MACRO.md)
-
-### Toolchain design
-
-- [Compiler representations and T-diagrams](docs/toolchain/PIPELINE.md)
-- [Compiler and package infrastructure](docs/toolchain/INFRASTRUCTURE.md)
-- [Single-binary CLI](docs/toolchain/CLI.md)
-- [Shared testing architecture](docs/toolchain/TESTING.md)
-- [Reproducible bootstrap](docs/toolchain/BOOTSTRAP.md)
-- [Experimental C11 backend](docs/toolchain/C_BACKEND_V0.md)
-
-### Research
-
+- [Source v1](docs/language/V1.md)
+- [Core](docs/language/CORE.md)
+- [Canopy → Crown → Heartwood → Timber](docs/toolchain/PIPELINE.md)
+- [POSIX/native boundary](docs/toolchain/POSIX_BOUNDARY.md)
 - [Research synthesis](docs/research/RESEARCH_SYNTHESIS.md)
-- [Haskell and GHC Core](docs/research/RESEARCH_GHC_CORE.md)
-- [Extensible programming languages](docs/research/RESEARCH_EXTENSIBILITY.md)
-- [Lisp and Forth](docs/research/RESEARCH_LISP_FORTH.md)

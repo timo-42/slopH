@@ -1,8 +1,9 @@
 # Single-Binary Command-Line Interface
 
-This document records the proposed command-line interface for the language
-toolchain. The examples use `<lang>` until the language and executable receive
-final names.
+This document records the command-line interface for the SlopH toolchain. The
+authoritative implementation is the C11 `sloph` executable built by
+`make -C src/sloph-c-bootstrap`. Sections explicitly labeled future design are
+proposals rather than current behavior.
 
 The eventual toolchain is one binary containing the compiler, checker,
 formatter, inspection tools, package client, language server, and—after
@@ -12,7 +13,7 @@ implementation and usability tests confirm it.
 ## General Form
 
 ```text
-<lang> [global options] <command> [command options]
+sloph [global options] <command> [command options]
 ```
 
 Global options:
@@ -37,6 +38,26 @@ Global options:
 
 Only options meaningful to a command are accepted. For example, `--target`
 does not affect source formatting.
+
+## Current Compiler Pipeline
+
+The current public stage commands name both sides of each boundary:
+
+```text
+sloph canopy-to-crown INPUT [-o CROWN_JSON]
+sloph crown-to-heartwood PROJECT [-o HEARTWOOD_CORE]
+sloph heartwood-to-timber INPUT --symbol GLOBAL_ID [-o TIMBER_C]
+```
+
+`canopy-to-crown` parses Source and emits deterministic Crown AST JSON.
+`crown-to-heartwood` loads a strict `sloph.json` format 1 project, resolves and
+checks it, and emits canonical Heartwood Core. `heartwood-to-timber` validates
+Heartwood and emits deterministic portable C11. `check`, `compile`, and `run`
+compose these stages.
+
+Native provider selection accepts only strict `provider.json` format 1
+metadata and reviewed local `.c`/`.S` sources. It does not execute dependency
+scripts, load shared providers, or add runtime search paths.
 
 ## Input, Output, and Stability
 
@@ -68,13 +89,12 @@ Stable exit codes:
 
 ## Experimental Core v0 Tools
 
-The first executable milestone is the experimental Core v0 profile defined in
+The Core v0 compatibility profile is defined in
 [CORE_V0.md](../language/CORE_V0.md). It is intentionally placed below
 `unstable`: it is useful for testing the representation, but it is not the
 eventual stable `core` interface described later in this document.
 
-The Python 3.11+ implementation has no third-party runtime dependencies and
-provides:
+The authoritative C11 compiler provides:
 
 ```text
 sloph unstable core check INPUT
@@ -98,7 +118,7 @@ Core v0 result.
 These commands use the general output separation and exit-code conventions
 above, but their syntax and diagnostics may change while the profile remains
 under `unstable`. Resource limits and evaluation behavior are part of the Core
-v0 profile rather than ambient Python behavior.
+v0 profile rather than ambient host-language behavior.
 
 The experimental Core-only commands do **not** provide:
 
@@ -764,11 +784,12 @@ For the current experimental v0 milestone, conformance is limited to:
 - deterministic rejection of malformed, invalid, cyclic, over-limit, and
   unsupported inputs;
 - standard-input/output separation and the documented process exit classes;
-- identical results from the CLI and the Python library operation it invokes.
+- identical results from the CLI and the public C library operation it invokes;
 - Source parsing, AST JSON, canonical formatting, project resolution, and
   deterministic Source-to-Core lowering under the Source v0 restrictions;
-- direct first-order C11 emission and native execution on the two documented
-  host targets, including deterministic runtime resource failures.
+- deterministic C11 emission and native execution, including higher-order and
+  dynamic function cases, on the two documented host targets;
+- deterministic runtime resource failures.
 
 Core JSON, binary formats, diff, optimization, higher-order native code, and
 other backends are outside the v0 profile. Source and C11 results count toward

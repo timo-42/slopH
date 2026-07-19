@@ -10,7 +10,7 @@ normative for that experiment; v0 omissions do not imply that later profiles
 must remain monomorphic. Forms not identified below as implemented remain
 design work.
 
-The Python bootstrap also implements canonical Core v2 for the initial
+The authoritative C11 compiler implements canonical Core v2 for the initial
 unconstrained generics profile and Core v3 for the explicit-ownership slice.
 Core v2 adds:
 

@@ -9,41 +9,34 @@ permissions:
 
 jobs:
   test:
-    name: test (${{ matrix.context }}, ${{ matrix.python }})
-    timeout-minutes: 10
+    name: C11 (${{ matrix.context }})
+    timeout-minutes: 15
     strategy:
       matrix:
         include:
           - os: ubuntu-24.04
             context: ubuntu-latest
             arch: x86_64
-            python: "3.11"
-          - os: ubuntu-24.04
-            context: ubuntu-latest
-            arch: x86_64
-            python: "3.13"
           - os: macos-15
             context: macos-latest
             arch: arm64
-            python: "3.11"
-          - os: macos-15
-            context: macos-latest
-            arch: arm64
-            python: "3.13"
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python }}
-      - uses: astral-sh/setup-uv@v6
-      - run: test "$(uname -m)" = "${{ matrix.arch }}"
-      - name: Run unit, conformance, and example tests
-        run: uv run --no-project --python "$(command -v python)" --directory src/sloph-python-bootstrap python -m unittest discover -s ../../tests/implementation/python -t ../../tests/implementation/python
-      - name: Run portable library tests
-        run: uv run --no-project --python "$(command -v python)" --directory src/sloph-python-bootstrap ../libraries/run-tests.sh python -m sloph
-      - run: uv run --no-project --python "$(command -v python)" --directory src/sloph-python-bootstrap python -m sloph unstable core check ../../tests/core/evaluate/integer-add/input.core
-      - run: uv run --no-project --python "$(command -v python)" --directory src/sloph-python-bootstrap python -m sloph unstable core print ../../tests/core/evaluate/integer-add/input.core
-      - run: uv run --no-project --python "$(command -v python)" --directory src/sloph-python-bootstrap python -m sloph unstable core eval ../../tests/core/evaluate/integer-add/input.core --symbol example::main
-      - run: uv run --no-project --python "$(command -v python)" --directory src/sloph-python-bootstrap python -m sloph unstable check ../../tests/source/run/basic/project
-      - run: uv run --no-project --python "$(command -v python)" --directory src/sloph-python-bootstrap python -m sloph unstable run ../../tests/source/run/basic/project
+      - name: Verify C11 toolchain
+        run: |
+          test "$(uname -m)" = "${{ matrix.arch }}"
+          command -v cc
+          command -v make
+      - name: Clean offline build and full gate
+        run: |
+          make clean
+          make CC=cc check
+      - name: Sanitizers
+        run: make CC=cc sanitize
+      - name: Staged install smoke
+        run: |
+          make CC=cc install DESTDIR="$RUNNER_TEMP/stage" PREFIX=/usr
+          "$RUNNER_TEMP/stage/usr/bin/sloph" --version
+          SLOPH_LIBRARIES_ROOT="$RUNNER_TEMP/stage/usr/share/sloph/libraries" \
+            "$RUNNER_TEMP/stage/usr/bin/sloph" run examples/hello-world

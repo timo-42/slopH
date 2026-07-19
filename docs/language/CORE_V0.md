@@ -1,9 +1,9 @@
 # Experimental Core v0
 
 Core v0 is an executable experiment for testing a small typed intermediate
-language. This document is normative for the Python implementation and the
-shared Core v0 corpus. It is not the final SlopH Core, a source language, or the
-Bootstrap-Core profile.
+language. This document is normative for the authoritative C11 compiler's Core
+v0 compatibility profile and the shared Core v0 corpus. It is not the final
+SlopH Core, a source language, or the Bootstrap-Core profile.
 
 The profile is deliberately small: pure, strict, monomorphic, and
 deterministic. Its only primitive scalar is the exact integer. Named enums,
@@ -158,7 +158,7 @@ tokens, token size, syntax depth, AST nodes, literal digits, integer bits,
 evaluation fuel, evaluation depth, allocated value nodes, and output bytes.
 The implementation defaults are part of `sloph.core.Limits`; callers may
 replace them. Exceeding a limit is an ordinary structured diagnostic, never an
-ambient Python exception.
+ambient host-language exception.
 
 | Limit | Default |
 | --- | ---: |

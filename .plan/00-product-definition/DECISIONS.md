@@ -8,14 +8,15 @@ A toolchain build is *production* when: it implements the normative V1
 profile with no undocumented host-language shortcuts; every public behavior is
 covered by the portable corpus; diagnostics are deterministic with stable
 identifiers; documented resource limits bound all user-controlled work; the
-feedback-loop budgets accepted from the baselines are met; and the `build.sh`
-ambient-authority debt is removed. "Production" describes evidence, not
+feedback-loop budgets accepted from the baselines are met; and dependencies
+are restricted to declared inert metadata and reviewed static sources.
+"Production" describes evidence, not
 intent.
 
 ## Self-Hosted
 
 The supported compiler is written in SlopH, passes the same portable corpus as
-the Python bootstrap on the supported host matrix, and rebuilds itself from a
+the authoritative hosted compiler on the supported host matrix, and rebuilds itself from a
 clean checkout without a network or pre-populated cache. Self-hosting does not
 include the minimal-trust C90/RV32IM bootstrap, which is a separate roadmap.
 

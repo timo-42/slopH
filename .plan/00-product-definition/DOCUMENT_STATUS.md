@@ -33,11 +33,13 @@ find . -name '*.md' -not -path './.git/*' -not -path './.plan/*' | sort
 | `docs/toolchain/TESTING.md` | normative | Shared test architecture and corpus rules. |
 | `docs/toolchain/POSIX_BOUNDARY.md` | experimental | Implemented experimental Source v1/Core v2 boundary. |
 | `docs/toolchain/C_BACKEND_V0.md` | experimental | Portability bridge, not the final backend. |
-| `docs/toolchain/CLI.md` | proposed | Final single-binary CLI; current commands live under `sloph unstable`. |
+| `docs/toolchain/CLI.md` | normative | Current C11 CLI plus sections explicitly labeled future design. |
+| `docs/toolchain/PIPELINE.md` | normative | Canopy, Crown, Heartwood, Timber, stage CLIs, and T-diagrams. |
 | `docs/toolchain/BOOTSTRAP.md` | proposed | Future minimal-trust bootstrap; explicitly not a V1 prerequisite. |
 | `examples/README.md` | normative | Executable example contract, CI-verified. |
 | `examples/hello-world/README.md` | normative | Executable example documentation. |
-| `src/sloph-python-bootstrap/README.md` | normative | Bootstrap usage; implementation-specific. |
+| `src/sloph-c-bootstrap/README.md` | normative | Authoritative C11 compiler usage and library boundary. |
+| `src/sloph-c-bootstrap/vendor/yyjson/PROVENANCE.md` | historical | Vendored upstream provenance and checksums. |
 | `idea/ASYNC.md` | proposed | Exploratory, non-normative. |
 | `idea/AUDIT_PROFILES.md` | proposed | Exploratory, non-normative. |
 | `idea/BACKENDS.md` | proposed | Exploratory, non-normative. |
@@ -50,7 +52,7 @@ find . -name '*.md' -not -path './.git/*' -not -path './.plan/*' | sort
 | `idea/LIBRARY_CDN.md` | proposed | Exploratory, non-normative. |
 | `idea/PACKAGE_SEARCH_PATH.md` | proposed | Exploratory, non-normative. |
 | `idea/REACHABILITY_COMPILATION.md` | proposed | Exploratory, non-normative. |
-| `idea/SECURITY.md` | proposed | Documents current `build.sh` security debt and its replacement. |
+| `idea/SECURITY.md` | proposed | Documents the static-provider boundary and future isolated build tasks. |
 | `idea/STANDARD_LIBRARY.md` | proposed | Exploratory, non-normative. |
 | `idea/TEST_FRAMEWORK.md` | proposed | Exploratory, non-normative. |
 | `idea/libraries/collections.md` | proposed | Exploratory, non-normative. |
@@ -64,11 +66,10 @@ find . -name '*.md' -not -path './.git/*' -not -path './.plan/*' | sort
    rewording both to "supported v1" and linking the product contract; the
    compatibility promise is defined by `docs/PRODUCT.md`, not by the word
    "stable".
-2. **Production compiler versus self-hosting.** `docs/language/V1.md` names
-   the Python 3.11+ bootstrap as the production v1 compiler, while the roadmap
-   requires a self-hosted compiler for a "proper language". Not a
-   contradiction: the product contract states the Python bootstrap is the
-   supported toolchain *until* roadmap milestone 10 replaces it.
+2. **Production compiler versus self-hosting.** The authoritative production
+   compiler is the hosted C11 implementation. The roadmap still requires a
+   self-hosted compiler for the later self-hosting milestone; production and
+   self-hosting are separate properties.
 3. **Self-hosting versus trusted bootstrap.** `docs/toolchain/BOOTSTRAP.md`
    could be read as a release requirement. The product contract fixes it as a
    later roadmap, distinct from self-hosting.

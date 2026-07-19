@@ -1,6 +1,6 @@
 # SlopH C11 bootstrap
 
-This directory contains the hosted C11 reference compiler under development.
+This directory contains the authoritative hosted C11 compiler.
 The public library interface is in `include/sloph`; implementation-only bounded
 buffers and arenas live in `src/internal.h`. Library code reports
 `SlophStatus` and stores structured diagnostics in an opaque `SlophContext`; it
@@ -30,10 +30,11 @@ does not execute package build scripts or load prebuilt shared providers.
 ## Hosting and allocation
 
 `SlophContextConfig` accepts a complete fallible allocator and positive limits.
-The default limits match the Python bootstrap. `SlophHost` makes filesystem,
-target, and monotonic-time effects explicit; `sloph_posix_host()` supplies the
-hosted implementation. Buffers, arenas, input reads, diagnostic storage, and
-atomic writes all enforce caller-selected byte bounds.
+The default limits are the repository's authoritative hosted limits.
+`SlophHost` makes filesystem, target, and monotonic-time effects explicit;
+`sloph_posix_host()` supplies the hosted implementation. Buffers, arenas,
+input reads, diagnostic storage, and atomic writes all enforce caller-selected
+byte bounds.
 
 ## Vendored dependency
 

@@ -3,12 +3,13 @@
 Status: automatic dependency-script execution removed; broader package-build
 isolation remains exploratory.
 
-## Current Bootstrap Behavior
+## Current Compiler Behavior
 
-The bootstrap no longer discovers or executes package `build.sh` files.
-Versioned provider metadata declares local `.c` and `.S` inputs, which are
-validated and passed directly to the bounded host-C compile/link invocation.
-Prebuilt shared providers and runtime search paths are not used.
+The authoritative C11 compiler accepts only strict `provider.json` format 1
+metadata. It validates declared local `.c` and `.S` inputs and passes them
+directly to the bounded host-C compile/link invocation. It does not discover
+or execute dependency scripts, load prebuilt shared providers, or add runtime
+search paths.
 
 This removes ambient dependency-script execution from `compile` and `run`.
 Provider source and the host compiler are still trusted build inputs; general
@@ -64,7 +65,7 @@ metadata, and provenance before linking.
 
 ## Resolution and Remaining Exit Criteria
 
-Automatic ambient `build.sh` execution was removed by restricting bootstrap
+Automatic ambient dependency-script execution is excluded by restricting
 providers to declared static C and assembly sources. A general package-build
 facility still requires:
 
@@ -74,6 +75,6 @@ facility still requires:
 - user and CI trust policies with clear diagnostics and non-interactive modes;
 - registry support for bundled native artifacts and verified provenance.
 
-Until then, the bootstrap must keep rejecting executable package-task
+Until then, the compiler must keep rejecting executable package-task
 discovery; parsing, type checking, transforms, and read-only inspection remain
 free of external process execution.

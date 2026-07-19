@@ -1,5 +1,10 @@
 # Feedback-Loop Baselines
 
+Status: historical snapshot of the removed Python implementation at commit
+`6220be9`. These commands and paths no longer exist and must not be used as
+current build instructions. Current gates are the root Make targets documented
+in `README.md`.
+
 Reproducible starting-point measurements for the complete edit/check/test/run
 loop. These are one machine's numbers used to negotiate budgets; they are not
 themselves budgets.

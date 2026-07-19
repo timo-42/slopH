@@ -10,8 +10,8 @@ language. Reusable data structures alone require this facility: collections,
 not need a separately copied declaration for every element type.
 
 The broader design assumes generic parameters, explicit type arguments in Core,
-and separately compiled generic code. Core v0 remains monomorphic; the Python
-bootstrap implements the initial design in Core v2.
+and separately compiled generic code. Core v0 remains monomorphic; the
+authoritative C11 compiler implements the initial design in Core v2.
 
 Generics are admitted only with bounded, observable compilation work. The
 default compiler must not recursively monomorphize an entire dependency graph
