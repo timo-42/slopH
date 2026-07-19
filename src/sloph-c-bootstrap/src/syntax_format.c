@@ -41,4 +41,14 @@ for(i=0;i<m->import_count;i++){SlophSyntaxImport*x=&m->imports[i];puts_(&f,"\n")
 for(i=0;i<m->type_count;i++){SlophSyntaxTypeDecl*d=&m->types[i];puts_(&f,"\n");if(d->public_)puts_(&f,"public ");if(d->kind==SLOPH_SYNTAX_TYPE_DECL_INTRINSIC){puts_(&f,"intrinsic type ");puts_(&f,d->name);puts_(&f,";\n");continue;}if(d->owned)puts_(&f,"owned ");puts_(&f,"type ");puts_(&f,d->name);type_params(&f,d->type_parameters,d->type_parameter_count);puts_(&f," {\n");for(j=0;j<d->constructor_count;j++){size_t k;indent(&f,2u);puts_(&f,d->constructors[j].name);puts_(&f,"(");for(k=0;k<d->constructors[j].field_count;k++){if(k)puts_(&f,", ");puts_(&f,d->constructors[j].fields[k].name);puts_(&f,": ");type_(&f,d->constructors[j].fields[k].type);}puts_(&f,");\n");}puts_(&f,"}\n");}
 for(i=0;i<m->function_count;i++){SlophSyntaxFunction*d=&m->functions[i];puts_(&f,"\n");if(d->public_)puts_(&f,"public ");if(d->kind==SLOPH_SYNTAX_FUNCTION_INTRINSIC)puts_(&f,"intrinsic ");else if(d->kind==SLOPH_SYNTAX_FUNCTION_FOREIGN)puts_(&f,"foreign ");puts_(&f,"fn ");puts_(&f,d->name);type_params(&f,d->type_parameters,d->type_parameter_count);puts_(&f,"(");for(j=0;j<d->parameter_count;j++){if(j)puts_(&f,", ");puts_(&f,d->parameters[j].name);puts_(&f,": ");mode(&f,d->parameters[j].mode);type_(&f,d->parameters[j].type);}puts_(&f,") -> ");type_(&f,d->result_type);if(d->kind==SLOPH_SYNTAX_FUNCTION_DEFINED){puts_(&f," ");block(&f,d->body,0u);puts_(&f,"\n");}else{puts_(&f," = ");puts_(&f,d->binding);puts_(&f,";\n");}}
 for(i=0;i<m->value_count;i++){SlophSyntaxValue*d=&m->values[i];puts_(&f,"\n");if(d->public_)puts_(&f,"public ");puts_(&f,m->version==1u?"const ":"value ");puts_(&f,d->name);puts_(&f,": ");type_(&f,d->type);puts_(&f," ");block(&f,d->value,0u);puts_(&f,"\n");}
-if(f.status==SLOPH_STATUS_OK)f.status=sloph_buffer_append_byte(&f.out,0u);if(f.status!=SLOPH_STATUS_OK){sloph_buffer_destroy(&f.out);return f.status;}a=sloph_context_allocator(context);result=a->allocate(a->user_data,f.out.length);if(result==NULL){sloph_buffer_destroy(&f.out);return SLOPH_STATUS_OUT_OF_MEMORY;}memcpy(result,f.out.data,f.out.length);out->data=result;out->length=f.out.length-1u;sloph_buffer_destroy(&f.out);return SLOPH_STATUS_OK;}
+if(f.status==SLOPH_STATUS_OK)
+    f.status=sloph_buffer_append_byte(&f.out,0u);
+if(f.status!=SLOPH_STATUS_OK){sloph_buffer_destroy(&f.out);return f.status;}
+a=sloph_context_allocator(context);
+result=a->allocate(a->user_data,f.out.length);
+if(result==NULL){sloph_buffer_destroy(&f.out);return SLOPH_STATUS_OUT_OF_MEMORY;}
+memcpy(result,f.out.data,f.out.length);
+out->data=result;
+out->length=f.out.length-1u;
+sloph_buffer_destroy(&f.out);
+return SLOPH_STATUS_OK;}

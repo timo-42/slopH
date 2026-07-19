@@ -273,7 +273,9 @@ static SlophSyntaxType **decode_type_array(SlophSyntaxModule *module,
 }
 static SlophSyntaxExpr *decode_expr(SlophSyntaxModule *module, yyjson_val *value) {
     const char *kind=yyjson_get_str(yyjson_obj_get(value,"kind"));SlophSyntaxExpr*e=NULL;yyjson_val*array,*item;yyjson_arr_iter it;size_t i=0u;
-    if(sloph_syntax_alloc(module,sizeof(*e),alignof(SlophSyntaxExpr),(void**)&e)!=SLOPH_STATUS_OK)return NULL;e->span=decode_span(value);
+    if(sloph_syntax_alloc(module,sizeof(*e),alignof(SlophSyntaxExpr),(void**)&e)!=SLOPH_STATUS_OK)
+        return NULL;
+    e->span=decode_span(value);
     if(kind&&strcmp(kind,"IntExpr")==0){e->kind=SLOPH_SYNTAX_EXPR_INT;e->as.integer=decode_string(module,yyjson_obj_get(value,"value"));}
     else if(kind&&strcmp(kind,"BytesExpr")==0){const char*hex=yyjson_get_str(yyjson_obj_get(value,"hex"));size_t n=hex?strlen(hex)/2u:0u;e->kind=SLOPH_SYNTAX_EXPR_BYTES;e->as.bytes.length=n;if(n)(void)sloph_syntax_alloc(module,n,alignof(unsigned char),(void**)&e->as.bytes.data);for(i=0u;i<n;i++)e->as.bytes.data[i]=(unsigned char)((json_hex_value(hex[i*2u])<<4)|json_hex_value(hex[i*2u+1u]));}
     else if(kind&&(strcmp(kind,"LocalExpr")==0||strcmp(kind,"GlobalExpr")==0)){e->kind=strcmp(kind,"LocalExpr")==0?SLOPH_SYNTAX_EXPR_LOCAL:SLOPH_SYNTAX_EXPR_GLOBAL;e->as.name=decode_string(module,yyjson_obj_get(value,"name"));}

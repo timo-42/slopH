@@ -82,7 +82,9 @@ static bool keyword(const Token *t) {
 }
 static bool ident_token(const Token *t) {
     size_t i; if (t->length == 0u || keyword(t) || !(isalpha((unsigned char)t->text[0]) || t->text[0]=='_')) return false;
-    for (i=1u;i<t->length;i++) if (!(isalnum((unsigned char)t->text[i]) || t->text[i]=='_')) return false; return true;
+    for (i=1u;i<t->length;i++)
+        if (!(isalnum((unsigned char)t->text[i]) || t->text[i]=='_')) return false;
+    return true;
 }
 static Token *ident(Parser *p, bool upper, const char *role) {
     Token *t = &p->tokens[p->index]; (void)role;
@@ -93,12 +95,14 @@ static Token *ident(Parser *p, bool upper, const char *role) {
 }
 static char *copy_token(Parser *p, const Token *t) { char *s=NULL; if (p->status==SLOPH_STATUS_OK) p->status=sloph_syntax_string(p->module,t->text,t->length,&s); return s; }
 static char *parse_path(Parser *p, SlophSpan *out_span) {
-    Token *first = &p->tokens[p->index]; size_t start=first->start,end; SlophBuffer b; Token *part;
+    Token *first = &p->tokens[p->index]; size_t start=first->start,end=first->end; SlophBuffer b; Token *part;
     sloph_buffer_init(&b,p->context,sloph_context_limits(p->context)->token_bytes * 16u);
     if (!ident_token(first)) error(p,"syntax.parse.unexpected_token","expected identifier",span_at(first->start,first->end));
     while (p->status==SLOPH_STATUS_OK) {
         part=take(p,NULL); p->status=sloph_buffer_append(&b,part->text,part->length); end=part->end;
-        if (!peek(p,"::")) break; take(p,"::"); p->status=sloph_buffer_append(&b,"::",2u);
+        if (!peek(p,"::")) break;
+        take(p,"::");
+        p->status=sloph_buffer_append(&b,"::",2u);
         if (!ident_token(&p->tokens[p->index])) error(p,"syntax.parse.unexpected_token","expected identifier",span_at(p->tokens[p->index].start,p->tokens[p->index].end));
     }
     if (out_span!=NULL) *out_span=span_at(start,end);
@@ -151,7 +155,18 @@ static SlophSyntaxExpr *new_expr(Parser *p,SlophSyntaxExprKind k,SlophSpan s){Sl
 static SlophSyntaxExpr *parse_atom(Parser *p);
 static int precedence(Token *t){if(token_is(t,"==")||token_is(t,"<"))return 3;if(token_is(t,"+")||token_is(t,"-"))return 6;if(token_is(t,"*"))return 7;return -1;}
 static SlophSyntaxExpr *parse_binary(Parser *p,int minimum){SlophSyntaxExpr *left;const SlophLimits*l=sloph_context_limits(p->context);p->depth++;if(p->depth>l->syntax_depth){limit(p,"syntax_depth",l->syntax_depth,span_at(p->tokens[p->index].start,p->tokens[p->index].end));p->depth--;return NULL;}left=parse_atom(p);while(p->status==SLOPH_STATUS_OK&&(peek(p,"(")||peek(p,"["))){Vector types={0},args={0};size_t start=left->span.start,end;if(peek(p,"[")){take(p,"[");while(!peek(p,"]")&&p->status==SLOPH_STATUS_OK){SlophSyntaxType*t=parse_type(p);vector_push(p,&types,&t,sizeof(t));if(!peek(p,","))break;take(p,",");}take(p,"]");}take(p,"(");while(!peek(p,")")&&p->status==SLOPH_STATUS_OK){SlophSyntaxExpr*a=parse_expr(p);vector_push(p,&args,&a,sizeof(a));if(!peek(p,","))break;take(p,",");}end=take(p,")")->end;{SlophSyntaxExpr*call=new_expr(p,SLOPH_SYNTAX_EXPR_CALL,span_at(start,end));if(call){call->as.call.function=left;call->as.call.argument_count=args.count;call->as.call.arguments=vector_finish(p,&args,alignof(SlophSyntaxExpr*));call->as.call.type_argument_count=types.count;call->as.call.type_arguments=vector_finish(p,&types,alignof(SlophSyntaxType*));}left=call;}}
-    if(p->module->version==1u)while(p->status==SLOPH_STATUS_OK&&precedence(&p->tokens[p->index])>=minimum){Token*op=take(p,NULL);SlophSyntaxExpr*right=parse_binary(p,precedence(op)+1);SlophSyntaxExpr*e=new_expr(p,SLOPH_SYNTAX_EXPR_BINARY,span_at(left->span.start,right?right->span.end:op->end));if(e){e->as.binary.operator_=copy_token(p,op);e->as.binary.left=left;e->as.binary.right=right;}left=e;}p->depth--;return left;}
+    if(p->module->version==1u){
+        while(p->status==SLOPH_STATUS_OK&&precedence(&p->tokens[p->index])>=minimum){
+            Token*op=take(p,NULL);
+            SlophSyntaxExpr*right=parse_binary(p,precedence(op)+1);
+            SlophSyntaxExpr*e=new_expr(p,SLOPH_SYNTAX_EXPR_BINARY,span_at(left->span.start,right?right->span.end:op->end));
+            if(e){e->as.binary.operator_=copy_token(p,op);e->as.binary.left=left;e->as.binary.right=right;}
+            left=e;
+        }
+    }
+    p->depth--;
+    return left;
+}
 static SlophSyntaxExpr *parse_expr(Parser *p){return parse_binary(p,0);}
 static unsigned char hex_value(char c){return (unsigned char)(c>='0'&&c<='9'?c-'0':(c>='a'&&c<='f'?c-'a'+10:c-'A'+10));}
 static SlophSyntaxExpr *parse_atom(Parser *p){Token*t=&p->tokens[p->index];size_t start=t->start;SlophSyntaxExpr*e;SlophSpan sp;

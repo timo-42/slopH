@@ -326,29 +326,46 @@ static SlophCoreExpr *decode_expr(Parser *p, Sx *node, int version) {
         if (!tagged(p, node, tag, 2, 0)) return NULL;
         expr = new_expr(p, tag[0]=='l'?SLOPH_EXPR_LOCAL:SLOPH_EXPR_GLOBAL, node->span); if(expr) expr->as.name=copy_atom(p,node->items[1],"name");
     } else if (!strcmp(tag, "type")) {
-        if (!tagged(p,node,"type",2,0)) return NULL; expr=new_expr(p,SLOPH_EXPR_TYPE,node->span); if(expr) expr->as.type=decode_type(p,node->items[1]);
+        if (!tagged(p, node, "type", 2, 0)) return NULL;
+        expr = new_expr(p, SLOPH_EXPR_TYPE, node->span);
+        if (expr) expr->as.type = decode_type(p, node->items[1]);
     } else if (!strcmp(tag, "lam")) {
-        if (!tagged(p,node,"lam",3,0)) return NULL; expr=new_expr(p,SLOPH_EXPR_LAM,node->span);
-        if(expr && decode_binder(p,node->items[1],&expr->as.lam.binder)) expr->as.lam.body=decode_expr(p,node->items[2],version);
+        if (!tagged(p, node, "lam", 3, 0)) return NULL;
+        expr = new_expr(p, SLOPH_EXPR_LAM, node->span);
+        if (expr && decode_binder(p, node->items[1], &expr->as.lam.binder))
+            expr->as.lam.body = decode_expr(p, node->items[2], version);
     } else if (!strcmp(tag, "app")) {
-        if (!tagged(p,node,"app",3,0)) return NULL; expr=new_expr(p,SLOPH_EXPR_APP,node->span);
-        if(expr) expr->as.app.function=decode_expr(p,node->items[1],version); if(p->status==SLOPH_STATUS_OK) expr->as.app.argument=decode_expr(p,node->items[2],version);
+        if (!tagged(p, node, "app", 3, 0)) return NULL;
+        expr = new_expr(p, SLOPH_EXPR_APP, node->span);
+        if (expr) expr->as.app.function = decode_expr(p, node->items[1], version);
+        if (p->status == SLOPH_STATUS_OK)
+            expr->as.app.argument = decode_expr(p, node->items[2], version);
     } else if (!strcmp(tag, "let")) {
-        if (!tagged(p,node,"let",4,0)) return NULL; expr=new_expr(p,SLOPH_EXPR_LET,node->span);
-        if(expr && decode_binder(p,node->items[1],&expr->as.let.binder)) expr->as.let.value=decode_expr(p,node->items[2],version); if(p->status==SLOPH_STATUS_OK) expr->as.let.body=decode_expr(p,node->items[3],version);
+        if (!tagged(p, node, "let", 4, 0)) return NULL;
+        expr = new_expr(p, SLOPH_EXPR_LET, node->span);
+        if (expr && decode_binder(p, node->items[1], &expr->as.let.binder))
+            expr->as.let.value = decode_expr(p, node->items[2], version);
+        if (p->status == SLOPH_STATUS_OK)
+            expr->as.let.body = decode_expr(p, node->items[3], version);
     } else if (!strcmp(tag, "prim")) {
-        if (!tagged(p,node,"prim",0,2)) return NULL; expr=new_expr(p,SLOPH_EXPR_PRIM,node->span);
+        if (!tagged(p, node, "prim", 0, 2)) return NULL;
+        expr = new_expr(p, SLOPH_EXPR_PRIM, node->span);
         if(expr){expr->as.prim.name=copy_atom(p,node->items[1],"primitive name");expr->as.prim.count=node->count-2;expr->as.prim.items=(SlophCoreExpr**)calloc(expr->as.prim.count?expr->as.prim.count:1,sizeof(*expr->as.prim.items));if(!expr->as.prim.items)p->status=SLOPH_STATUS_OUT_OF_MEMORY;}
         for(i=0;p->status==SLOPH_STATUS_OK&&i<expr->as.prim.count;++i)expr->as.prim.items[i]=decode_expr(p,node->items[i+2],version);
     } else if (!strcmp(tag, "con")) {
         size_t offset=version>=2?3:2;
-        if (!tagged(p,node,"con",0,version>=2?3:2)) return NULL; expr=new_expr(p,SLOPH_EXPR_CON,node->span);
+        if (!tagged(p, node, "con", 0, version >= 2 ? 3 : 2)) return NULL;
+        expr = new_expr(p, SLOPH_EXPR_CON, node->span);
         if(expr)expr->as.con.constructor=copy_atom(p,node->items[1],"constructor identity");
         if(version>=2&&p->status==SLOPH_STATUS_OK){Sx*types=node->items[2];if(!tagged(p,types,"types",0,1)){}else{expr->as.con.type_argument_count=types->count-1;expr->as.con.type_arguments=(SlophCoreType**)calloc(expr->as.con.type_argument_count?expr->as.con.type_argument_count:1,sizeof(*expr->as.con.type_arguments));if(!expr->as.con.type_arguments)p->status=SLOPH_STATUS_OUT_OF_MEMORY;for(i=0;p->status==SLOPH_STATUS_OK&&i<expr->as.con.type_argument_count;++i)expr->as.con.type_arguments[i]=decode_type(p,types->items[i+1]);}}
         if(expr){expr->as.con.field_count=node->count-offset;expr->as.con.fields=(SlophCoreExpr**)calloc(expr->as.con.field_count?expr->as.con.field_count:1,sizeof(*expr->as.con.fields));if(!expr->as.con.fields)p->status=SLOPH_STATUS_OUT_OF_MEMORY;for(i=0;p->status==SLOPH_STATUS_OK&&i<expr->as.con.field_count;++i)expr->as.con.fields[i]=decode_expr(p,node->items[i+offset],version);}
     } else if (!strcmp(tag, "case")) {
-        if(!tagged(p,node,"case",0,3))return NULL;expr=new_expr(p,SLOPH_EXPR_CASE,node->span);
-        if(expr)expr->as.case_.scrutinee=decode_expr(p,node->items[1],version);if(p->status==SLOPH_STATUS_OK)expr->as.case_.result_type=decode_type(p,node->items[2]);
+        if (!tagged(p, node, "case", 0, 3)) return NULL;
+        expr = new_expr(p, SLOPH_EXPR_CASE, node->span);
+        if (expr)
+            expr->as.case_.scrutinee = decode_expr(p, node->items[1], version);
+        if (p->status == SLOPH_STATUS_OK)
+            expr->as.case_.result_type = decode_type(p, node->items[2]);
         if(expr){expr->as.case_.alternative_count=node->count-3;expr->as.case_.alternatives=(SlophCoreAlternative*)calloc(expr->as.case_.alternative_count?expr->as.case_.alternative_count:1,sizeof(*expr->as.case_.alternatives));if(!expr->as.case_.alternatives)p->status=SLOPH_STATUS_OUT_OF_MEMORY;}
         for(i=0;p->status==SLOPH_STATUS_OK&&i<expr->as.case_.alternative_count;++i){Sx*a=node->items[i+3];SlophCoreAlternative*out=&expr->as.case_.alternatives[i];size_t j;if(!tagged(p,a,"alt",0,3))break;out->span=a->span;out->constructor=copy_atom(p,a->items[1],"alternative constructor");out->binder_count=a->count-3;out->binders=(SlophCoreBinder*)calloc(out->binder_count?out->binder_count:1,sizeof(*out->binders));if(!out->binders){p->status=SLOPH_STATUS_OUT_OF_MEMORY;break;}for(j=0;p->status==SLOPH_STATUS_OK&&j<out->binder_count;++j)decode_binder(p,a->items[j+2],&out->binders[j]);if(p->status==SLOPH_STATUS_OK)out->body=decode_expr(p,a->items[a->count-1],version);}
     } else diagnostic(p,"core.parse.unknown_expression","unknown expression tag",node->items[0]->span);
