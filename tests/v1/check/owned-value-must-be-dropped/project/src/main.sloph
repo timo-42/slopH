@@ -1,0 +1,10 @@
+module memory_case::main;
+
+import memory::{AllocationError, Allocator, allocate, capacity, system};
+
+fn leaked(allocator: borrow Allocator) -> Result[Int, AllocationError] {
+  let buffer = allocate(allocator, 64)?;
+  Result::Ok[Int, AllocationError](capacity(buffer))
+}
+
+const main: Result[Int, AllocationError] { leaked(system()) }

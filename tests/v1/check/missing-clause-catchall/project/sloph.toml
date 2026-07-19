@@ -1,0 +1,4 @@
+format = 0
+package = "clauses"
+source-root = "src"
+entry = "clauses::main::main"

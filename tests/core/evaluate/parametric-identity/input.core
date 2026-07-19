@@ -1,0 +1,19 @@
+(core 2
+  (types
+    (enum example::Box
+      (params T)
+      (ctor example::Box::Box (field item (var T)))))
+  (defs
+    (def example::identity
+      (forall T (fn (var T) (var T)))
+      (lam (type-bind T)
+        (lam (bind item (var T)) (local item))))
+    (def example::main Int
+      (case
+        (con example::Box::Box
+          (types Int)
+          (app
+            (app (global example::identity) (type Int))
+            (int 42)))
+        Int
+        (alt example::Box::Box (bind item Int) (local item))))))

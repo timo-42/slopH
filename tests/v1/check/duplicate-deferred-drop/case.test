@@ -1,0 +1,6 @@
+format: 0
+name: v1/check/duplicate-deferred-drop
+kind: v1-check
+input: project
+expect-exit: 1
+expect-diagnostics: diagnostics.jsonl

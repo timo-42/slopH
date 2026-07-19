@@ -1,0 +1,6 @@
+module clauses::main;
+
+fn only_zero(n: Int) -> Int
+| 0 => { 1 }
+
+const main: Int { only_zero(0) }

@@ -1,0 +1,5 @@
+module failure::main;
+
+import os::process::{Exit};
+
+public fn main() -> Exit { Exit::Failure(7) }

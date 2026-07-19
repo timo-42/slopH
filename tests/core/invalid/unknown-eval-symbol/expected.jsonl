@@ -1,0 +1,1 @@
+{"code":"core.eval.unknown_symbol","details":{"symbol":"example::missing"},"message":"unknown evaluation symbol 'example::missing'","message_id":"core.eval.unknown_symbol","phase":"eval","schema":"sloph.diagnostic","severity":"error","span":{"end":63,"start":0},"version":0}

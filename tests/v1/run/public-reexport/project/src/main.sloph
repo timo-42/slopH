@@ -1,0 +1,5 @@
+module reexport::main;
+
+import reexport::facade::{Answer};
+
+const main: Answer { Answer::Answer(42) }

@@ -1,0 +1,5 @@
+module reexport::defs;
+
+public type Answer {
+  Answer(item: Int);
+}

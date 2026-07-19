@@ -1,0 +1,17 @@
+(core 3
+  (types
+    (enum example::Resource
+      (ownership owned)
+      (params)
+      (ctor example::Resource::Resource)))
+  (defs
+    (def example::consume
+      (fn (named example::Resource) Int)
+      (lam
+        (bind v0 (named example::Resource))
+        (case (local v0) Int (alt example::Resource::Resource (int 2)))))
+    (def example::inspect
+      (fn borrow (named example::Resource) Int)
+      (lam
+        (bind borrow v0 (named example::Resource))
+        (case (local v0) Int (alt example::Resource::Resource (int 1)))))))

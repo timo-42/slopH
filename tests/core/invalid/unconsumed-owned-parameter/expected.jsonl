@@ -1,0 +1,1 @@
+{"code":"core.validate.owned_not_consumed","details":{"local":"item"},"message":"owned parameter 'item' is not consumed","message_id":"core.validate.owned_not_consumed","phase":"validate","schema":"sloph.diagnostic","severity":"error","span":{"end":247,"start":210},"version":0}

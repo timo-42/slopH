@@ -1,0 +1,1 @@
+{"code":"syntax.parse.unexpected_token","details":{"token":"const"},"message":"integer function clauses require a final unguarded binder or underscore catch-all","message_id":"syntax.parse.unexpected_token","phase":"parse","schema":"sloph.diagnostic","severity":"error","span":{"end":70,"start":65},"version":0}

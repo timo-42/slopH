@@ -1,0 +1,1 @@
+{"code":"project.import.missing","details":{"imported":"os::process","module":"os_case::main"},"message":"module 'os_case::main' imports missing module 'os::process'","message_id":"project.import.missing","phase":"resolve","schema":"sloph.diagnostic","severity":"error","span":{"end":0,"start":0},"version":0}

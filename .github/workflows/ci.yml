@@ -39,7 +39,7 @@ jobs:
       - uses: astral-sh/setup-uv@v6
       - run: test "$(uname -m)" = "${{ matrix.arch }}"
       - name: Run unit, conformance, and example tests
-        run: uv run --no-project --python "$(command -v python)" --directory src/sloph-python-bootstrap python -m unittest discover -s tests -t .
+        run: uv run --no-project --python "$(command -v python)" --directory src/sloph-python-bootstrap python -m unittest discover -s ../../tests/implementation/python -t ../../tests/implementation/python
       - name: Run portable library tests
         run: uv run --no-project --python "$(command -v python)" --directory src/sloph-python-bootstrap ../libraries/run-tests.sh python -m sloph
       - run: uv run --no-project --python "$(command -v python)" --directory src/sloph-python-bootstrap python -m sloph unstable core check ../../tests/core/evaluate/integer-add/input.core

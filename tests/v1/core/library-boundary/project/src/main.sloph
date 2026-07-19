@@ -1,0 +1,5 @@
+module library_boundary::main;
+
+import sloph::{equal, not, not_equal, xor};
+
+const main: Bool { equal(not(Bool::False()), xor(Bool::True(), not_equal(Bool::True(), Bool::True()))) }

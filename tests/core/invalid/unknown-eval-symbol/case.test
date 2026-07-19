@@ -1,0 +1,7 @@
+format: 0
+name: core/invalid/unknown-eval-symbol
+kind: core-eval
+input: input.core
+symbol: example::missing
+expect-exit: 1
+expect-diagnostics: expected.jsonl

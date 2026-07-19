@@ -1,0 +1,9 @@
+(core 2
+  (types)
+  (defs
+    (def example::identity
+      (forall T (fn (var T) (var T)))
+      (lam (type-bind T)
+        (lam (bind item (var T)) (local item))))
+    (def example::main Int
+      (app (global example::identity) (int 42)))))

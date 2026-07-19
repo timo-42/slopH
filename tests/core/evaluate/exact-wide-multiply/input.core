@@ -1,0 +1,5 @@
+(core 0
+  (types)
+  (defs
+    (def example::main Int
+      (prim int.mul (int 12345678901234567890) (int -9)))))

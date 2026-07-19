@@ -1,0 +1,1 @@
+{"code":"core.validate.use_after_move","details":{"local":"buffer"},"message":"owned local 'buffer' is used after it was moved","message_id":"core.validate.use_after_move","phase":"validate","schema":"sloph.diagnostic","severity":"error","span":{"end":241,"start":235},"version":0}

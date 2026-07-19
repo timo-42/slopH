@@ -1,0 +1,1 @@
+{"code":"core.validate.free_type_variable","details":{"variable":"T"},"message":"free type variable 'T'","message_id":"core.validate.free_type_variable","phase":"validate","schema":"sloph.diagnostic","severity":"error","span":{"end":64,"start":30},"version":0}

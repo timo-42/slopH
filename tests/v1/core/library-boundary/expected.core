@@ -1,0 +1,88 @@
+(core 2
+  (types
+    (enum sloph::Bool (params) (ctor sloph::Bool::False) (ctor sloph::Bool::True))
+    (enum sloph::Option
+      (params Item)
+      (ctor sloph::Option::None)
+      (ctor sloph::Option::Some (field item (var Item))))
+    (enum sloph::Result
+      (params Success Failure)
+      (ctor sloph::Result::Ok (field success (var Success)))
+      (ctor sloph::Result::Err (field failure (var Failure))))
+    (enum sloph::Unit (params) (ctor sloph::Unit::Unit)))
+  (defs
+    (def core::bytes::length
+      (fn Bytes Int)
+      (lam (bind v0 Bytes) (prim bytes.length (local v0))))
+    (def core::int::add
+      (fn Int (fn Int Int))
+      (lam (bind v0 Int) (lam (bind v1 Int) (prim int.add (local v0) (local v1)))))
+    (def core::int::equal
+      (fn Int (fn Int (named sloph::Bool)))
+      (lam (bind v0 Int) (lam (bind v1 Int) (prim int.equal (local v0) (local v1)))))
+    (def core::int::less
+      (fn Int (fn Int (named sloph::Bool)))
+      (lam (bind v0 Int) (lam (bind v1 Int) (prim int.less (local v0) (local v1)))))
+    (def core::int::mul
+      (fn Int (fn Int Int))
+      (lam (bind v0 Int) (lam (bind v1 Int) (prim int.mul (local v0) (local v1)))))
+    (def core::int::sub
+      (fn Int (fn Int Int))
+      (lam (bind v0 Int) (lam (bind v1 Int) (prim int.sub (local v0) (local v1)))))
+    (def core::int::to_bytes
+      (fn Int Bytes)
+      (lam (bind v0 Int) (prim int.to_bytes (local v0))))
+    (def core::runtime::trap
+      (fn Bytes (named sloph::Unit))
+      (lam (bind v0 Bytes) (prim runtime.trap (local v0))))
+    (def library_boundary::main::main
+      (named sloph::Bool)
+      (app
+        (app
+          (global sloph::equal)
+          (app (global sloph::not) (con sloph::Bool::False (types))))
+        (app
+          (app (global sloph::xor) (con sloph::Bool::True (types)))
+          (app
+            (app (global sloph::not_equal) (con sloph::Bool::True (types)))
+            (con sloph::Bool::True (types))))))
+    (def sloph::equal
+      (fn (named sloph::Bool) (fn (named sloph::Bool) (named sloph::Bool)))
+      (lam
+        (bind v0 (named sloph::Bool))
+        (lam
+          (bind v1 (named sloph::Bool))
+          (case
+            (local v0)
+            (named sloph::Bool)
+            (alt sloph::Bool::False (app (global sloph::not) (local v1)))
+            (alt sloph::Bool::True (local v1))))))
+    (def sloph::not
+      (fn (named sloph::Bool) (named sloph::Bool))
+      (lam
+        (bind v0 (named sloph::Bool))
+        (case
+          (local v0)
+          (named sloph::Bool)
+          (alt sloph::Bool::False (con sloph::Bool::True (types)))
+          (alt sloph::Bool::True (con sloph::Bool::False (types))))))
+    (def sloph::not_equal
+      (fn (named sloph::Bool) (fn (named sloph::Bool) (named sloph::Bool)))
+      (lam
+        (bind v0 (named sloph::Bool))
+        (lam
+          (bind v1 (named sloph::Bool))
+          (app
+            (global sloph::not)
+            (app (app (global sloph::equal) (local v0)) (local v1))))))
+    (def sloph::xor
+      (fn (named sloph::Bool) (fn (named sloph::Bool) (named sloph::Bool)))
+      (lam
+        (bind v0 (named sloph::Bool))
+        (lam
+          (bind v1 (named sloph::Bool))
+          (case
+            (local v0)
+            (named sloph::Bool)
+            (alt sloph::Bool::False (local v1))
+            (alt sloph::Bool::True (app (global sloph::not) (local v1)))))))))

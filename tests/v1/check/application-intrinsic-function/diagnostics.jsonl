@@ -1,0 +1,1 @@
+{"code":"project.resolve.trusted_intrinsic","details":{"function":"add","module":"intrinsic_case::main"},"message":"intrinsic functions are restricted to canonical core modules","message_id":"project.resolve.trusted_intrinsic","phase":"resolve","schema":"sloph.diagnostic","severity":"error","span":{"end":94,"start":30},"version":0}

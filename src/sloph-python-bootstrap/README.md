@@ -13,7 +13,8 @@ Run the bootstrap and its tests directly from this checkout:
 ```text
 uv run --no-project --directory src/sloph-python-bootstrap python -m sloph --help
 uv run --no-project --directory src/sloph-python-bootstrap \
-  python -m unittest discover -s tests -t .
+  python -m unittest discover \
+  -s ../../tests/implementation/python -t ../../tests/implementation/python
 ```
 
 Native `compile` and `run` operations execute an executable `build.sh` at the

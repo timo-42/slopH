@@ -1,0 +1,4 @@
+format = 0
+package = "reexport"
+source-root = "src"
+entry = "reexport::main::main"

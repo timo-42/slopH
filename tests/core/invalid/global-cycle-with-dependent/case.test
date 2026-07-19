@@ -1,0 +1,6 @@
+format: 0
+name: core/invalid/global-cycle-with-dependent
+kind: core-check
+input: input.core
+expect-exit: 1
+expect-diagnostics: expected.jsonl
