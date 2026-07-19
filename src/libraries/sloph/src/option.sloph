@@ -1,0 +1,38 @@
+module sloph::option;
+
+import sloph::{Bool, Option};
+
+public fn is_some[Item](option: Option[Item]) -> Bool {
+  case option -> Bool {
+    Option::None() => { Bool::False() }
+    Option::Some(item) => { Bool::True() }
+  }
+}
+
+public fn is_none[Item](option: Option[Item]) -> Bool {
+  case option -> Bool {
+    Option::None() => { Bool::True() }
+    Option::Some(present) => { Bool::False() }
+  }
+}
+
+public fn unwrap_or[Item](option: Option[Item], fallback: Item) -> Item {
+  case option -> Item {
+    Option::None() => { fallback }
+    Option::Some(item) => { item }
+  }
+}
+
+public fn map[Item, Mapped](option: Option[Item], mapping: fn(Item) -> Mapped) -> Option[Mapped] {
+  case option -> Option[Mapped] {
+    Option::None() => { Option::None[Mapped]() }
+    Option::Some(item) => { Option::Some[Mapped](mapping(item)) }
+  }
+}
+
+public fn and_then[Item, Mapped](option: Option[Item], mapping: fn(Item) -> Option[Mapped]) -> Option[Mapped] {
+  case option -> Option[Mapped] {
+    Option::None() => { Option::None[Mapped]() }
+    Option::Some(item) => { mapping(item) }
+  }
+}

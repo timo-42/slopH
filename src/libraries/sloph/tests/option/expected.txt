@@ -1,0 +1,11 @@
+is_some present = true
+is_some absent = false
+is_none present = false
+is_none absent = true
+unwrap_or present = 5
+unwrap_or absent = 9
+map present = 10
+map absent = 9
+and_then present = 5
+and_then absent = 9
+and_then absent input = 9

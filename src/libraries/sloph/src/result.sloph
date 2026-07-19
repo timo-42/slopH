@@ -1,0 +1,61 @@
+module sloph::result;
+
+import sloph::{Bool, Option, Result};
+
+public fn is_ok[Success, Failure](result: Result[Success, Failure]) -> Bool {
+  case result -> Bool {
+    Result::Ok(success) => { Bool::True() }
+    Result::Err(failure) => { Bool::False() }
+  }
+}
+
+public fn is_err[Success, Failure](result: Result[Success, Failure]) -> Bool {
+  case result -> Bool {
+    Result::Ok(success) => { Bool::False() }
+    Result::Err(failure) => { Bool::True() }
+  }
+}
+
+public fn unwrap_or[Success, Failure](result: Result[Success, Failure], fallback: Success) -> Success {
+  case result -> Success {
+    Result::Ok(success) => { success }
+    Result::Err(failure) => { fallback }
+  }
+}
+
+public fn ok[Success, Failure](result: Result[Success, Failure]) -> Option[Success] {
+  case result -> Option[Success] {
+    Result::Ok(success) => { Option::Some[Success](success) }
+    Result::Err(failure) => { Option::None[Success]() }
+  }
+}
+
+public fn map[Success, Failure, Mapped](
+  result: Result[Success, Failure],
+  mapping: fn(Success) -> Mapped
+) -> Result[Mapped, Failure] {
+  case result -> Result[Mapped, Failure] {
+    Result::Ok(success) => { Result::Ok[Mapped, Failure](mapping(success)) }
+    Result::Err(failure) => { Result::Err[Mapped, Failure](failure) }
+  }
+}
+
+public fn map_err[Success, Failure, Mapped](
+  result: Result[Success, Failure],
+  mapping: fn(Failure) -> Mapped
+) -> Result[Success, Mapped] {
+  case result -> Result[Success, Mapped] {
+    Result::Ok(success) => { Result::Ok[Success, Mapped](success) }
+    Result::Err(failure) => { Result::Err[Success, Mapped](mapping(failure)) }
+  }
+}
+
+public fn and_then[Success, Failure, Mapped](
+  result: Result[Success, Failure],
+  mapping: fn(Success) -> Result[Mapped, Failure]
+) -> Result[Mapped, Failure] {
+  case result -> Result[Mapped, Failure] {
+    Result::Ok(success) => { mapping(success) }
+    Result::Err(failure) => { Result::Err[Mapped, Failure](failure) }
+  }
+}
