@@ -30,9 +30,11 @@ a primary goal.
    rationale behind the current direction.
 4. Read the [Core design](docs/language/CORE.md) and
    [transformation design](docs/language/MACRO.md).
-5. Read the [experimental Core v0 profile](docs/language/CORE_V0.md) to
+5. Read the [compiler representations and T-diagrams](docs/toolchain/PIPELINE.md)
+   for the Canopy, Crown, Heartwood, and Timber pipeline.
+6. Read the [experimental Core v0 profile](docs/language/CORE_V0.md) to
    understand the executable subset currently being tested.
-6. Read the [infrastructure requirements](docs/toolchain/INFRASTRUCTURE.md) and
+7. Read the [infrastructure requirements](docs/toolchain/INFRASTRUCTURE.md) and
    [bootstrap plan](docs/toolchain/BOOTSTRAP.md).
 
 ## Try SlopH
@@ -129,6 +131,7 @@ replacement is tracked in [`idea/SECURITY.md`](idea/SECURITY.md).
 
 ### Toolchain design
 
+- [Compiler representations and T-diagrams](docs/toolchain/PIPELINE.md)
 - [Compiler and package infrastructure](docs/toolchain/INFRASTRUCTURE.md)
 - [Single-binary CLI](docs/toolchain/CLI.md)
 - [Shared testing architecture](docs/toolchain/TESTING.md)
