@@ -85,7 +85,8 @@ its complete test suite directly from a checkout without installing a project:
 ```text
 uv run --no-project --directory src/sloph-python-bootstrap python -m sloph --help
 uv run --no-project --directory src/sloph-python-bootstrap \
-  python -m unittest discover -s tests -t .
+  python -m unittest discover \
+  -s ../../tests/implementation/python -t ../../tests/implementation/python
 uv run --no-project --directory src/sloph-python-bootstrap \
   ../libraries/run-tests.sh python -m sloph
 ```
@@ -108,10 +109,9 @@ replacement is tracked in [`idea/SECURITY.md`](idea/SECURITY.md).
 │   ├── libraries/        Bundled SlopH libraries and native boundaries
 │   └── sloph-python-bootstrap/
 │       ├── sloph/        Hosted Python toolchain libraries and thin CLI
-│       ├── tests/        Python-bootstrap tests and portable-corpus adapter
 │       └── pyproject.toml
 ├── examples/             CI-verified supported v1 projects
-├── tests/                Portable Core/Source cases and golden files
+├── tests/                Portable cases plus implementation adapters/tests
 ├── .github/workflows/    Linux and macOS CI
 └── LICENSE
 ~~~

@@ -1,0 +1,1 @@
+{"code":"project.resolve.unknown_name","details":{"module":"os_case::main","name":"core::Exit"},"message":"unknown or inaccessible name 'core::Exit'","message_id":"project.resolve.unknown_name","phase":"resolve","schema":"sloph.diagnostic","severity":"error","span":{"end":52,"start":42},"version":0}

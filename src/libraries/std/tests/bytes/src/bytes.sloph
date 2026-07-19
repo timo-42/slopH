@@ -1,0 +1,15 @@
+module std_tests::bytes;
+
+import os::process::{Exit};
+import core::bytes::{length};
+import core::int::{to_bytes};
+import std::bytes::{is_empty};
+import std::io::{write};
+
+public fn main() -> Exit {
+  let length_written = write(to_bytes(length("abc")));
+  let first_newline = write("\n");
+  let empty_written = write(if is_empty("") { "true\n" } else { "false\n" });
+  let present_written = write(if is_empty("x") { "true\n" } else { "false\n" });
+  Exit::Success()
+}

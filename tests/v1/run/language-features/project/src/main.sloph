@@ -1,0 +1,84 @@
+/* outer /* nested */ comment */
+module features::main;
+
+type Nat {
+  Zero();
+  Next(rest: Nat);
+}
+
+type List[Item] {
+  Nil();
+  Cons(head: Item, tail: List[Item]);
+}
+
+type Evidence {
+  Evidence(
+    zero_argument: Int,
+    recursion: Int,
+    conditional: Int,
+    clauses: Int,
+    constructor_clauses: Int,
+    generic_option: Int,
+    recursive_generic: Int,
+    partial_application: Int,
+    closure: Int,
+    transformed_conditional: Int,
+    bytes: Bytes
+  );
+}
+
+fn answer() -> Int { 42 }
+
+fn count(item: Nat) -> Int {
+  case item -> Int {
+    Nat::Zero() => { 0 }
+    Nat::Next(rest: Nat) => { 1 + count(rest) }
+  }
+}
+
+fn factorial(n: Int) -> Int {
+  if n < 2 { 1 } else { n * factorial(n - 1) }
+}
+
+fn clause_factorial(n: Int) -> Int
+| 0 => { 1 }
+| n => { n * clause_factorial(n - 1) }
+
+fn sum(items: List[Int]) -> Int
+| List::Nil() => { 0 }
+| List::Cons(head, tail) => { head + sum(tail) }
+
+fn identity[Item](item: Item) -> Item { item }
+
+fn option_value(option: Option[Int]) -> Int {
+  case option -> Int {
+    Option::None() => { 0 }
+    Option::Some(item) => { item }
+  }
+}
+
+fn add(left: Int, right: Int) -> Int { left + right }
+
+fn apply(function: fn(Int) -> Int, item: Int) -> Int { function(item) }
+
+fn make_adder(base: Int) -> fn(Int) -> Int {
+  fn(item: Int) -> Int { base + item }
+}
+
+const main: Evidence {
+  let generic_list: List[Int] = List::Cons[Int](42, List::Nil[Int]());
+  let increment = add(1);
+  Evidence::Evidence(
+    answer(),
+    count(Nat::Next(Nat::Next(Nat::Zero()))),
+    factorial(6),
+    clause_factorial(6),
+    sum(List::Cons[Int](2, List::Cons[Int](3, List::Nil[Int]()))),
+    option_value(Option::Some[Int](identity[Int](42))),
+    sum(generic_list),
+    apply(increment, 41),
+    make_adder(40)(2),
+    unless 1 < 2 { 10 } else { 42 },
+    "hello\n\x00\xff"
+  )
+}

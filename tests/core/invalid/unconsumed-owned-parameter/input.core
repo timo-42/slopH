@@ -1,0 +1,11 @@
+(core 3
+  (types
+    (enum example::Resource
+      (ownership owned)
+      (params)
+      (ctor example::Resource::Resource)))
+  (defs
+    (def example::leak
+      (fn (named example::Resource) Int)
+      (lam (bind item (named example::Resource))
+        (int 0)))))

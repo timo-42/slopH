@@ -1,0 +1,1 @@
+{"code":"core.validate.owned_not_consumed","details":{"local":"buffer"},"message":"owned pattern field 'buffer' must be moved or explicitly dropped","message_id":"core.validate.owned_not_consumed","phase":"validate","schema":"sloph.diagnostic","severity":"error","span":{"end":269,"start":176},"version":0}

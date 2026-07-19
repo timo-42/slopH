@@ -1,0 +1,4 @@
+(core 2
+  (types)
+  (defs
+    (def example::bad (var T) (int 0))))

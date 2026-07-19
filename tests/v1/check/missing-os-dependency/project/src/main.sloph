@@ -1,0 +1,3 @@
+module os_case::main;
+import os::process::{Exit};
+public fn main() -> Exit { Exit::Success() }

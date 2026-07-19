@@ -1,0 +1,2 @@
+module os_case::main;
+public fn main() -> core::Exit { core::Exit::Success() }

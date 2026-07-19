@@ -1,0 +1,5 @@
+module intrinsic_case::main;
+
+public intrinsic fn add(left: Int, right: Int) -> Int = int.add;
+
+const main: Bool { Bool::True() }

@@ -1,0 +1,5 @@
+module intrinsic_case::main;
+
+public intrinsic type Fake;
+
+const main: Bool { Bool::True() }

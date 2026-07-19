@@ -1,0 +1,6 @@
+format: 0
+name: v1/core/library-boundary
+kind: v1-core
+input: project
+expect-exit: 0
+expect-output: expected.core

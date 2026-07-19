@@ -1,0 +1,6 @@
+format: 0
+name: v1/ast/standard-transform
+kind: v1-ast
+input: input.sloph
+expect-exit: 0
+expect-output: expected.json

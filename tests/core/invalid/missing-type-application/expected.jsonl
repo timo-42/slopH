@@ -1,0 +1,1 @@
+{"code":"core.validate.not_function","details":{},"message":"application target has non-function type (forall T (fn (var T) (var T)))","message_id":"core.validate.not_function","phase":"validate","schema":"sloph.diagnostic","severity":"error","span":{"end":229,"start":203},"version":0}

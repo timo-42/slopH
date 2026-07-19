@@ -72,14 +72,20 @@ The fixed field catalog is:
   qualified global;
 - `fuel` is permitted only for `core-eval` and sets its evaluation bound;
 - `expect-output` and `expect-diagnostics` optionally name golden files;
-- `kind` is exactly `core-check`, `core-print`, `core-eval`, `core-run`, `source-check`,
-  `source-format`, `source-ast`, `source-core`, `source-run`, `v1-check`,
-  `v1-format`, or `v1-run`.
+- `kind` is exactly `core-check`, `core-print`, `core-eval`, `core-run`,
+  `source-check`, `source-format`, `source-ast`, `source-core`, `source-run`,
+  `v1-check`, `v1-format`, `v1-ast`, `v1-core`, `v1-run`, or `v1-native`.
 
-The `v1-*` kinds run the stable Source v1 commands: `v1-check` runs
-`sloph check`, `v1-format` runs `sloph format --stdout`, and `v1-run` runs
-`sloph run` on a project directory, comparing standard output and structured
-diagnostics exactly like the corresponding `source-*` kinds.
+`expect-exit` is in the tool-status range `0..4` except for `v1-native`, which
+accepts the full portable process-status range `0..255`.
+
+The `v1-*` kinds run stable Source v1 commands: `v1-check` runs `sloph check`,
+`v1-format` runs `sloph format --stdout`, `v1-ast` runs `sloph ast print`,
+`v1-core` runs `sloph core print --input-format source`, `v1-run` runs
+`sloph run`, and `v1-native` compiles then directly executes the produced
+program so exact application exit statuses remain observable. Output and
+structured diagnostics are compared exactly like the corresponding
+`source-*` kinds.
 
 Unknown or duplicate fields, missing required fields, invalid values, and fields
 not permitted for the selected kind are case-format errors. Referenced paths are
@@ -87,13 +93,14 @@ relative to the case directory. Golden output is compared as exact UTF-8 text;
 the runner does not normalize different Core forms or diagnostics into
 equality.
 
-The Python adapter is
-`src/sloph-python-bootstrap/tests/runners/python.py`. The Python-bootstrap
+The temporary Python adapter is
+`tests/implementation/python/runners/python.py`. Python-bootstrap-specific
 tests and shared cases run together from the component directory with:
 
 ```text
 uv run --no-project --directory src/sloph-python-bootstrap \
-  python -m unittest discover -s tests -t .
+  python -m unittest discover \
+  -s ../../tests/implementation/python -t ../../tests/implementation/python
 ```
 
 Bundled-library behavior is tested beside each library rather than through a
@@ -171,8 +178,10 @@ tests/
 
 Directories may be added only for a distinct test boundary. The repository
 should not create empty future directories merely to match this illustration.
-Implementation-specific test code and corpus adapters live beside their
-implementation, such as `src/sloph-python-bootstrap/tests/`.
+Implementation-specific test code and corpus adapters live under
+`tests/implementation/<implementation>/`. Keeping them outside compiler source
+trees makes the normative corpus and repository test entry points independent
+of any one bootstrap implementation.
 
 ## Boundary Model
 
@@ -334,9 +343,9 @@ case must not become the only test of a language or Core behavior.
 
 ### Implementation-Specific Tests
 
-Tests under `src/sloph-python-bootstrap/tests/` may inspect private Python
-classes, helpers, caches, or algorithms. They may use Python's test framework
-and are not consumed by the self-hosted compiler or later bootstrap stages.
+Tests under `tests/implementation/python/` may inspect private Python classes,
+helpers, caches, or algorithms. They may use Python's test framework and are
+not consumed by the self-hosted compiler or later bootstrap stages.
 
 Equivalent self-hosted implementation tests may later live in a separate
 implementation-specific directory. They cannot change the expected results of

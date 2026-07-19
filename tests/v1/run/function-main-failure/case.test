@@ -1,0 +1,5 @@
+format: 0
+name: v1/run/function-main-failure
+kind: v1-native
+input: project
+expect-exit: 7

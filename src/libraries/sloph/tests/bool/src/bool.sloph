@@ -1,0 +1,21 @@
+module sloph_tests::bool;
+
+import os::process::{Exit};
+import sloph::{equal, not, not_equal, xor};
+import std::io::{write};
+
+fn print(item: Bool) -> Unit {
+  if item { write("true\n") } else { write("false\n") }
+}
+
+public fn main() -> Exit {
+  let not_false = print(not(Bool::False()));
+  let not_true = print(not(Bool::True()));
+  let equal_false = print(equal(Bool::False(), Bool::False()));
+  let unequal_equal = print(equal(Bool::False(), Bool::True()));
+  let not_equal_different = print(not_equal(Bool::True(), Bool::False()));
+  let not_equal_same = print(not_equal(Bool::True(), Bool::True()));
+  let xor_different = print(xor(Bool::False(), Bool::True()));
+  let xor_same = print(xor(Bool::True(), Bool::True()));
+  Exit::Success()
+}

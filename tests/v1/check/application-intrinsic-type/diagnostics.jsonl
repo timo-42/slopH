@@ -1,0 +1,1 @@
+{"code":"project.resolve.trusted_intrinsic","details":{"module":"intrinsic_case::main","type":"Fake"},"message":"intrinsic types are restricted to the canonical core package","message_id":"project.resolve.trusted_intrinsic","phase":"resolve","schema":"sloph.diagnostic","severity":"error","span":{"end":57,"start":30},"version":0}

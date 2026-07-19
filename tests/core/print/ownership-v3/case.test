@@ -1,0 +1,6 @@
+format: 0
+name: core/print/ownership-v3
+kind: core-print
+input: input.core
+expect-exit: 0
+expect-output: expected.core

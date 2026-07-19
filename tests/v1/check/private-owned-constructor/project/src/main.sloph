@@ -1,0 +1,5 @@
+module memory_case::main;
+
+import memory::{Buffer};
+
+const main: Buffer { Buffer::Buffer(0, 0, 0) }

@@ -1,0 +1,6 @@
+(core 0
+  (types)
+  (defs
+    (def example::a Int (global example::b))
+    (def example::b Int (global example::a))
+    (def example::dependent Int (global example::a))))
