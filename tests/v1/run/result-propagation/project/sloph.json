@@ -1,0 +1,7 @@
+{
+  "format": 1,
+  "package": "propagation",
+  "source-root": "src",
+  "entry": "propagation::main::main",
+  "dependencies": ["os", "std"]
+}

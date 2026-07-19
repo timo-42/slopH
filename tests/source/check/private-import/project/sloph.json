@@ -1,0 +1,6 @@
+{
+  "format": 1,
+  "package": "private",
+  "source-root": "src",
+  "entry": "private::main::main"
+}

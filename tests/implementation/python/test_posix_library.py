@@ -34,8 +34,9 @@ class PosixLibraryTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / "src").mkdir()
-            (root / "sloph.toml").write_text(
-                'format=0\npackage="demo"\nsource-root="src"\nentry="demo::main::main"\ndependencies=["syscall"]\n',
+            (root / "sloph.json").write_text(
+                '{"format":1,"package":"demo","source-root":"src",'
+                '"entry":"demo::main::main","dependencies":["syscall"]}\n',
                 encoding="ascii",
             )
             (root / "src" / "main.sloph").write_text(
@@ -177,8 +178,9 @@ ssize_t sloph_syscall_write(int fd, const void *buffer, size_t count) { (void)fd
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / "src").mkdir()
-            (root / "sloph.toml").write_text(
-                'format=0\npackage="demo"\nsource-root="src"\nentry="demo::main::main"\ndependencies=["os","std"]\n',
+            (root / "sloph.json").write_text(
+                '{"format":1,"package":"demo","source-root":"src",'
+                '"entry":"demo::main::main","dependencies":["os","std"]}\n',
                 encoding="ascii",
             )
             (root / "src" / "main.sloph").write_text(

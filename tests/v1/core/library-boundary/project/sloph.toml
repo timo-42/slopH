@@ -1,4 +1,0 @@
-format = 0
-package = "library_boundary"
-source-root = "src"
-entry = "library_boundary::main::main"

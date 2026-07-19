@@ -46,7 +46,7 @@ behavior.
 ## Required Commands and Artifacts
 
 The supported commands are `sloph check`, `sloph format`, `sloph compile`, and
-`sloph run` over a `sloph.toml` project, plus test execution via the
+`sloph run` over a `sloph.json` project, plus test execution via the
 repository's documented commands. Inspection (`ast`/`core` printing) is
 supported for the current profile under `sloph unstable` until the CLI is
 stabilized. Artifacts are native executables and canonical Core text; both

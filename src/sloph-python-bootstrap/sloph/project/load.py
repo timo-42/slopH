@@ -5,7 +5,6 @@ import json
 from dataclasses import replace
 from pathlib import Path
 import re
-import tomllib
 from typing import Any
 
 from sloph._resources import libraries_root
@@ -25,9 +24,27 @@ _MANIFEST_KEYS = frozenset(("format", "package", "source-root", "entry", "depend
 _MANIFEST_BYTES = 65_536
 
 
+class _DuplicateManifestKey(ValueError):
+    def __init__(self, key: str) -> None:
+        self.key = key
+
+
+def _manifest_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise _DuplicateManifestKey(key)
+        result[key] = value
+    return result
+
+
+def _invalid_json_constant(value: str) -> None:
+    raise ValueError(f"invalid JSON constant {value}")
+
+
 def load_manifest(path: str | Path) -> ProjectManifest:
     supplied = Path(path)
-    manifest_path = supplied / "sloph.toml" if supplied.is_dir() else supplied
+    manifest_path = supplied / "sloph.json" if supplied.is_dir() else supplied
     data = _read_bounded(manifest_path, _MANIFEST_BYTES, "project.manifest.limit")
     try:
         text = data.decode("utf-8")
@@ -35,21 +52,30 @@ def load_manifest(path: str | Path) -> ProjectManifest:
         fail(
             "project.manifest.encoding",
             "project",
-            "sloph.toml must be UTF-8",
-            path=str(manifest_path),
+            "sloph.json must be UTF-8",
             offset=error.start,
         )
     try:
-        raw = tomllib.loads(text)
-    except tomllib.TOMLDecodeError as error:
+        raw = json.loads(
+            text,
+            object_pairs_hook=_manifest_object,
+            parse_constant=_invalid_json_constant,
+        )
+    except _DuplicateManifestKey as error:
+        fail(
+            "project.manifest.duplicate",
+            "project",
+            "manifest contains a duplicate field",
+            field=error.key,
+        )
+    except (json.JSONDecodeError, ValueError):
         fail(
             "project.manifest.syntax",
             "project",
-            f"invalid sloph.toml: {error}",
-            path=str(manifest_path),
+            "invalid sloph.json",
         )
     if not isinstance(raw, dict):
-        fail("project.manifest.shape", "project", "manifest must be a TOML table")
+        fail("project.manifest.shape", "project", "manifest must be a JSON object")
     unknown = sorted(set(raw) - _MANIFEST_KEYS)
     missing = sorted({"format", "package", "source-root", "entry"} - set(raw))
     if missing:
@@ -66,11 +92,11 @@ def load_manifest(path: str | Path) -> ProjectManifest:
             "manifest contains unknown fields",
             fields=unknown,
         )
-    if type(raw["format"]) is not int or raw["format"] != 0:
+    if type(raw["format"]) is not int or raw["format"] != 1:
         fail(
             "project.manifest.format",
             "project",
-            "only project manifest format 0 is supported",
+            "only project manifest format 1 is supported",
             format=raw["format"],
         )
     package = _required_string(raw, "package")
@@ -121,7 +147,6 @@ def load_manifest(path: str | Path) -> ProjectManifest:
             "project.manifest.dependencies",
             "project",
             "dependencies must be an array of lowercase package names",
-            path=str(manifest_path),
         )
     dependencies = tuple(dependencies_raw)
     if len(dependencies) != len(set(dependencies)):
@@ -129,7 +154,6 @@ def load_manifest(path: str | Path) -> ProjectManifest:
             "project.manifest.dependencies",
             "project",
             "dependencies must not contain duplicates",
-            path=str(manifest_path),
         )
     return ProjectManifest(manifest_path, package, source_root, entry, dependencies)
 

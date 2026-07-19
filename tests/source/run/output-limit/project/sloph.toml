@@ -1,4 +1,0 @@
-format = 0
-package = "limit"
-source-root = "src"
-entry = "limit::main::v18"

@@ -1,0 +1,7 @@
+{
+  "format": 1,
+  "package": "memory_test",
+  "source-root": "src",
+  "entry": "memory_test::allocation::main",
+  "dependencies": ["memory"]
+}

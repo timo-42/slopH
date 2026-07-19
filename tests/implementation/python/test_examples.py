@@ -12,7 +12,7 @@ import unittest
 REPOSITORY = Path(__file__).resolve().parents[3]
 COMPONENT = REPOSITORY / "src" / "sloph-python-bootstrap"
 EXAMPLES = REPOSITORY / "examples"
-REQUIRED_FILES = ("README.md", "sloph.toml", "expected.stdout")
+REQUIRED_FILES = ("README.md", "sloph.json", "expected.stdout")
 
 
 @dataclass(frozen=True, slots=True)

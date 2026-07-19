@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -35,7 +36,7 @@ public fn main() -> Bool { native() }
 
     def test_missing_conditional_import_branch_is_diagnostic(self) -> None:
         with self._project(
-            'dependencies=[]',
+            [],
             """module demo::main;
 import case compiler::target::platform {
   (os::linux, arch::amd64) => demo::linux::{native};
@@ -118,7 +119,7 @@ public fn main() -> Exit { Exit::Success() }
 import cpu::amd64::{avx512};
 public fn main() -> Exit { Exit::Success() }
 """
-        with self._project('dependencies=["cpu"]', source) as root:
+        with self._project(["cpu"], source) as root:
             with self.assertRaises(DiagnosticError) as caught:
                 load_project(
                     root,
@@ -135,7 +136,7 @@ public fn main() -> Exit {
   if avx512() { Exit::Failure(1) } else { Exit::Success() }
 }
 """
-        with self._project('dependencies=["cpu", "os"]', source) as root:
+        with self._project(["cpu", "os"], source) as root:
             project = load_project(
                 root,
                 source_version=1,
@@ -149,13 +150,20 @@ public fn main() -> Exit {
         self.assertIsInstance(feature.value.body, ConExpr)
         self.assertEqual("sloph::Bool::False", feature.value.body.constructor)
 
-    def _project(self, dependencies: str, source: str):
+    def _project(self, dependencies: list[str], source: str):
         temporary = tempfile.TemporaryDirectory()
         root = Path(temporary.name)
         (root / "src").mkdir()
-        (root / "sloph.toml").write_text(
-            "format=0\npackage=\"demo\"\nsource-root=\"src\"\n"
-            f"entry=\"demo::main::main\"\n{dependencies}\n",
+        (root / "sloph.json").write_text(
+            json.dumps(
+                {
+                    "format": 1,
+                    "package": "demo",
+                    "source-root": "src",
+                    "entry": "demo::main::main",
+                    "dependencies": dependencies,
+                }
+            ),
             encoding="ascii",
         )
         (root / "src" / "main.sloph").write_text(source, encoding="ascii")

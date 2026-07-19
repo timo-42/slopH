@@ -14,7 +14,7 @@ sloph run examples/hello-world
 Every direct child directory is an example and must contain:
 
 - `README.md` with its purpose and commands;
-- `sloph.toml` and at least one `src/*.sloph` source file;
+- `sloph.json` and at least one `src/*.sloph` source file;
 - `expected.stdout` containing its exact expected output.
 
 The repository test suite discovers these directories automatically. On every

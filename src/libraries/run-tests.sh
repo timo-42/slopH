@@ -13,7 +13,7 @@ trap 'rm -rf -- "$test_output"' EXIT HUP INT TERM
 
 found=false
 for project in "$libraries_root"/*/tests/*; do
-  if [ ! -d "$project" ] || [ ! -f "$project/sloph.toml" ]; then
+  if [ ! -d "$project" ] || [ ! -f "$project/sloph.json" ]; then
     continue
   fi
   found=true

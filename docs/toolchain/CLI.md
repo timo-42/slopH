@@ -152,7 +152,7 @@ sloph unstable run PROJECT
     [--timings]
 ```
 
-`PROJECT` is a project directory or `sloph.toml`. Source compilation takes a
+`PROJECT` is a project directory or `sloph.json`. Source compilation takes a
 project; textual Core compilation takes one Core v0 file and requires
 `--symbol`. `--cc` defaults to `cc` and is explicit rather than read from
 ambient build configuration. The native bridge supports macOS ARM64 and Linux

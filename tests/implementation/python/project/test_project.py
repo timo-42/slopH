@@ -10,10 +10,12 @@ from sloph.core import DiagnosticError, Limits, evaluate, format_value
 from sloph.project import elaborate_project, elaborate_project_v1, load_project, resolve_bundled_packages
 
 
-MANIFEST = """format = 0
-package = "demo"
-source-root = "src"
-entry = "demo::main::main"
+MANIFEST = """{
+  "format": 1,
+  "package": "demo",
+  "source-root": "src",
+  "entry": "demo::main::main"
+}
 """
 
 MATH = """module demo::math;
@@ -66,7 +68,7 @@ class ProjectTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         root = Path(temporary.name)
-        (root / "sloph.toml").write_text(MANIFEST, encoding="utf-8")
+        (root / "sloph.json").write_text(MANIFEST, encoding="utf-8")
         source = root / "src"
         source.mkdir()
         for relative, content in (files or {"math.sloph": MATH, "main.sloph": MAIN}).items():
@@ -149,7 +151,7 @@ fn identity(item: Int) -> Int { item }
 value main: Int { 0 }
 """
         root = self._project({"main.sloph": main})
-        (root / "sloph.toml").write_text(manifest, encoding="utf-8")
+        (root / "sloph.json").write_text(manifest, encoding="utf-8")
         with self.assertRaises(DiagnosticError) as raised:
             elaborate_project(root)
         self.assertEqual("project.entry.function", raised.exception.diagnostic.code)
@@ -161,7 +163,7 @@ value fallback: Int { 0 }
 """
         root = self._project({"main.sloph": main})
         manifest = MANIFEST.replace("demo::main::main", "demo::main::fallback")
-        (root / "sloph.toml").write_text(manifest, encoding="utf-8")
+        (root / "sloph.json").write_text(manifest, encoding="utf-8")
         with self.assertRaises(DiagnosticError) as raised:
             elaborate_project(root)
         self.assertEqual("syntax.validate.function_arity", raised.exception.diagnostic.code)
@@ -219,8 +221,8 @@ value main: Int { identity }
 
     def test_manifest_read_is_bounded(self) -> None:
         root = self._project()
-        with (root / "sloph.toml").open("a", encoding="utf-8") as stream:
-            stream.write("#" * 66_000)
+        with (root / "sloph.json").open("a", encoding="utf-8") as stream:
+            stream.write(" " * 66_000)
         with self.assertRaises(DiagnosticError) as raised:
             load_project(root)
         self.assertEqual("project.manifest.limit", raised.exception.diagnostic.code)
@@ -229,7 +231,7 @@ value main: Int { identity }
         for old, new in (("demo", "Demo"), ("demo::main::main", "demo::Main::main")):
             with self.subTest(value=new):
                 root = self._project()
-                path = root / "sloph.toml"
+                path = root / "sloph.json"
                 path.write_text(MANIFEST.replace(old, new), encoding="utf-8")
                 with self.assertRaises(DiagnosticError) as raised:
                     load_project(root)
@@ -237,6 +239,32 @@ value main: Int { identity }
                     raised.exception.diagnostic.code,
                     {"project.manifest.package", "project.manifest.entry"},
                 )
+
+    def test_manifest_is_strict_json_format_one(self) -> None:
+        cases = (
+            ('{"format":1,"format":1,"package":"demo","source-root":"src","entry":"demo::main::main"}', "project.manifest.duplicate"),
+            ('{"format":1,"package":"demo","source-root":"src","entry":"demo::main::main","extra":false}', "project.manifest.unknown"),
+            ('{"format":1,"package":"demo","source-root":"src"}', "project.manifest.missing"),
+            ('{"format":0,"package":"demo","source-root":"src","entry":"demo::main::main"}', "project.manifest.format"),
+            ('{"format":1,"package":"demo","source-root":"src","entry":"demo::main::main",}', "project.manifest.syntax"),
+            ('[]', "project.manifest.shape"),
+        )
+        for manifest, code in cases:
+            with self.subTest(code=code):
+                root = self._project()
+                (root / "sloph.json").write_text(manifest, encoding="utf-8")
+                with self.assertRaises(DiagnosticError) as raised:
+                    load_project(root)
+                self.assertEqual(code, raised.exception.diagnostic.code)
+
+    def test_manifest_dependencies_default_to_empty(self) -> None:
+        project = load_project(self._project())
+        self.assertEqual((), project.manifest.dependencies)
+
+    def test_manifest_can_be_supplied_directly(self) -> None:
+        root = self._project()
+        project = load_project(root / "sloph.json")
+        self.assertEqual(root / "sloph.json", project.manifest.path)
 
     def test_v1_generics_cross_module_boundary(self) -> None:
         generic = """module demo::generic;

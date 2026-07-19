@@ -1,5 +1,0 @@
-format = 0
-package = "guards"
-source-root = "src"
-entry = "guards::main::main"
-dependencies = ["os", "std"]

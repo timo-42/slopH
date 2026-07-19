@@ -1,0 +1,1 @@
+{"code":"project.manifest.field_type","details":{"field":"package"},"message":"manifest field 'package' must be a non-empty string","message_id":"project.manifest.field_type","phase":"project","schema":"sloph.diagnostic","severity":"error","span":{"end":0,"start":0},"version":0}

@@ -64,9 +64,9 @@ class NativeBuildTests(unittest.TestCase):
             script.chmod(0o755)
             project = root / "project"
             (project / "src").mkdir(parents=True)
-            (project / "sloph.toml").write_text(
-                'format=0\npackage="demo"\nsource-root="src"\n'
-                'entry="demo::main::main"\ndependencies=["os"]\n',
+            (project / "sloph.json").write_text(
+                '{"format":1,"package":"demo","source-root":"src",'
+                '"entry":"demo::main::main","dependencies":["os"]}\n',
                 encoding="ascii",
             )
             (project / "src" / "main.sloph").write_text(

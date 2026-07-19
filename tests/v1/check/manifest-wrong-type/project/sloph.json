@@ -1,0 +1,6 @@
+{
+  "format": 1,
+  "package": false,
+  "source-root": "src",
+  "entry": "demo::main::main"
+}

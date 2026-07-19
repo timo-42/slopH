@@ -1,5 +1,0 @@
-format = 0
-package = "sloph_tests"
-source-root = "src"
-entry = "sloph_tests::bool::main"
-dependencies = ["os", "std"]

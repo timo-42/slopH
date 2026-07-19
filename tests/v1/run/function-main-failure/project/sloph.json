@@ -1,0 +1,7 @@
+{
+  "format": 1,
+  "package": "failure",
+  "source-root": "src",
+  "entry": "failure::main::main",
+  "dependencies": ["os"]
+}

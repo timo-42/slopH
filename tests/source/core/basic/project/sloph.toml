@@ -1,4 +1,0 @@
-format = 0
-package = "example"
-source-root = "src"
-entry = "example::main::main"

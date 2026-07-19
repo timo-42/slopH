@@ -1,0 +1,7 @@
+{
+  "format": 1,
+  "package": "application",
+  "source-root": "src",
+  "entry": "application::main::main",
+  "dependencies": ["os", "std"]
+}
