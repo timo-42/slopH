@@ -36,14 +36,17 @@ const main: Result[Observations, AllocationError] {
           let byte: Result[Int, AccessError] = read(target, 1);
           let bounds: Result[Int, AccessError] = read(target, 4);
           let invalid_byte: Result[Unit, AccessError] = write(target, 0, 256);
-          let released_source: Unit = drop(source);
+          let cleanup_source: Unit = drop(source);
           let released_target: Unit = drop(target);
           Result::Ok[Observations, AllocationError](Observations::Observations(
             zero, written, copied, byte, bounds, invalid_byte,
             allocation_error(-1), allocation_error(268435457)
           ))
         }
-        Result::Err(target_error) => { Result::Err[Observations, AllocationError](target_error) }
+        Result::Err(target_error) => {
+          let released_source: Unit = drop(source);
+          Result::Err[Observations, AllocationError](target_error)
+        }
       }
     }
     Result::Err(source_error) => { Result::Err[Observations, AllocationError](source_error) }
