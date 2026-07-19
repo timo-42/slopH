@@ -1,0 +1,1 @@
+{"code":"syntax.parse.propagation_context","details":{},"message":"the '?' operator requires a top-level let binding in a function returning Result[Success, Failure]","message_id":"syntax.parse.propagation_context","phase":"parse","schema":"sloph.diagnostic","severity":"error","span":{"end":160,"start":159},"version":0}

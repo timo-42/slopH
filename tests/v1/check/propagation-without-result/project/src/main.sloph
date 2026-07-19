@@ -1,0 +1,14 @@
+module propagation::main;
+
+fn increment(n: Int) -> Result[Int, Bytes] {
+  Result::Ok[Int, Bytes](n + 1)
+}
+
+fn broken(n: Int) -> Int {
+  let item = increment(n)?;
+  item
+}
+
+public fn main() -> Int {
+  broken(1)
+}

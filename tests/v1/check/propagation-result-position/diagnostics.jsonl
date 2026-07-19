@@ -1,0 +1,1 @@
+{"code":"syntax.parse.propagation_context","details":{},"message":"the '?' operator is only supported on let bindings","message_id":"syntax.parse.propagation_context","phase":"parse","schema":"sloph.diagnostic","severity":"error","span":{"end":164,"start":163},"version":0}
