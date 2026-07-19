@@ -4,7 +4,7 @@ from sloph.core.diagnostics import fail
 from sloph.core.limits import Limits
 from sloph.syntax._integer import format_decimal
 from sloph.syntax.model import (
-    AppliedType, BinaryExpr, Block, BytesExpr, CallExpr, CaseExpr, ConditionalImportDecl, ConstructorExpr, Expr, ForeignFunctionDecl, FunctionType, GlobalExpr, IfExpr, InferredType, IntExpr, IntrinsicFunctionDecl, IntrinsicTypeDecl, LambdaExpr,
+    AppliedType, BinaryExpr, Block, BytesExpr, CallExpr, CaseExpr, ConditionalImportDecl, ConstructorExpr, DeferCall, Expr, ForeignFunctionDecl, FunctionType, GlobalExpr, IfExpr, InferredType, IntExpr, IntrinsicFunctionDecl, IntrinsicTypeDecl, LambdaExpr,
     IntType, LocalExpr, Module, NamedType, PrimitiveExpr, TargetConstantPattern,
     TargetPattern, TargetTuplePattern, TypeRef,
 )
@@ -14,9 +14,13 @@ def _type(value: TypeRef) -> str:
     if isinstance(value, IntType): return "Int"
     if isinstance(value, NamedType): return value.name
     if isinstance(value, AppliedType): return f"{value.constructor}[{', '.join(_type(item) for item in value.arguments)}]"
-    if isinstance(value, FunctionType): return f"fn({_type(value.parameter)}) -> {_type(value.result)}"
+    if isinstance(value, FunctionType): return f"fn({_mode(value.mode)}{_type(value.parameter)}) -> {_type(value.result)}"
     if isinstance(value, InferredType): return "_"
     raise TypeError(f"unknown syntax type: {type(value).__name__}")
+
+
+def _mode(value: str) -> str:
+    return "" if value == "own" else f"{value} "
 
 
 def _target_pattern(pattern: TargetPattern) -> str:
@@ -37,7 +41,7 @@ def _expr(value: Expr, indent: int) -> str:
     if isinstance(value, BinaryExpr):
         return f"({_expr(value.left, indent)} {value.operator} {_expr(value.right, indent)})"
     if isinstance(value, LambdaExpr):
-        parameters = ", ".join(f"{item.name}: {_type(item.type)}" for item in value.parameters)
+        parameters = ", ".join(f"{item.name}: {_mode(item.mode)}{_type(item.type)}" for item in value.parameters)
         return f"fn({parameters}) -> {_type(value.result_type)} " + _block(value.body, indent)
     if isinstance(value, IfExpr):
         return f"if {_expr(value.condition, indent)} {_block(value.then_body, indent)} else {_block(value.else_body, indent)}"
@@ -79,6 +83,9 @@ def _block(value: Block, indent: int) -> str:
     pad = " " * indent
     lines = ["{"]
     for binding in value.bindings:
+        if isinstance(binding, DeferCall):
+            lines.append(f"{pad}  defer {_expr(binding.call, indent + 2)};")
+            continue
         b = binding.binder
         rendered = _expr(binding.value, indent + 2)
         annotation = "" if isinstance(b.type, InferredType) else f": {_type(b.type)}"
@@ -122,7 +129,8 @@ def format_source(
             declarations.append(f"{prefix}intrinsic type {declaration.name};")
             continue
         type_parameters = f"[{', '.join(declaration.type_parameters)}]" if declaration.type_parameters else ""
-        body = [f"{prefix}type {declaration.name}{type_parameters} {{"]
+        ownership = "owned " if declaration.owned else ""
+        body = [f"{prefix}{ownership}type {declaration.name}{type_parameters} {{"]
         for constructor in declaration.constructors:
             fields = ", ".join(f"{f.name}: {_type(f.type)}" for f in constructor.fields)
             body.append(f"  {constructor.name}({fields});")
@@ -130,7 +138,7 @@ def format_source(
         declarations.append("\n".join(body))
     for declaration in module.functions:
         prefix = "public " if declaration.public else ""
-        params = ", ".join(f"{p.name}: {_type(p.type)}" for p in declaration.parameters)
+        params = ", ".join(f"{p.name}: {_mode(p.mode)}{_type(p.type)}" for p in declaration.parameters)
         if isinstance(declaration, IntrinsicFunctionDecl):
             declarations.append(f"{prefix}intrinsic fn {declaration.name}({params}) -> {_type(declaration.result_type)} = {declaration.intrinsic};")
             continue

@@ -354,7 +354,9 @@ def _rename_expr(
 
 def _enum_form(enum: EnumDecl, version: int) -> Form:
     prefix: tuple[Form, ...] = ("enum", enum.name)
-    if version == 2:
+    if version == 3:
+        prefix += (("ownership", "owned" if enum.owned else "copy"),)
+    if version >= 2:
         prefix += (("params", *enum.type_parameters),)
     return prefix + (
         *(
@@ -387,7 +389,10 @@ def _type_form(type_: CoreType) -> Form:
     if isinstance(type_, AppliedType):
         return ("apply", type_.constructor, *(_type_form(item) for item in type_.arguments))
     if isinstance(type_, FunctionType):
-        return ("fn", _type_form(type_.parameter), _type_form(type_.result))
+        prefix: tuple[Form, ...] = ("fn",)
+        if type_.mode != "own":
+            prefix += (type_.mode,)
+        return prefix + (_type_form(type_.parameter), _type_form(type_.result))
     if isinstance(type_, ForAllType):
         return ("forall", type_.parameter, _type_form(type_.body))
     raise AssertionError(f"unsupported type {type(type_)!r}")
@@ -396,7 +401,10 @@ def _type_form(type_: CoreType) -> Form:
 def _binder_form(binder: Binder | TypeBinder) -> Form:
     if isinstance(binder, TypeBinder):
         return ("type-bind", binder.name)
-    return ("bind", binder.name, _type_form(binder.type))
+    prefix: tuple[Form, ...] = ("bind",)
+    if binder.mode != "own":
+        prefix += (binder.mode,)
+    return prefix + (binder.name, _type_form(binder.type))
 
 
 def _expr_form(expression: Expr, version: int) -> Form:
@@ -429,7 +437,7 @@ def _expr_form(expression: Expr, version: int) -> Form:
         )
     if isinstance(expression, ConExpr):
         prefix: tuple[Form, ...] = ("con", expression.constructor)
-        if version == 2:
+        if version >= 2:
             prefix += (("types", *(_type_form(item) for item in expression.type_arguments)),)
         return prefix + tuple(_expr_form(item, version) for item in expression.fields)
     if isinstance(expression, CaseExpr):

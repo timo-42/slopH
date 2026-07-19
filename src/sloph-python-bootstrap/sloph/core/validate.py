@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import deque
+from dataclasses import dataclass
 import re
 
 from sloph.core.diagnostics import Span, fail
@@ -57,11 +58,11 @@ class _Context:
 
 
 def validate(unit: CoreUnit) -> None:
-    if unit.version not in (0, 1, 2):
+    if unit.version not in (0, 1, 2, 3):
         fail(
             "core.validate.unsupported_version",
             "validate",
-            "only Core versions 0, 1, and 2 are supported",
+            "only Core versions 0, 1, 2, and 3 are supported",
             unit.span,
             version=unit.version,
         )
@@ -85,6 +86,8 @@ def validate(unit: CoreUnit) -> None:
     _validate_global_cycles(context)
     for definition in sorted(unit.definitions, key=lambda item: item.name):
         _validate_definition(context, definition)
+    if unit.version == 3:
+        _validate_ownership(context)
 
 
 def _collect_declarations(context: _Context) -> None:
@@ -93,8 +96,10 @@ def _collect_declarations(context: _Context) -> None:
         if enum.name in context.enums:
             _duplicate("type", enum.name, enum.span)
         context.enums[enum.name] = enum
-        if enum.type_parameters and context.unit.version != 2:
-            fail("core.validate.generic_version", "validate", "generic declarations require Core version 2", enum.span)
+        if enum.type_parameters and context.unit.version < 2:
+            fail("core.validate.generic_version", "validate", "generic declarations require Core version 2 or later", enum.span)
+        if enum.owned and context.unit.version != 3:
+            fail("core.validate.owned_version", "validate", "owned declarations require Core version 3", enum.span)
         if len(set(enum.type_parameters)) != len(enum.type_parameters):
             fail("core.validate.duplicate_type_parameter", "validate", "type parameters must be unique", enum.span, type=enum.name)
         for parameter in enum.type_parameters:
@@ -184,12 +189,16 @@ def _well_formed_type(context: _Context, type_: CoreType, span: Span, type_varia
             pending.extend((argument, set(scope)) for argument in current.arguments)
             continue
         if isinstance(current, FunctionType):
+            if current.mode not in ("own", "borrow"):
+                fail("core.validate.parameter_mode", "validate", "parameter mode must be own or borrow", span, mode=current.mode)
+            if current.mode != "own" and context.unit.version != 3:
+                fail("core.validate.parameter_mode_version", "validate", "borrow parameters require Core version 3", span, mode=current.mode)
             pending.append((current.result, set(scope)))
             pending.append((current.parameter, set(scope)))
             continue
         if isinstance(current, ForAllType):
-            if context.unit.version != 2:
-                fail("core.validate.generic_version", "validate", "universal types require Core version 2", span)
+            if context.unit.version < 2:
+                fail("core.validate.generic_version", "validate", "universal types require Core version 2 or later", span)
             _local_id(current.parameter, span, "type parameter")
             if current.parameter in scope:
                 fail("core.validate.duplicate_type_parameter", "validate", f"duplicate type parameter {current.parameter!r}", span)
@@ -223,7 +232,7 @@ def _validate_global_cycles(context: _Context) -> None:
         # A v1 function definition evaluates to its closure without evaluating
         # the body. Recursive references in that body are therefore not a
         # value-initialization cycle. Data definitions remain acyclic.
-        if context.unit.version in (1, 2) and isinstance(_strip_forall(definition.type), FunctionType):
+        if context.unit.version >= 1 and isinstance(_strip_forall(definition.type), FunctionType):
             names = set()
         graph[definition.name] = names
         for name in names:
@@ -367,8 +376,8 @@ def _infer(
         fail("core.validate.type_expression_position", "validate", "type arguments are only valid as application arguments", expression.span)
     if isinstance(expression, LamExpr):
         if isinstance(expression.binder, TypeBinder):
-            if context.unit.version != 2:
-                fail("core.validate.generic_version", "validate", "type abstractions require Core version 2", expression.span)
+            if context.unit.version < 2:
+                fail("core.validate.generic_version", "validate", "type abstractions require Core version 2 or later", expression.span)
             _local_id(expression.binder.name, expression.binder.span, "type binder")
             if expression.binder.name in type_variables:
                 fail("core.validate.duplicate_type_parameter", "validate", f"duplicate type binder {expression.binder.name!r}", expression.binder.span)
@@ -376,11 +385,15 @@ def _infer(
             nested_types.add(expression.binder.name)
             body_type = _infer(context, expression.body, environment, all_binders, nested_types)
             return ForAllType(expression.binder.name, body_type)
+        if expression.binder.mode not in ("own", "borrow"):
+            fail("core.validate.parameter_mode", "validate", "binder mode must be own or borrow", expression.binder.span, mode=expression.binder.mode)
+        if expression.binder.mode != "own" and context.unit.version != 3:
+            fail("core.validate.parameter_mode_version", "validate", "borrow binders require Core version 3", expression.binder.span, mode=expression.binder.mode)
         _register_binder(context, expression.binder, all_binders, type_variables)
         local_environment = dict(environment)
         local_environment[expression.binder.name] = expression.binder.type
         body_type = _infer(context, expression.body, local_environment, all_binders, type_variables)
-        return FunctionType(expression.binder.type, body_type)
+        return FunctionType(expression.binder.type, body_type, expression.binder.mode)
     if isinstance(expression, AppExpr):
         function_type = _infer(context, expression.function, environment, all_binders, type_variables)
         if isinstance(expression.argument, TypeExpr):
@@ -611,7 +624,8 @@ def _type_text(type_: CoreType) -> str:
     if isinstance(type_, AppliedType):
         return f"(apply {type_.constructor} {' '.join(_type_text(item) for item in type_.arguments)})"
     if isinstance(type_, FunctionType):
-        return f"(fn {_type_text(type_.parameter)} {_type_text(type_.result)})"
+        mode = "" if type_.mode == "own" else f"{type_.mode} "
+        return f"(fn {mode}{_type_text(type_.parameter)} {_type_text(type_.result)})"
     if isinstance(type_, ForAllType):
         return f"(forall {type_.parameter} {_type_text(type_.body)})"
     return "<invalid-type>"
@@ -623,7 +637,7 @@ def _substitute(type_: CoreType, substitutions: dict[str, CoreType]) -> CoreType
     if isinstance(type_, AppliedType):
         return AppliedType(type_.constructor, tuple(_substitute(item, substitutions) for item in type_.arguments))
     if isinstance(type_, FunctionType):
-        return FunctionType(_substitute(type_.parameter, substitutions), _substitute(type_.result, substitutions))
+        return FunctionType(_substitute(type_.parameter, substitutions), _substitute(type_.result, substitutions), type_.mode)
     if isinstance(type_, ForAllType):
         nested = dict(substitutions)
         nested.pop(type_.parameter, None)
@@ -635,3 +649,309 @@ def _strip_forall(type_: CoreType) -> CoreType:
     while isinstance(type_, ForAllType):
         type_ = type_.body
     return type_
+
+
+@dataclass(slots=True)
+class _OwnershipLocal:
+    type: CoreType
+    permission: str
+    moved: bool = False
+
+
+def _validate_ownership(context: _Context) -> None:
+    for definition in sorted(context.unit.definitions, key=lambda item: item.name):
+        if not isinstance(_strip_forall(definition.type), FunctionType) and not _is_copy_type(context, definition.type):
+            fail(
+                "core.validate.owned_global",
+                "validate",
+                "owned values cannot be stored in process-lifetime globals",
+                definition.span,
+                definition=definition.name,
+            )
+        _check_owned_expr(context, definition.value, {}, {}, "own")
+
+
+def _is_copy_type(
+    context: _Context,
+    type_: CoreType,
+    substitutions: dict[str, CoreType] | None = None,
+    seen: set[tuple[str, tuple[CoreType, ...]]] | None = None,
+) -> bool:
+    substitutions = substitutions or {}
+    seen = seen or set()
+    if isinstance(type_, (IntType, BytesType, FunctionType, ForAllType)):
+        return True
+    if isinstance(type_, TypeVariable):
+        replacement = substitutions.get(type_.name)
+        return replacement is not None and _is_copy_type(context, replacement, substitutions, seen)
+    if isinstance(type_, NamedType):
+        enum_name, arguments = type_.name, ()
+    elif isinstance(type_, AppliedType):
+        enum_name, arguments = type_.constructor, type_.arguments
+    else:
+        return True
+    enum = context.enums[enum_name]
+    if enum.owned:
+        return False
+    key = (enum_name, arguments)
+    if key in seen:
+        return True
+    nested_seen = set(seen)
+    nested_seen.add(key)
+    nested = dict(substitutions)
+    nested.update(zip(enum.type_parameters, arguments))
+    return all(
+        _is_copy_type(context, field.type, nested, nested_seen)
+        for constructor in enum.constructors
+        for field in constructor.fields
+    )
+
+
+def _ownership_type(
+    context: _Context, expression: Expr, environment: dict[str, CoreType]
+) -> CoreType:
+    if isinstance(expression, IntExpr):
+        return INT
+    if isinstance(expression, BytesExpr):
+        return BYTES
+    if isinstance(expression, LocalExpr):
+        return environment[expression.name]
+    if isinstance(expression, GlobalExpr):
+        return context.definitions[expression.name].type
+    if isinstance(expression, TypeExpr):
+        return expression.type
+    if isinstance(expression, LamExpr):
+        if isinstance(expression.binder, TypeBinder):
+            return ForAllType(expression.binder.name, _ownership_type(context, expression.body, environment))
+        nested = dict(environment)
+        nested[expression.binder.name] = expression.binder.type
+        return FunctionType(expression.binder.type, _ownership_type(context, expression.body, nested), expression.binder.mode)
+    if isinstance(expression, AppExpr):
+        function = _ownership_type(context, expression.function, environment)
+        if isinstance(expression.argument, TypeExpr):
+            assert isinstance(function, ForAllType)
+            return _substitute(function.body, {function.parameter: expression.argument.type})
+        assert isinstance(function, FunctionType)
+        return function.result
+    if isinstance(expression, LetExpr):
+        nested = dict(environment)
+        nested[expression.binder.name] = expression.binder.type
+        return _ownership_type(context, expression.body, nested)
+    if isinstance(expression, PrimExpr):
+        signature = FIXED_PRIMITIVES.get(expression.name)
+        if signature is None:
+            binding = context.foreign_bindings[expression.name]
+            return binding.result
+        return signature[1]
+    if isinstance(expression, ConExpr):
+        enum, _ = context.constructors[expression.constructor]
+        return AppliedType(enum.name, expression.type_arguments) if enum.type_parameters else NamedType(enum.name)
+    if isinstance(expression, CaseExpr):
+        return expression.result_type
+    raise AssertionError(type(expression))
+
+
+def _clone_ownership(state: dict[str, _OwnershipLocal]) -> dict[str, _OwnershipLocal]:
+    return {
+        name: _OwnershipLocal(item.type, item.permission, item.moved)
+        for name, item in state.items()
+    }
+
+
+def _use_owned_local(
+    context: _Context,
+    expression: LocalExpr,
+    state: dict[str, _OwnershipLocal],
+    usage: str,
+) -> None:
+    item = state.get(expression.name)
+    if item is None or _is_copy_type(context, item.type):
+        return
+    if item.moved:
+        fail(
+            "core.validate.use_after_move",
+            "validate",
+            f"owned local {expression.name!r} is used after it was moved",
+            expression.span,
+            local=expression.name,
+        )
+    if usage == "own":
+        if item.permission == "borrow":
+            fail(
+                "core.validate.move_borrow",
+                "validate",
+                f"borrowed local {expression.name!r} cannot be moved",
+                expression.span,
+                local=expression.name,
+            )
+        item.moved = True
+
+
+def _check_owned_expr(
+    context: _Context,
+    expression: Expr,
+    environment: dict[str, CoreType],
+    state: dict[str, _OwnershipLocal],
+    usage: str,
+) -> CoreType:
+    if isinstance(expression, (IntExpr, BytesExpr, GlobalExpr)):
+        return _ownership_type(context, expression, environment)
+    if isinstance(expression, LocalExpr):
+        _use_owned_local(context, expression, state, usage)
+        return environment[expression.name]
+    if isinstance(expression, TypeExpr):
+        return expression.type
+    if isinstance(expression, LamExpr):
+        if isinstance(expression.binder, TypeBinder):
+            body = _check_owned_expr(context, expression.body, environment, state, "own")
+            return ForAllType(expression.binder.name, body)
+        nested_environment = dict(environment)
+        nested_environment[expression.binder.name] = expression.binder.type
+        nested_state = _clone_ownership(state)
+        if not _is_copy_type(context, expression.binder.type):
+            nested_state[expression.binder.name] = _OwnershipLocal(
+                expression.binder.type, expression.binder.mode
+            )
+        body = _check_owned_expr(
+            context, expression.body, nested_environment, nested_state, "own"
+        )
+        item = nested_state.get(expression.binder.name)
+        if item is not None and item.permission == "own" and not item.moved:
+            fail(
+                "core.validate.owned_not_consumed",
+                "validate",
+                f"owned parameter {expression.binder.name!r} is not consumed",
+                expression.binder.span,
+                local=expression.binder.name,
+            )
+        return FunctionType(expression.binder.type, body, expression.binder.mode)
+    if isinstance(expression, AppExpr):
+        function_type = _check_owned_expr(
+            context, expression.function, environment, state, "borrow"
+        )
+        if isinstance(expression.argument, TypeExpr):
+            assert isinstance(function_type, ForAllType)
+            return _substitute(
+                function_type.body, {function_type.parameter: expression.argument.type}
+            )
+        assert isinstance(function_type, FunctionType)
+        _check_owned_expr(
+            context, expression.argument, environment, state, function_type.mode
+        )
+        return function_type.result
+    if isinstance(expression, LetExpr):
+        if expression.binder.mode != "own":
+            fail(
+                "core.validate.let_parameter_mode",
+                "validate",
+                "let binders cannot declare a borrow mode",
+                expression.binder.span,
+            )
+        _check_owned_expr(context, expression.value, environment, state, "own")
+        nested_environment = dict(environment)
+        nested_environment[expression.binder.name] = expression.binder.type
+        nested_state = _clone_ownership(state)
+        if not _is_copy_type(context, expression.binder.type):
+            nested_state[expression.binder.name] = _OwnershipLocal(
+                expression.binder.type, "own"
+            )
+        result = _check_owned_expr(
+            context, expression.body, nested_environment, nested_state, usage
+        )
+        item = nested_state.get(expression.binder.name)
+        if item is not None and not item.moved:
+            fail(
+                "core.validate.owned_not_consumed",
+                "validate",
+                f"owned local {expression.binder.name!r} must be moved or explicitly dropped",
+                expression.binder.span,
+                local=expression.binder.name,
+            )
+        for name in state:
+            state[name].moved = nested_state[name].moved
+        return result
+    if isinstance(expression, PrimExpr):
+        signature = FIXED_PRIMITIVES.get(expression.name)
+        if signature is None:
+            binding = context.foreign_bindings[expression.name]
+            parameters, result = binding.parameters, binding.result
+        else:
+            parameters, result = signature
+        for argument, parameter in zip(expression.arguments, parameters):
+            argument_usage = "borrow" if _is_copy_type(context, parameter) else "own"
+            _check_owned_expr(context, argument, environment, state, argument_usage)
+        return result
+    if isinstance(expression, ConExpr):
+        enum, constructor = context.constructors[expression.constructor]
+        substitutions = dict(zip(enum.type_parameters, expression.type_arguments))
+        for value, field in zip(expression.fields, constructor.fields):
+            field_type = _substitute(field.type, substitutions)
+            field_usage = "borrow" if _is_copy_type(context, field_type) else "own"
+            _check_owned_expr(context, value, environment, state, field_usage)
+        return AppliedType(enum.name, expression.type_arguments) if enum.type_parameters else NamedType(enum.name)
+    if isinstance(expression, CaseExpr):
+        scrutinee_type = _ownership_type(context, expression.scrutinee, environment)
+        scrutinee_usage = "borrow"
+        if not _is_copy_type(context, scrutinee_type):
+            if isinstance(expression.scrutinee, LocalExpr):
+                local = state.get(expression.scrutinee.name)
+                scrutinee_usage = "borrow" if local is not None and local.permission == "borrow" else "own"
+            else:
+                scrutinee_usage = "own"
+        _check_owned_expr(
+            context, expression.scrutinee, environment, state, scrutinee_usage
+        )
+        enum_name = scrutinee_type.name if isinstance(scrutinee_type, NamedType) else scrutinee_type.constructor
+        enum = context.enums[enum_name]
+        arguments = () if isinstance(scrutinee_type, NamedType) else scrutinee_type.arguments
+        substitutions = dict(zip(enum.type_parameters, arguments))
+        branch_states: list[dict[str, _OwnershipLocal]] = []
+        alternatives = {item.constructor: item for item in expression.alternatives}
+        for constructor in enum.constructors:
+            alternative = alternatives[constructor.name]
+            branch_environment = dict(environment)
+            branch_state = _clone_ownership(state)
+            owned_binders: list[str] = []
+            for binder, field in zip(alternative.binders, constructor.fields):
+                field_type = _substitute(field.type, substitutions)
+                branch_environment[binder.name] = field_type
+                if not _is_copy_type(context, field_type):
+                    permission = "borrow" if scrutinee_usage == "borrow" else "own"
+                    branch_state[binder.name] = _OwnershipLocal(field_type, permission)
+                    if permission == "own":
+                        owned_binders.append(binder.name)
+            _check_owned_expr(
+                context,
+                alternative.body,
+                branch_environment,
+                branch_state,
+                usage,
+            )
+            for name in owned_binders:
+                if not branch_state[name].moved:
+                    fail(
+                        "core.validate.owned_not_consumed",
+                        "validate",
+                        f"owned pattern field {name!r} must be moved or explicitly dropped",
+                        alternative.span,
+                        local=name,
+                    )
+            for binder in alternative.binders:
+                branch_state.pop(binder.name, None)
+            branch_states.append(branch_state)
+        if not branch_states:
+            return expression.result_type
+        baseline = {name: item.moved for name, item in branch_states[0].items()}
+        for branch in branch_states[1:]:
+            actual = {name: item.moved for name, item in branch.items()}
+            if actual != baseline:
+                fail(
+                    "core.validate.ownership_branch",
+                    "validate",
+                    "case branches must leave the same ownership state",
+                    expression.span,
+                )
+        for name, moved in baseline.items():
+            state[name].moved = moved
+        return expression.result_type
+    raise AssertionError(type(expression))

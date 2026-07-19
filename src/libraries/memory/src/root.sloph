@@ -1,0 +1,66 @@
+module memory;
+
+import syscall::memory::{MapError, Page, map_pages, unmap_pages};
+
+public type Allocator {
+  System();
+}
+
+public type AllocationError {
+  InvalidSize();
+  Native(native_code: Int);
+}
+
+public owned type Buffer {
+  Buffer(page: Page, length: Int, capacity: Int);
+}
+
+public fn system() -> Allocator {
+  Allocator::System()
+}
+
+public fn allocate(allocator: borrow Allocator, requested_capacity: Int) -> Result[Buffer, AllocationError] {
+  case allocator -> Result[Buffer, AllocationError] {
+    Allocator::System() => {
+      case map_pages(requested_capacity) -> Result[Buffer, AllocationError] {
+        Result::Ok(page) => {
+          Result::Ok[Buffer, AllocationError](Buffer::Buffer(page, 0, requested_capacity))
+        }
+        Result::Err(error) => {
+          case error -> Result[Buffer, AllocationError] {
+            MapError::InvalidSize() => {
+              Result::Err[Buffer, AllocationError](AllocationError::InvalidSize())
+            }
+            MapError::Native(native_code) => {
+              Result::Err[Buffer, AllocationError](AllocationError::Native(native_code))
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+public fn length(buffer: borrow Buffer) -> Int {
+  case buffer -> Int {
+    Buffer::Buffer(page, stored_length, stored_capacity) => {
+      stored_length
+    }
+  }
+}
+
+public fn capacity(buffer: borrow Buffer) -> Int {
+  case buffer -> Int {
+    Buffer::Buffer(page, stored_length, stored_capacity) => {
+      stored_capacity
+    }
+  }
+}
+
+public fn drop(buffer: Buffer) -> Unit {
+  case buffer -> Unit {
+    Buffer::Buffer(page, stored_length, stored_capacity) => {
+      unmap_pages(page)
+    }
+  }
+}

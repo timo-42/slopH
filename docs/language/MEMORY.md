@@ -260,8 +260,9 @@ model:
 6. A borrow cannot be stored, returned, captured, or sent to another task.
 7. Function results are owned values.
 8. Closures capture owned values by move.
-9. Values are destroyed deterministically at scope exit, with an explicit
-   early-drop operation when needed.
+9. Every owned value is explicitly consumed. Normal cleanup is registered with
+   a visible `defer drop(value)`-style call; missing cleanup is a compile error
+   rather than an implicitly inserted destructor.
 10. Graphs use an owning arena plus typed or generational handles instead of
     direct references.
 11. Shared ownership, weak references, and general lifetime parameters are not

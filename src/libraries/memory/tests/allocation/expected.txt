@@ -1,0 +1,1 @@
+(value 0 (con sloph::Result::Ok (int 123)))

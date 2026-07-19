@@ -196,11 +196,11 @@ def _decode_unit(node: SExpr, limits: Limits) -> CoreUnit:
     if len(items) not in (4, 5):
         fail("core.parse.arity", "parse", "core form must contain types, defs, and optional foreign bindings", node.span)
     version_atom = _atom(items[1], "Core version")
-    if version_atom.value not in ("0", "1", "2"):
+    if version_atom.value not in ("0", "1", "2", "3"):
         fail(
             "core.parse.unsupported_version",
             "parse",
-            "only Core versions 0, 1, and 2 are supported",
+            "only Core versions 0, 1, 2, and 3 are supported",
             version_atom.span,
             version=version_atom.value,
         )
@@ -250,16 +250,24 @@ def _decode_foreign(node: SExpr) -> ForeignBinding:
 
 
 def _decode_enum(node: SExpr, limits: Limits, version: int) -> EnumDecl:
-    items = _tagged(node, "enum", minimum=3 if version == 2 else 2)
+    items = _tagged(node, "enum", minimum=3 if version >= 2 else 2)
     name = _atom(items[1], "enum identity")
     offset = 2
     type_parameters: tuple[str, ...] = ()
-    if version == 2:
-        params = _tagged(items[2], "params", minimum=1)
+    owned = False
+    if version == 3:
+        ownership = _tagged(items[2], "ownership", exact=2)
+        value = _atom(ownership[1], "ownership mode").value
+        if value not in ("copy", "owned"):
+            fail("core.parse.ownership_mode", "parse", "ownership mode must be copy or owned", ownership[1].span, mode=value)
+        owned = value == "owned"
+        offset += 1
+    if version >= 2:
+        params = _tagged(items[offset], "params", minimum=1)
         type_parameters = tuple(_atom(item, "type parameter").value for item in params[1:])
-        offset = 3
+        offset += 1
     constructors = tuple(_decode_constructor(item, limits) for item in items[offset:])
-    return EnumDecl(name.value, constructors, node.span, type_parameters)
+    return EnumDecl(name.value, constructors, node.span, type_parameters, owned)
 
 
 def _decode_constructor(node: SExpr, limits: Limits) -> ConstructorDecl:
@@ -322,8 +330,17 @@ def _decode_type(node: SExpr) -> CoreType:
             tuple(_decode_type(item) for item in items[2:]),
         )
     if tag.value == "fn":
-        items = _tagged(node, "fn", exact=3)
-        return FunctionType(_decode_type(items[1]), _decode_type(items[2]))
+        items = _tagged(node, "fn", minimum=3)
+        if len(items) not in (3, 4):
+            fail("core.parse.arity", "parse", "function type expects an optional ownership mode and two types", node.span)
+        mode = "own"
+        offset = 1
+        if len(items) == 4:
+            mode = _atom(items[1], "parameter mode").value
+            if mode not in ("own", "borrow"):
+                fail("core.parse.parameter_mode", "parse", "parameter mode must be own or borrow", items[1].span, mode=mode)
+            offset = 2
+        return FunctionType(_decode_type(items[offset]), _decode_type(items[offset + 1]), mode)
     if tag.value == "forall":
         items = _tagged(node, "forall", exact=3)
         return ForAllType(
@@ -342,9 +359,18 @@ def _decode_binder(node: SExpr) -> Binder | TypeBinder:
     if isinstance(node, ListNode) and node.items and isinstance(node.items[0], Atom) and node.items[0].value == "type-bind":
         items = _tagged(node, "type-bind", exact=2)
         return TypeBinder(_atom(items[1], "type binder").value, node.span)
-    items = _tagged(node, "bind", exact=3)
-    name = _atom(items[1], "binder name")
-    return Binder(name.value, _decode_type(items[2]), node.span)
+    items = _tagged(node, "bind", minimum=3)
+    if len(items) not in (3, 4):
+        fail("core.parse.arity", "parse", "binder expects an optional ownership mode, name, and type", node.span)
+    mode = "own"
+    offset = 1
+    if len(items) == 4:
+        mode = _atom(items[1], "binder mode").value
+        if mode not in ("own", "borrow"):
+            fail("core.parse.parameter_mode", "parse", "binder mode must be own or borrow", items[1].span, mode=mode)
+        offset = 2
+    name = _atom(items[offset], "binder name")
+    return Binder(name.value, _decode_type(items[offset + 1]), node.span, mode)
 
 
 def _decode_expr(node: SExpr, limits: Limits, version: int) -> Expr:
@@ -407,11 +433,11 @@ def _decode_expr(node: SExpr, limits: Limits, version: int) -> Expr:
             node.span,
         )
     if tag.value == "con":
-        items = _tagged(node, "con", minimum=3 if version == 2 else 2)
+        items = _tagged(node, "con", minimum=3 if version >= 2 else 2)
         name = _atom(items[1], "constructor identity")
         offset = 2
         type_arguments: tuple[CoreType, ...] = ()
-        if version == 2:
+        if version >= 2:
             types = _tagged(items[2], "types", minimum=1)
             type_arguments = tuple(_decode_type(item) for item in types[1:])
             offset = 3

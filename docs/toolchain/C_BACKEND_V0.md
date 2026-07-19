@@ -49,6 +49,11 @@ limit failure writes a deterministic message to standard error and exits 2.
 The runtime arena is a temporary implementation policy for pure, process-lived
 Source v0 programs; it does not choose the future ownership model.
 
+The Source v1 ownership slice keeps this arena for boxed runtime nodes while
+owned `memory::Buffer` payloads use separately mapped pages. Those mappings are
+released only by explicit consuming library calls, and the runtime rejects a
+normal process exit with live page tokens.
+
 ## Host compilation
 
 The compiler resolves an explicit `--cc` value, defaulting to `cc` on `PATH`.

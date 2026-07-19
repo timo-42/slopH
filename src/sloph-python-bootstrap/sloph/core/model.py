@@ -42,6 +42,7 @@ class AppliedType:
 class FunctionType:
     parameter: "CoreType"
     result: "CoreType"
+    mode: str = "own"
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,6 +59,7 @@ class Binder:
     name: str
     type: CoreType
     span: Span = UNKNOWN_SPAN
+    mode: str = "own"
 
 
 @dataclass(frozen=True, slots=True)
@@ -184,6 +186,7 @@ class EnumDecl:
     constructors: tuple[ConstructorDecl, ...]
     span: Span = UNKNOWN_SPAN
     type_parameters: tuple[str, ...] = ()
+    owned: bool = False
 
 
 @dataclass(frozen=True, slots=True)

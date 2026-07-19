@@ -29,6 +29,7 @@ class FunctionType:
     parameter: "TypeRef"
     result: "TypeRef"
     span: Span = UNKNOWN_SPAN
+    mode: str = "own"
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,6 +45,7 @@ class Binder:
     name: str
     type: TypeRef
     span: Span = UNKNOWN_SPAN
+    mode: str = "own"
 
 
 @dataclass(frozen=True, slots=True)
@@ -125,8 +127,14 @@ class LetBinding:
 
 
 @dataclass(frozen=True, slots=True)
+class DeferCall:
+    call: CallExpr
+    span: Span = UNKNOWN_SPAN
+
+
+@dataclass(frozen=True, slots=True)
 class Block:
-    bindings: tuple[LetBinding, ...]
+    bindings: tuple[LetBinding | DeferCall, ...]
     result: "Expr"
     span: Span = UNKNOWN_SPAN
 
@@ -220,6 +228,7 @@ class TypeDecl:
     public: bool = False
     span: Span = UNKNOWN_SPAN
     type_parameters: tuple[str, ...] = ()
+    owned: bool = False
 
 
 @dataclass(frozen=True, slots=True)

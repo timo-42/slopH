@@ -20,6 +20,43 @@ MINIMAL = b"(core 0 (types) (defs (def example::main Int (int 7))))"
 
 
 class CoreLibraryTests(unittest.TestCase):
+    def test_core_v3_owned_and_borrowed_parameters_round_trip(self) -> None:
+        source = b"""(core 3
+          (types
+            (enum example::Resource
+              (ownership owned)
+              (params)
+              (ctor example::Resource::Resource)))
+          (defs
+            (def example::inspect
+              (fn borrow (named example::Resource) Int)
+              (lam (bind borrow item (named example::Resource))
+                (case (local item) Int
+                  (alt example::Resource::Resource (int 1)))))
+            (def example::consume
+              (fn (named example::Resource) Int)
+              (lam (bind item (named example::Resource))
+                (case (local item) Int
+                  (alt example::Resource::Resource (int 2)))))))"""
+        rendered = format_core(parse_core(source))
+        self.assertIn("(ownership owned)", rendered)
+        self.assertIn("(fn borrow", rendered)
+        self.assertEqual(rendered, format_core(parse_core(rendered)))
+
+    def test_core_v3_rejects_unconsumed_owned_parameter(self) -> None:
+        source = b"""(core 3
+          (types
+            (enum example::Resource
+              (ownership owned)
+              (params)
+              (ctor example::Resource::Resource)))
+          (defs
+            (def example::leak
+              (fn (named example::Resource) Int)
+              (lam (bind item (named example::Resource)) (int 0)))))"""
+        with self.assertRaisesRegex(Exception, "not consumed"):
+            format_core(parse_core(source))
+
     def test_canonical_print_is_idempotent(self) -> None:
         first = format_core(parse_core(MINIMAL))
         self.assertEqual(first, format_core(parse_core(first)))

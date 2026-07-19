@@ -1,0 +1,7 @@
+module syscall::memory::linux::amd64;
+
+import syscall::memory::native::{NativeMapError};
+
+public foreign fn native_map_pages(size: Int) -> Result[Int, NativeMapError] = foreign.syscall.memory.linux.amd64.map_pages;
+
+public foreign fn native_unmap_pages(token: Int) -> Unit = foreign.syscall.memory.linux.amd64.unmap_pages;

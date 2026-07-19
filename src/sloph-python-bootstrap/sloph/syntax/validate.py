@@ -111,11 +111,14 @@ class _Validator:
         parts = node.constructor.split("::")
         if not node.arguments or not parts or not _upper(parts[-1]) or not all(_lower(x) for x in parts[:-1]): _bad("invalid_name", "applied type must name an uppercase type and contain arguments", node, name=node.constructor)
         for argument in node.arguments: self.typ(argument)
-    def v_FunctionType(self, node): self.typ(node.parameter); self.typ(node.result)
+    def v_FunctionType(self, node):
+        if node.mode not in {"own", "borrow"}: _bad("parameter_mode", "parameter mode must be own or borrow", node, mode=node.mode)
+        self.typ(node.parameter); self.typ(node.result)
     def v_InferredType(self, node):
         if self.version == 0: _bad("wrong_node", "inferred types require Source v1", node)
     def v_Binder(self, node):
         if not _lower(node.name): _bad("invalid_name", "binder must start with lowercase or underscore", node, name=node.name)
+        if node.mode not in {"own", "borrow"}: _bad("parameter_mode", "binder mode must be own or borrow", node, mode=node.mode)
         self.typ(node.type)
     def v_IntExpr(self, node):
         if not isinstance(node.value, int) or isinstance(node.value, bool): _bad("invalid_integer", "integer expression value must be an integer", node)
@@ -165,9 +168,12 @@ class _Validator:
         if len(node.arguments) != expected: _bad("primitive_arity", f"primitive requires exactly {expected} arguments", node, name=node.name)
         for x in node.arguments: self.expr(x)
     def v_LetBinding(self, node): self.binder(node.binder); self.expr(node.value)
+    def v_DeferCall(self, node):
+        if self.version != 1 or not isinstance(node.call, CallExpr): _bad("defer_call", "defer requires a Source v1 function call", node)
+        self.expr(node.call)
     def v_Block(self, node):
         for x in node.bindings:
-            if not isinstance(x, LetBinding): _bad("wrong_node", "block bindings must be LetBinding nodes", node)
+            if not isinstance(x, (LetBinding, DeferCall)): _bad("wrong_node", "block statements must be let bindings or deferred calls", node)
             self.visit(x)
         self.expr(node.result)
     def v_CaseAlternative(self, node):
@@ -235,6 +241,7 @@ class _Validator:
             if not isinstance(x, FieldDecl): _bad("wrong_node", "constructor fields must be FieldDecl nodes", node)
             self.visit(x)
     def v_TypeDecl(self, node):
+        if not isinstance(node.owned, bool) or (node.owned and self.version != 1): _bad("owned_type", "owned types require Source v1", node)
         if not isinstance(node.public, bool) or not _upper(node.name): _bad("invalid_declaration", "type must have boolean visibility and uppercase name", node)
         if len(set(node.type_parameters)) != len(node.type_parameters) or not all(_upper(x) for x in node.type_parameters): _bad("invalid_type_parameters", "type parameters must be unique uppercase identifiers", node)
         if self.version == 0 and node.type_parameters: _bad("wrong_node", "generic declarations require Source v1", node)

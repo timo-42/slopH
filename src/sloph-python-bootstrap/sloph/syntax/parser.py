@@ -8,7 +8,7 @@ from sloph.syntax._integer import parse_decimal
 from sloph.syntax.model import (
     Availability, Binder, BinaryExpr, Block, BytesExpr, CallExpr, CaseAlternative, CaseExpr, ConditionalImportAlternative, ConditionalImportDecl, ConstructorDecl,
     ConstructorExpr, FieldDecl, ForeignFunctionDecl, FunctionDecl, GlobalExpr, ImportDecl, IntExpr, IntrinsicFunctionDecl, IntrinsicTypeDecl,
-    AppliedType, Expr, FunctionType, IfExpr, InferredType, IntType, LambdaExpr, LetBinding, LocalExpr, Module, NamedType, PrimitiveExpr, TypeDecl,
+    AppliedType, DeferCall, Expr, FunctionType, IfExpr, InferredType, IntType, LambdaExpr, LetBinding, LocalExpr, Module, NamedType, PrimitiveExpr, TypeDecl,
     TargetConstantPattern, TargetPattern, TargetTuplePattern, TypeRef, ValueDecl,
 )
 from sloph.syntax.transform import Capture, Literal, Transform, TransformRegistry, standard_transform_registry
@@ -22,7 +22,7 @@ class _Token:
 
 
 _PUNCT = frozenset("{}[](),;:=|")
-_KEYWORDS = frozenset({"module", "import", "when", "is", "public", "type", "fn", "value", "const", "let", "case", "primitive", "intrinsic", "foreign"})
+_KEYWORDS = frozenset({"module", "import", "when", "is", "public", "type", "fn", "value", "const", "let", "case", "primitive", "intrinsic", "foreign", "owned", "own", "borrow", "defer"})
 
 
 def _limit(name: str, configured: int, span: Span = Span(0, 0)) -> None:
@@ -204,14 +204,14 @@ class _Parser:
         if self.peek("fn"):
             start = self.take("fn").start
             self.take("(")
-            parameters = self.comma_list(self.type_ref)
+            parameters = self.comma_list(self.parameter_type)
             if not parameters:
-                parameters = (NamedType("Unit", self.node(start, self.tokens[self.i - 1].end)),)
+                parameters = ((NamedType("Unit", self.node(start, self.tokens[self.i - 1].end)), "own"),)
             self.take("->")
             result = self.type_ref()
             type_: TypeRef = result
-            for parameter in reversed(parameters):
-                type_ = FunctionType(parameter, type_, self.node(start, result.span.end))
+            for parameter, mode in reversed(parameters):
+                type_ = FunctionType(parameter, type_, self.node(start, result.span.end), mode)
             return type_
         name, span = self.path()
         if name == "Int":
@@ -229,6 +229,12 @@ class _Parser:
                 self.error("generic type applications require at least one type argument")
             return AppliedType(name, arguments, self.node(span.start, end))
         return NamedType(name, self.node(span.start, span.end))
+
+    def parameter_type(self) -> tuple[TypeRef, str]:
+        mode = "own"
+        if self.version == 1 and self.token.text in {"own", "borrow"}:
+            mode = self.take().text
+        return self.type_ref(), mode
 
     def type_parameters(self) -> tuple[str, ...]:
         if not self.peek("["):
@@ -248,13 +254,17 @@ class _Parser:
             self.error("generic applications require at least one type argument")
         return values
 
-    def binder(self, *, allow_inferred: bool = False) -> Binder:
+    def binder(self, *, allow_inferred: bool = False, allow_mode: bool = False) -> Binder:
         start = self.token.start; name = self.lower_ident("binder")
+        mode = "own"
         if allow_inferred and not self.peek(":"):
             typ = InferredType(self.node(name.end, name.end))
         else:
-            self.take(":"); typ = self.type_ref()
-        return Binder(name.text, typ, self.node(start, typ.span.end))
+            self.take(":")
+            if allow_mode and self.version == 1 and self.token.text in {"own", "borrow"}:
+                mode = self.take().text
+            typ = self.type_ref()
+        return Binder(name.text, typ, self.node(start, typ.span.end), mode)
 
     def comma_list(self, parse_item, close: str = ")") -> tuple:
         values = []
@@ -272,7 +282,15 @@ class _Parser:
 
     def block_rest(self, start: int, propagation: TypeRef | None) -> Block:
         bindings = []
-        while self.peek("let"):
+        while self.peek("let") or (self.version == 1 and self.peek("defer")):
+            if self.peek("defer"):
+                dstart = self.take("defer").start
+                call = self.expr()
+                if not isinstance(call, CallExpr):
+                    self.error("defer requires a function call")
+                end = self.take(";").end
+                bindings.append(DeferCall(call, self.node(dstart, end)))
+                continue
             bstart = self.take().start; binder = self.binder(allow_inferred=self.version == 1); self.take("="); value = self.expr()
             if self.version == 1 and self.peek("?"):
                 question = self.take("?")
@@ -358,7 +376,7 @@ class _Parser:
         if self.version == 1 and self.peek("fn"):
             start = self.take("fn").start
             self.take("(")
-            parameters = self.comma_list(self.binder)
+            parameters = self.comma_list(lambda: self.binder(allow_mode=True))
             self.take("->")
             result = self.type_ref()
             body = self.block()
@@ -551,7 +569,7 @@ class _Parser:
 
     def bound_function_decl(self, public: bool, start: int, *, foreign: bool):
         self.take("fn"); name = self.lower_ident("function")
-        self.take("("); parameters = self.comma_list(self.binder)
+        self.take("("); parameters = self.comma_list(lambda: self.binder(allow_mode=True))
         self.take("->"); result = self.type_ref(); self.take("=")
         binding = self.take()
         prefix = "foreign." if foreign else ""
@@ -561,7 +579,7 @@ class _Parser:
         cls = ForeignFunctionDecl if foreign else IntrinsicFunctionDecl
         return cls(name.text, parameters, result, binding.text, public, self.node(start, end))
 
-    def type_decl(self, public: bool, start: int) -> TypeDecl:
+    def type_decl(self, public: bool, start: int, *, owned: bool = False) -> TypeDecl:
         self.take("type"); name = self.upper_ident("type"); type_parameters = self.type_parameters(); self.take("{"); ctors = []
         while not self.peek("}"):
             cstart = self.token.start; ctor = self.upper_ident("constructor"); self.take("(")
@@ -569,14 +587,14 @@ class _Parser:
             cend = self.take(";").end
             ctors.append(ConstructorDecl(ctor.text, fields, self.node(cstart, cend)))
         end = self.take("}").end
-        return TypeDecl(name.text, tuple(ctors), public, self.node(start, end), type_parameters)
+        return TypeDecl(name.text, tuple(ctors), public, self.node(start, end), type_parameters, owned)
 
     def field(self) -> FieldDecl:
         start = self.token.start; binder = self.binder()
         return FieldDecl(binder.name, binder.type, self.node(start, binder.span.end))
 
     def fn_decl(self, public: bool, start: int) -> FunctionDecl:
-        self.take("fn"); name = self.lower_ident("function"); type_parameters = self.type_parameters(); self.take("("); params = self.comma_list(self.binder)
+        self.take("fn"); name = self.lower_ident("function"); type_parameters = self.type_parameters(); self.take("("); params = self.comma_list(lambda: self.binder(allow_mode=True))
         self.take("->"); result = self.type_ref()
         body = (
             self.function_clauses(params, result)
@@ -754,6 +772,10 @@ class _Parser:
                 self.take("foreign")
                 if not self.peek("fn"): self.error("expected fn after foreign")
                 functions.append(self.bound_function_decl(public, dstart, foreign=True))
+            elif self.version == 1 and self.peek("owned"):
+                self.take("owned")
+                if not self.peek("type"): self.error("expected type after owned")
+                types.append(self.type_decl(public, dstart, owned=True))
             elif self.peek("type"): types.append(self.type_decl(public, dstart))
             elif self.peek("fn"): functions.append(self.fn_decl(public, dstart))
             elif (self.version == 1 and self.peek("const")) or (self.version == 0 and self.peek("value")): values.append(self.value_decl(public, dstart))

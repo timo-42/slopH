@@ -15,6 +15,12 @@ case "$system,$machine" in
     "$native_cc" -shared -fPIC -Wl,-soname,libsloph_syscall.so \
       -Wl,--build-id=none -I "$provider" "$provider/syscall.S" -o "$temporary"
     mv -f -- "$temporary" "$output"
+    provider="$package_root/src/memory/linux/amd64"
+    output="$provider/libsloph_memory.so"
+    temporary="$output.tmp.$$"
+    "$native_cc" -shared -fPIC -Wl,-soname,libsloph_memory.so \
+      -Wl,--build-id=none -I "$provider" "$provider/memory.c" -o "$temporary"
+    mv -f -- "$temporary" "$output"
     ;;
   Darwin,arm64)
     provider="$package_root/src/posix/darwin/arm64"
@@ -24,6 +30,13 @@ case "$system,$machine" in
     "$native_cc" -dynamiclib \
       -Wl,-install_name,@rpath/libsloph_syscall.dylib \
       -I "$provider" "$provider/syscall.S" -o "$temporary"
+    mv -f -- "$temporary" "$output"
+    provider="$package_root/src/memory/darwin/arm64"
+    output="$provider/libsloph_memory.dylib"
+    temporary="$output.tmp.$$"
+    "$native_cc" -dynamiclib \
+      -Wl,-install_name,@rpath/libsloph_memory.dylib \
+      -I "$provider" "$provider/memory.c" -o "$temporary"
     mv -f -- "$temporary" "$output"
     ;;
   *)
