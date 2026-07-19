@@ -20,7 +20,7 @@ TEST_BINARIES := $(patsubst tests/%.c,$(TEST_DIR)/%,$(TEST_SOURCES))
 CLI_TESTS := $(wildcard tests/test_*.sh)
 DEPENDENCIES := $(LIBRARY_OBJECTS:.o=.d)
 
-.PHONY: all clean core-cases source-cases cases test sanitize
+.PHONY: all clean core-cases source-cases native-cases library-cases cases test sanitize
 
 all: $(LIBRARY) $(COMPILER)
 
@@ -54,7 +54,14 @@ source-cases: all
 	SLOPH_C_COMPILER="$(abspath $(COMPILER))" \
 		../../tests/implementation/c/run-source-cases.sh
 
-cases: core-cases source-cases
+native-cases: all
+	SLOPH_C_COMPILER="$(abspath $(COMPILER))" \
+		../../tests/implementation/c/run-native-cases.sh
+
+library-cases: all
+	../libraries/run-tests.sh "$(abspath $(COMPILER))"
+
+cases: core-cases source-cases native-cases library-cases
 
 sanitize:
 	$(MAKE) BUILD_DIR=build/sanitize \

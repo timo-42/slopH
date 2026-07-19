@@ -3,6 +3,7 @@
 #include "core_internal.h"
 #include "project_internal.h"
 #include "syntax_internal.h"
+#include "yyjson.h"
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -14,6 +15,7 @@ typedef struct LowerEnv {
     const SlophProjectModule *module;
     const char **locals;
     const SlophSyntaxType **local_types;
+    const SlophSyntaxExpr **local_values;
     size_t local_count;
     const char **type_variables;
     size_t type_variable_count;
@@ -94,6 +96,15 @@ static const SlophSyntaxType *local_type(const LowerEnv *env, const char *name) 
     for (i = 0u; i < env->local_count; ++i)
         if (strcmp(env->locals[i], name) == 0)
             return env->local_types != NULL ? env->local_types[i] : NULL;
+    return NULL;
+}
+
+static const SlophSyntaxExpr *local_value(const LowerEnv *env,
+                                          const char *name) {
+    size_t i;
+    for (i = 0u; i < env->local_count; ++i)
+        if (strcmp(env->locals[i], name) == 0)
+            return env->local_values != NULL ? env->local_values[i] : NULL;
     return NULL;
 }
 
@@ -192,9 +203,12 @@ static char *resolve_name(LowerEnv *env, const char *name, int wanted_kind,
             }
         }
     }
-    if (strncmp(env->module->name, "sloph", 5u) != 0 &&
-        strncmp(env->module->name, "core", 4u) != 0 &&
-        strncmp(env->module->name, "prelude", 7u) != 0) {
+    if (strcmp(env->module->name, "sloph") != 0 &&
+        strncmp(env->module->name, "sloph::", 7u) != 0 &&
+        strcmp(env->module->name, "core") != 0 &&
+        strncmp(env->module->name, "core::", 6u) != 0 &&
+        strcmp(env->module->name, "prelude") != 0 &&
+        strncmp(env->module->name, "prelude::", 9u) != 0) {
         const SlophProjectModule *prelude = find_module(env->project, "prelude");
         const SlophProjectModule *owner = prelude;
         if (prelude != NULL && module_export(env->project, prelude, name, &public_,
@@ -310,6 +324,43 @@ static SlophCoreType *new_type(SlophCoreTypeKind kind) {
     return type;
 }
 
+static SlophCoreType *clone_type(const SlophCoreType *source) {
+    SlophCoreType *type;
+    size_t i;
+    if (source == NULL) return NULL;
+    type = new_type(source->kind);
+    if (type == NULL) return NULL;
+    switch (source->kind) {
+    case SLOPH_TYPE_NAMED:
+    case SLOPH_TYPE_VARIABLE:
+        type->as.name = copy_text(source->as.name);
+        break;
+    case SLOPH_TYPE_APPLIED:
+        type->as.applied.constructor = copy_text(source->as.applied.constructor);
+        type->as.applied.count = source->as.applied.count;
+        if (type->as.applied.count != 0u)
+            type->as.applied.items = calloc(type->as.applied.count,
+                                            sizeof(*type->as.applied.items));
+        for (i = 0u; i < type->as.applied.count &&
+                     type->as.applied.items != NULL; ++i)
+            type->as.applied.items[i] = clone_type(source->as.applied.items[i]);
+        break;
+    case SLOPH_TYPE_FUNCTION:
+        type->as.function.mode = copy_text(source->as.function.mode);
+        type->as.function.parameter = clone_type(source->as.function.parameter);
+        type->as.function.result = clone_type(source->as.function.result);
+        break;
+    case SLOPH_TYPE_FORALL:
+        type->as.forall.parameter = copy_text(source->as.forall.parameter);
+        type->as.forall.body = clone_type(source->as.forall.body);
+        break;
+    case SLOPH_TYPE_INT:
+    case SLOPH_TYPE_BYTES:
+        break;
+    }
+    return type;
+}
+
 static SlophCoreExpr *new_expr(SlophCoreExprKind kind, SlophSpan span) {
     SlophCoreExpr *expression = calloc(1u, sizeof(*expression));
     if (expression != NULL) {
@@ -323,6 +374,92 @@ static SlophCoreExpr *lower_block(LowerEnv *env,
                                   const SlophSyntaxBlock *block);
 static SlophCoreType *lower_type(LowerEnv *env,
                                  const SlophSyntaxType *source);
+
+static SlophCoreType *lower_substituted_type(
+    LowerEnv *env, const SlophSyntaxType *source,
+    const SlophSyntaxTypeDecl *owner, const SlophSyntaxType *scrutinee,
+    const SlophProjectModule *type_module) {
+    size_t i;
+    if (source->kind == SLOPH_SYNTAX_TYPE_NAMED && owner != NULL &&
+        scrutinee != NULL && scrutinee->kind == SLOPH_SYNTAX_TYPE_APPLIED) {
+        for (i = 0u; i < owner->type_parameter_count &&
+                     i < scrutinee->as.applied.count; ++i) {
+            if (strcmp(source->as.name, owner->type_parameters[i]) == 0) {
+                LowerEnv type_env = *env;
+                type_env.module = type_module;
+                return lower_type(&type_env, scrutinee->as.applied.items[i]);
+            }
+        }
+    }
+    if (source->kind == SLOPH_SYNTAX_TYPE_APPLIED) {
+        SlophCoreType *type = new_type(SLOPH_TYPE_APPLIED);
+        if (type == NULL) return NULL;
+        type->as.applied.constructor = resolve_name(env,
+            source->as.applied.constructor, 0, source->span, NULL);
+        type->as.applied.count = source->as.applied.count;
+        if (type->as.applied.count != 0u)
+            type->as.applied.items = calloc(type->as.applied.count,
+                                            sizeof(*type->as.applied.items));
+        for (i = 0u; i < type->as.applied.count &&
+                     type->as.applied.items != NULL; ++i)
+            type->as.applied.items[i] = lower_substituted_type(
+                env, source->as.applied.items[i], owner, scrutinee, type_module);
+        return type;
+    }
+    if (source->kind == SLOPH_SYNTAX_TYPE_FUNCTION) {
+        SlophCoreType *type = new_type(SLOPH_TYPE_FUNCTION);
+        if (type == NULL) return NULL;
+        type->as.function.mode = copy_text(source->as.function.mode != NULL ?
+                                           source->as.function.mode : "own");
+        type->as.function.parameter = lower_substituted_type(
+            env, source->as.function.parameter, owner, scrutinee, type_module);
+        type->as.function.result = lower_substituted_type(
+            env, source->as.function.result, owner, scrutinee, type_module);
+        return type;
+    }
+    return lower_type(env, source);
+}
+
+static SlophCoreType *lower_field_type(
+    LowerEnv *env, const SlophSyntaxType *source,
+    const SlophSyntaxTypeDecl *owner, const SlophCoreType *scrutinee) {
+    SlophCoreType *type;
+    size_t i;
+    if (source->kind == SLOPH_SYNTAX_TYPE_NAMED && owner != NULL &&
+        scrutinee != NULL && scrutinee->kind == SLOPH_TYPE_APPLIED) {
+        for (i = 0u; i < owner->type_parameter_count &&
+                     i < scrutinee->as.applied.count; ++i)
+            if (strcmp(source->as.name, owner->type_parameters[i]) == 0)
+                return clone_type(scrutinee->as.applied.items[i]);
+    }
+    if (source->kind == SLOPH_SYNTAX_TYPE_APPLIED) {
+        type = new_type(SLOPH_TYPE_APPLIED);
+        if (type == NULL) return NULL;
+        type->as.applied.constructor = resolve_name(
+            env, source->as.applied.constructor, 0, source->span, NULL);
+        type->as.applied.count = source->as.applied.count;
+        if (type->as.applied.count != 0u)
+            type->as.applied.items = calloc(type->as.applied.count,
+                                            sizeof(*type->as.applied.items));
+        for (i = 0u; i < type->as.applied.count &&
+                     type->as.applied.items != NULL; ++i)
+            type->as.applied.items[i] = lower_field_type(
+                env, source->as.applied.items[i], owner, scrutinee);
+        return type;
+    }
+    if (source->kind == SLOPH_SYNTAX_TYPE_FUNCTION) {
+        type = new_type(SLOPH_TYPE_FUNCTION);
+        if (type == NULL) return NULL;
+        type->as.function.mode = copy_text(source->as.function.mode != NULL ?
+                                           source->as.function.mode : "own");
+        type->as.function.parameter = lower_field_type(
+            env, source->as.function.parameter, owner, scrutinee);
+        type->as.function.result = lower_field_type(
+            env, source->as.function.result, owner, scrutinee);
+        return type;
+    }
+    return lower_type(env, source);
+}
 
 static int core_type_owned(const SlophProject *project,
                            const SlophCoreType *type) {
@@ -434,6 +571,105 @@ static SlophCoreType *infer_expr_type(LowerEnv *env,
     const SlophProjectModule *type_module = env->module;
     if (expression->kind == SLOPH_SYNTAX_EXPR_INT) return new_type(SLOPH_TYPE_INT);
     if (expression->kind == SLOPH_SYNTAX_EXPR_BYTES) return new_type(SLOPH_TYPE_BYTES);
+    if (expression->kind == SLOPH_SYNTAX_EXPR_LOCAL) {
+        const SlophSyntaxType *type = local_type(env, expression->as.name);
+        const SlophSyntaxExpr *value = local_value(env, expression->as.name);
+        if (type != NULL && type->kind == SLOPH_SYNTAX_TYPE_INFERRED &&
+            value != NULL)
+            return infer_expr_type(env, value);
+        return type != NULL && type->kind != SLOPH_SYNTAX_TYPE_INFERRED ?
+               lower_type(env, type) : NULL;
+    }
+    if (expression->kind == SLOPH_SYNTAX_EXPR_BINARY) {
+        if (strcmp(expression->as.binary.operator_, "==") == 0 ||
+            strcmp(expression->as.binary.operator_, "<") == 0) {
+            SlophCoreType *type = new_type(SLOPH_TYPE_NAMED);
+            if (type != NULL) type->as.name = copy_text("sloph::Bool");
+            return type;
+        }
+        return new_type(SLOPH_TYPE_INT);
+    }
+    if (expression->kind == SLOPH_SYNTAX_EXPR_IF)
+        return infer_expr_type(env, expression->as.if_.then_body->result);
+    if (expression->kind == SLOPH_SYNTAX_EXPR_CASE)
+        return lower_type(env, expression->as.case_.result_type);
+    if (expression->kind == SLOPH_SYNTAX_EXPR_PRIMITIVE) {
+        if (strcmp(expression->as.primitive.name, "int.to_bytes") == 0)
+            return new_type(SLOPH_TYPE_BYTES);
+        if (strcmp(expression->as.primitive.name, "int.equal") == 0 ||
+            strcmp(expression->as.primitive.name, "int.less") == 0) {
+            SlophCoreType *type = new_type(SLOPH_TYPE_NAMED);
+            if (type != NULL) type->as.name = copy_text("sloph::Bool");
+            return type;
+        }
+        return new_type(SLOPH_TYPE_INT);
+    }
+    if (expression->kind == SLOPH_SYNTAX_EXPR_CALL) {
+        const SlophSyntaxExpr *target = expression->as.call.function;
+        if (target->kind == SLOPH_SYNTAX_EXPR_LOCAL && is_local(env, target->as.name)) {
+            const SlophSyntaxType *local = local_type(env, target->as.name);
+            SlophCoreType *type = local != NULL ? lower_type(env, local) : NULL;
+            size_t n = expression->as.call.argument_count;
+            while (type != NULL && n-- != 0u && type->kind == SLOPH_TYPE_FUNCTION) {
+                SlophCoreType *result = type->as.function.result;
+                type->as.function.result = NULL;
+                sloph_core_type_destroy(type);
+                type = result;
+            }
+            return type;
+        }
+        if (target->kind == SLOPH_SYNTAX_EXPR_LOCAL ||
+            target->kind == SLOPH_SYNTAX_EXPR_GLOBAL) {
+            const SlophSyntaxFunction *function = NULL;
+            char *resolved = resolve_name(env, target->as.name, 1, target->span,
+                                          (const void **)&function);
+            const SlophProjectModule *function_module = env->module;
+            LowerEnv result_env;
+            SlophCoreType *type;
+            size_t i;
+            SlophSyntaxTypeDecl substitutions;
+            SlophSyntaxType applied_arguments;
+            if (function == NULL) { free(resolved); return NULL; }
+            if (resolved != NULL) {
+                for (i = 0u; i < env->project->module_count; ++i) {
+                    size_t prefix = strlen(env->project->modules[i].name);
+                    if (strncmp(resolved, env->project->modules[i].name,
+                                prefix) == 0 && resolved[prefix] == ':' &&
+                        resolved[prefix + 1u] == ':') {
+                        function_module = &env->project->modules[i];
+                        break;
+                    }
+                }
+            }
+            free(resolved);
+            memset(&substitutions, 0, sizeof(substitutions));
+            memset(&applied_arguments, 0, sizeof(applied_arguments));
+            substitutions.type_parameters = function->type_parameters;
+            substitutions.type_parameter_count = function->type_parameter_count;
+            applied_arguments.kind = SLOPH_SYNTAX_TYPE_APPLIED;
+            applied_arguments.as.applied.items = expression->as.call.type_arguments;
+            applied_arguments.as.applied.count = expression->as.call.type_argument_count;
+            result_env = *env;
+            result_env.module = function_module;
+            type = lower_substituted_type(&result_env, function->result_type,
+                                          &substitutions, &applied_arguments,
+                                          env->module);
+            for (i = function->parameter_count;
+                 i > expression->as.call.argument_count; --i) {
+                SlophCoreType *outer = new_type(SLOPH_TYPE_FUNCTION);
+                if (outer == NULL) { sloph_core_type_destroy(type); return NULL; }
+                outer->as.function.mode = copy_text(
+                    function->parameters[i - 1u].mode != NULL ?
+                    function->parameters[i - 1u].mode : "own");
+                outer->as.function.parameter = lower_substituted_type(
+                    &result_env, function->parameters[i - 1u].type, &substitutions,
+                    &applied_arguments, env->module);
+                outer->as.function.result = type;
+                type = outer;
+            }
+            return type;
+        }
+    }
     if (expression->kind == SLOPH_SYNTAX_EXPR_CONSTRUCTOR) {
         const char *separator = strrchr(expression->as.constructor.constructor, ':');
         SlophCoreType *type;
@@ -647,15 +883,24 @@ static SlophCoreExpr *lower_expr(LowerEnv *env,
         const SlophSyntaxType **local_types = calloc(env->local_count +
                                       source->as.lambda.parameter_count,
                                       sizeof(*local_types));
-        if (locals == NULL || local_types == NULL) { free(locals); free(local_types); return NULL; }
+        const SlophSyntaxExpr **local_values = calloc(env->local_count +
+                                      source->as.lambda.parameter_count,
+                                      sizeof(*local_values));
+        if (locals == NULL || local_types == NULL || local_values == NULL) {
+            free(locals); free(local_types); free(local_values); return NULL;
+        }
         memcpy(locals, env->locals, env->local_count * sizeof(*locals));
         if (env->local_types != NULL)
             memcpy(local_types, env->local_types, env->local_count * sizeof(*local_types));
+        if (env->local_values != NULL)
+            memcpy(local_values, env->local_values,
+                   env->local_count * sizeof(*local_values));
         for (index = 0u; index < source->as.lambda.parameter_count; ++index) {
             locals[active.local_count++] = source->as.lambda.parameters[index].name;
             local_types[env->local_count + index] = source->as.lambda.parameters[index].type;
         }
         active.locals = locals; active.local_types = local_types;
+        active.local_values = local_values;
         result = lower_block(&active, source->as.lambda.body);
         for (index = source->as.lambda.parameter_count; result != NULL && index != 0u; --index) {
             const SlophSyntaxBinder *binder = &source->as.lambda.parameters[index - 1u];
@@ -667,7 +912,7 @@ static SlophCoreExpr *lower_expr(LowerEnv *env,
             lambda->as.lam.binder.span = binder->span;
             lambda->as.lam.body = result; result = lambda;
         }
-        free(locals); free(local_types);
+        free(locals); free(local_types); free(local_values);
         return result;
     }
     if (source->kind == SLOPH_SYNTAX_EXPR_IF) {
@@ -712,6 +957,7 @@ static SlophCoreExpr *lower_expr(LowerEnv *env,
             LowerEnv active = *env;
             const char **locals;
             const SlophSyntaxType **local_types;
+            const SlophSyntaxExpr **local_values;
             size_t j;
             target->constructor = resolve_constructor(env, alternative->constructor,
                                                        alternative->span,
@@ -723,13 +969,19 @@ static SlophCoreExpr *lower_expr(LowerEnv *env,
             locals = calloc(env->local_count + target->binder_count, sizeof(*locals));
             local_types = calloc(env->local_count + target->binder_count,
                                  sizeof(*local_types));
-            if (locals == NULL || local_types == NULL) {
-                free(locals); free(local_types); sloph_core_expr_destroy(result); return NULL;
+            local_values = calloc(env->local_count + target->binder_count,
+                                  sizeof(*local_values));
+            if (locals == NULL || local_types == NULL || local_values == NULL) {
+                free(locals); free(local_types); free(local_values);
+                sloph_core_expr_destroy(result); return NULL;
             }
             memcpy(locals, env->locals, env->local_count * sizeof(*locals));
             if (env->local_types != NULL)
                 memcpy(local_types, env->local_types,
                        env->local_count * sizeof(*local_types));
+            if (env->local_values != NULL)
+                memcpy(local_values, env->local_values,
+                       env->local_count * sizeof(*local_values));
             for (j = 0u; j < target->binder_count; ++j) {
                 const SlophSyntaxBinder *binder = &alternative->binders[j];
                 target->binders[j].name = copy_text(binder->name);
@@ -737,39 +989,17 @@ static SlophCoreExpr *lower_expr(LowerEnv *env,
                 target->binders[j].span = binder->span;
                 if (binder->type->kind == SLOPH_SYNTAX_TYPE_INFERRED &&
                     constructor != NULL && j < constructor->field_count) {
-                    const SlophProjectModule *type_module = env->module;
-                    const SlophSyntaxType *scrutinee_type = infer_source_type(env,
-                                                source->as.case_.scrutinee,
-                                                &type_module);
+                    SlophCoreType *scrutinee_type = infer_expr_type(
+                        env, source->as.case_.scrutinee);
                     const SlophSyntaxType *field_type = constructor->fields[j].type;
-                    const char **saved_variables = env->type_variables;
-                    size_t saved_count = env->type_variable_count;
-                    size_t parameter_index;
-                    target->binders[j].type = NULL;
-                    if (field_type->kind == SLOPH_SYNTAX_TYPE_NAMED && owner != NULL &&
-                        scrutinee_type != NULL &&
-                        scrutinee_type->kind == SLOPH_SYNTAX_TYPE_APPLIED) {
-                        for (parameter_index = 0u;
-                             parameter_index < owner->type_parameter_count &&
-                             parameter_index < scrutinee_type->as.applied.count;
-                             ++parameter_index)
-                            if (strcmp(owner->type_parameters[parameter_index],
-                                       field_type->as.name) == 0)
-                                { LowerEnv type_env = *env;
-                                  type_env.module = type_module;
-                                  target->binders[j].type = lower_type(&type_env,
-                                    scrutinee_type->as.applied.items[parameter_index]); }
-                    }
-                    if (target->binders[j].type == NULL) {
-                        env->type_variables = owner != NULL ?
-                            (const char **)owner->type_parameters : NULL;
-                        env->type_variable_count = owner != NULL ?
-                            owner->type_parameter_count : 0u;
-                        target->binders[j].type = lower_type(env, field_type);
-                    }
-                    env->type_variables = saved_variables;
-                    env->type_variable_count = saved_count;
+                    target->binders[j].type = lower_field_type(
+                        env, field_type, owner, scrutinee_type);
+                    sloph_core_type_destroy(scrutinee_type);
                 } else target->binders[j].type = lower_type(env, binder->type);
+                if (target->binders[j].type == NULL) {
+                    sloph_core_expr_destroy(result);
+                    free(locals); free(local_types); free(local_values); return NULL;
+                }
                 locals[active.local_count++] = binder->name;
                 local_types[env->local_count + j] = binder->type;
             }
@@ -798,7 +1028,8 @@ static SlophCoreExpr *lower_expr(LowerEnv *env,
                                 message, details, ownership_span,
                                 SLOPH_SEVERITY_ERROR);
                             sloph_core_expr_destroy(result);
-                            free(locals); free(local_types); return NULL;
+                            free(locals); free(local_types); free(local_values);
+                            return NULL;
                         }
                         if (move_count > 1u) {
                             (void)snprintf(message, sizeof(message),
@@ -808,15 +1039,17 @@ static SlophCoreExpr *lower_expr(LowerEnv *env,
                                 "core.validate.use_after_move", "validate",
                                 message, details, moves[0], SLOPH_SEVERITY_ERROR);
                             sloph_core_expr_destroy(result);
-                            free(locals); free(local_types); return NULL;
+                            free(locals); free(local_types); free(local_values);
+                            return NULL;
                         }
                     }
                 }
             }
             (void)owner;
             active.locals = locals; active.local_types = local_types;
+            active.local_values = local_values;
             target->body = lower_block(&active, alternative->body);
-            free(locals); free(local_types);
+            free(locals); free(local_types); free(local_values);
         }
         if (result->as.case_.scrutinee == NULL || result->as.case_.result_type == NULL ||
             (result->as.case_.alternative_count != 0u && result->as.case_.alternatives == NULL)) {
@@ -828,6 +1061,66 @@ static SlophCoreExpr *lower_expr(LowerEnv *env,
         const SlophSyntaxExpr *target = source->as.call.function;
         const SlophSyntaxFunction *function = NULL;
         char *name;
+        if (env->module->syntax->version >= 1u) {
+            if ((target->kind == SLOPH_SYNTAX_EXPR_LOCAL ||
+                 target->kind == SLOPH_SYNTAX_EXPR_GLOBAL) &&
+                !(target->kind == SLOPH_SYNTAX_EXPR_LOCAL &&
+                  is_local(env, target->as.name))) {
+                name = resolve_name(env, target->as.name, 1, target->span,
+                                    (const void **)&function);
+                if (name == NULL) return NULL;
+                result = new_expr(SLOPH_EXPR_GLOBAL, target->span);
+                if (result != NULL) result->as.name = name;
+            } else {
+                result = lower_expr(env, target);
+            }
+            if (result == NULL) return NULL;
+            if (function != NULL && source->as.call.type_argument_count !=
+                                    function->type_parameter_count) {
+                sloph_core_expr_destroy(result);
+                (void)fail(env->context, "project.resolve.type_argument_arity",
+                           "resolve", "function has the wrong number of type arguments",
+                           source->span);
+                return NULL;
+            }
+            for (index = 0u; index < source->as.call.type_argument_count; ++index) {
+                SlophCoreExpr *argument = new_expr(SLOPH_EXPR_TYPE,
+                                      source->as.call.type_arguments[index]->span);
+                SlophCoreExpr *application = new_expr(SLOPH_EXPR_APP, source->span);
+                if (argument != NULL)
+                    argument->as.type = lower_type(env,
+                                         source->as.call.type_arguments[index]);
+                if (argument == NULL || argument->as.type == NULL || application == NULL) {
+                    sloph_core_expr_destroy(argument); sloph_core_expr_destroy(application);
+                    sloph_core_expr_destroy(result); return NULL;
+                }
+                application->as.app.function = result;
+                application->as.app.argument = argument;
+                result = application;
+            }
+            if (source->as.call.argument_count == 0u) {
+                SlophCoreExpr *unit = new_expr(SLOPH_EXPR_CON, source->span);
+                SlophCoreExpr *application = new_expr(SLOPH_EXPR_APP, source->span);
+                if (unit != NULL) unit->as.con.constructor = copy_text("sloph::Unit::Unit");
+                if (unit == NULL || unit->as.con.constructor == NULL || application == NULL) {
+                    sloph_core_expr_destroy(unit); sloph_core_expr_destroy(application);
+                    sloph_core_expr_destroy(result); return NULL;
+                }
+                application->as.app.function = result; application->as.app.argument = unit;
+                result = application;
+            } else for (index = 0u; index < source->as.call.argument_count; ++index) {
+                SlophCoreExpr *argument = lower_expr(env, source->as.call.arguments[index]);
+                SlophCoreExpr *application = new_expr(SLOPH_EXPR_APP, source->span);
+                if (argument == NULL || application == NULL) {
+                    sloph_core_expr_destroy(argument); sloph_core_expr_destroy(application);
+                    sloph_core_expr_destroy(result); return NULL;
+                }
+                application->as.app.function = result;
+                application->as.app.argument = argument;
+                result = application;
+            }
+            return result;
+        }
         if ((target->kind != SLOPH_SYNTAX_EXPR_LOCAL &&
              target->kind != SLOPH_SYNTAX_EXPR_GLOBAL) ||
             (target->kind == SLOPH_SYNTAX_EXPR_LOCAL && is_local(env, target->as.name))) {
@@ -923,27 +1216,39 @@ static SlophCoreExpr *lower_block(LowerEnv *env,
     LowerEnv active = *env;
     const char **locals = NULL;
     const SlophSyntaxType **local_types = NULL;
+    const SlophSyntaxExpr **local_values = NULL;
     if (block->statement_count != 0u) {
         locals = calloc(env->local_count + block->statement_count, sizeof(*locals));
         local_types = calloc(env->local_count + block->statement_count,
                              sizeof(*local_types));
-        if (locals == NULL || local_types == NULL) {
-            free(locals); free(local_types); return NULL;
+        local_values = calloc(env->local_count + block->statement_count,
+                              sizeof(*local_values));
+        if (locals == NULL || local_types == NULL || local_values == NULL) {
+            free(locals); free(local_types); free(local_values); return NULL;
         }
         memcpy(locals, env->locals, env->local_count * sizeof(*locals));
         if (env->local_types != NULL)
             memcpy(local_types, env->local_types,
                    env->local_count * sizeof(*local_types));
+        if (env->local_values != NULL)
+            memcpy(local_values, env->local_values,
+                   env->local_count * sizeof(*local_values));
+        active.locals = locals; active.local_types = local_types;
+        active.local_values = local_values;
         for (index = 0u; index < block->statement_count; ++index)
             if (block->statements[index].kind == SLOPH_SYNTAX_STMT_LET) {
-                locals[active.local_count++] = block->statements[index].as.let.binder.name;
-                local_types[env->local_count + index] =
-                    block->statements[index].as.let.binder.type;
+                const SlophSyntaxStatement *statement = &block->statements[index];
+                size_t position = active.local_count;
+                locals[position] = statement->as.let.binder.name;
+                local_types[position] = statement->as.let.binder.type;
+                local_values[position] = statement->as.let.value;
+                ++active.local_count;
             }
-        active.locals = locals; active.local_types = local_types;
     }
     body = lower_expr(&active, block->result);
-    if (body == NULL) { free(locals); free(local_types); return NULL; }
+    if (body == NULL) {
+        free(locals); free(local_types); free(local_values); return NULL;
+    }
     for (index = 0u; index < block->statement_count; ++index)
         if (block->statements[index].kind == SLOPH_SYNTAX_STMT_DEFER) ++defer_count;
     if (defer_count != 0u) {
@@ -974,7 +1279,8 @@ static SlophCoreExpr *lower_block(LowerEnv *env,
         outer = new_expr(SLOPH_EXPR_LET, block->span);
         if (outer == NULL || cleanup == NULL || result_type == NULL) {
             sloph_core_expr_destroy(outer); sloph_core_expr_destroy(cleanup);
-            sloph_core_expr_destroy(body); free(locals); free(local_types); return NULL;
+            sloph_core_expr_destroy(body); free(locals); free(local_types);
+            free(local_values); return NULL;
         }
         outer->as.let.binder.name = copy_text("_defer_result_0");
         outer->as.let.binder.mode = copy_text("own");
@@ -994,22 +1300,27 @@ static SlophCoreExpr *lower_block(LowerEnv *env,
         let = new_expr(SLOPH_EXPR_LET, statement->span);
         if (value == NULL || let == NULL) {
             sloph_core_expr_destroy(value); sloph_core_expr_destroy(let);
-            sloph_core_expr_destroy(body); free(locals); free(local_types); return NULL;
+            sloph_core_expr_destroy(body); free(locals); free(local_types);
+            free(local_values); return NULL;
         }
         let->as.let.binder.name = copy_text(statement->as.let.binder.name);
         let->as.let.binder.mode = copy_text(statement->as.let.binder.mode != NULL ?
                                             statement->as.let.binder.mode : "own");
-        let->as.let.binder.type = lower_type(&active, statement->as.let.binder.type);
+        let->as.let.binder.type = statement->as.let.binder.type->kind ==
+                                  SLOPH_SYNTAX_TYPE_INFERRED ?
+                                  infer_expr_type(&active, statement->as.let.value) :
+                                  lower_type(&active, statement->as.let.binder.type);
         let->as.let.binder.span = statement->as.let.binder.span;
         let->as.let.value = value;
         let->as.let.body = body;
         if (let->as.let.binder.name == NULL || let->as.let.binder.mode == NULL ||
             let->as.let.binder.type == NULL) {
-            sloph_core_expr_destroy(let); free(locals); free(local_types); return NULL;
+            sloph_core_expr_destroy(let); free(locals); free(local_types);
+            free(local_values); return NULL;
         }
         body = let;
     }
-    free(locals); free(local_types); return body;
+    free(locals); free(local_types); free(local_values); return body;
 }
 
 static int compare_definitions(const void *left, const void *right) {
@@ -1022,6 +1333,107 @@ static int compare_types(const void *left, const void *right) {
     const SlophCoreEnum *a = left;
     const SlophCoreEnum *b = right;
     return strcmp(a->name, b->name);
+}
+
+static int copy_json_string_array(yyjson_val *array, char ***out_items,
+                                  size_t *out_count) {
+    size_t index, maximum;
+    yyjson_val *item;
+    char **items;
+    if (!yyjson_is_arr(array)) return 0;
+    *out_count = yyjson_arr_size(array);
+    items = *out_count != 0u ? calloc(*out_count, sizeof(*items)) : NULL;
+    if (*out_count != 0u && items == NULL) return 0;
+    yyjson_arr_foreach(array, index, maximum, item) {
+        const char *text = yyjson_get_str(item);
+        if (text == NULL || (items[index] = copy_text(text)) == NULL) return 0;
+    }
+    *out_items = items;
+    return 1;
+}
+
+static SlophStatus enrich_foreign_bindings(SlophContext *context,
+                                           const SlophProject *project,
+                                           SlophCoreUnit *unit) {
+    size_t provider_index, binding_index;
+    for (provider_index = 0u; provider_index < project->provider_count;
+         ++provider_index) {
+        const SlophProjectProvider *provider = &project->providers[provider_index];
+        yyjson_read_err error;
+        yyjson_doc *document = yyjson_read_file(provider->bindings_path, 0u,
+                                                NULL, &error);
+        yyjson_val *root;
+        size_t index, maximum;
+        yyjson_val *item;
+        if (document == NULL)
+            return fail(context, "project.provider.bindings", "project",
+                        "could not read validated provider bindings", (SlophSpan){0u, 0u});
+        root = yyjson_doc_get_root(document);
+        yyjson_arr_foreach(root, index, maximum, item) {
+            const char *identity = yyjson_get_str(yyjson_obj_get(item, "identity"));
+            yyjson_val *adapter_object = yyjson_obj_get(item, "adapter");
+            const char *adapter = adapter_object != NULL ?
+                yyjson_get_str(yyjson_obj_get(adapter_object, "kind")) : NULL;
+            const char *symbol = yyjson_get_str(yyjson_obj_get(item, "symbol"));
+            const char *header = yyjson_get_str(yyjson_obj_get(item, "header"));
+            const char *c_result = yyjson_get_str(yyjson_obj_get(item, "c_result"));
+            const char *provenance = yyjson_get_str(yyjson_obj_get(item, "provenance"));
+            if (identity == NULL || adapter == NULL || symbol == NULL || header == NULL)
+                continue;
+            for (binding_index = 0u; binding_index < unit->foreign_binding_count;
+                 ++binding_index) {
+                SlophCoreForeignBinding *binding =
+                    &unit->foreign_bindings[binding_index];
+                if (strcmp(binding->identity, identity) != 0) continue;
+                free(binding->adapter);
+                binding->adapter = copy_text(adapter);
+                binding->symbol = copy_text(symbol);
+                binding->header = copy_text(header);
+                binding->c_result = copy_text(c_result != NULL ? c_result : "void");
+                binding->provenance = copy_text(provenance != NULL ? provenance : "unknown");
+                if (!copy_json_string_array(yyjson_obj_get(item, "c_parameters"),
+                                            &binding->c_parameters,
+                                            &binding->c_parameter_count) ||
+                    !copy_json_string_array(yyjson_obj_get(item, "requires"),
+                                            &binding->requires,
+                                            &binding->require_count) ||
+                    !copy_json_string_array(yyjson_obj_get(item, "effects"),
+                                            &binding->effects,
+                                            &binding->effect_count)) {
+                    yyjson_doc_free(document); return oom(context);
+                }
+                { yyjson_val *facts = yyjson_obj_get(item, "facts");
+                  size_t fact_index = 0u, fact_maximum;
+                  yyjson_val *key, *value;
+                  binding->fact_count = yyjson_obj_size(facts);
+                  if (binding->fact_count != 0u)
+                      binding->facts = calloc(binding->fact_count,
+                                              sizeof(*binding->facts));
+                  yyjson_obj_foreach(facts, fact_index, fact_maximum, key, value) {
+                      size_t position = fact_index;
+                      if (position >= binding->fact_count) position = binding->fact_count - 1u;
+                      binding->facts[position].key = copy_text(yyjson_get_str(key));
+                      binding->facts[position].value = copy_text(yyjson_get_str(value));
+                  } }
+                if (binding->adapter == NULL || binding->symbol == NULL ||
+                    binding->header == NULL || binding->c_result == NULL ||
+                    binding->provenance == NULL) {
+                    yyjson_doc_free(document); return oom(context);
+                }
+            }
+        }
+        yyjson_doc_free(document);
+    }
+    for (binding_index = 0u; binding_index < unit->foreign_binding_count;
+         ++binding_index) {
+        SlophCoreForeignBinding *binding = &unit->foreign_bindings[binding_index];
+        if (binding->symbol == NULL || binding->header == NULL ||
+            strcmp(binding->adapter, "direct") == 0)
+            return fail(context, "project.resolve.foreign_signature", "resolve",
+                        "foreign declaration has no selected provider metadata",
+                        (SlophSpan){0u, 0u});
+    }
+    return SLOPH_STATUS_OK;
 }
 
 static SlophStatus lower_enum(LowerEnv *env, const SlophSyntaxTypeDecl *source,
@@ -1227,8 +1639,13 @@ static SlophStatus validate_imports(SlophContext *context,
             for (k = 0u; k < direct->name_count; ++k) {
                 int public_, kind;
                 const void *declaration;
-                if (!module_decl(target, direct->names[k], &public_, &kind,
-                                 &declaration))
+                const SlophProjectModule *owner = target;
+                int direct_declaration = module_decl(target, direct->names[k],
+                                                     &public_, &kind,
+                                                     &declaration);
+                if (!direct_declaration &&
+                    !module_export(project, target, direct->names[k], &public_,
+                                   &kind, &declaration, &owner))
                     return fail(context, "project.resolve.unknown_import", "resolve",
                                 "imported module has no such declaration",
                                 direct->span);
@@ -1377,6 +1794,9 @@ SlophStatus sloph_project_elaborate(SlophContext *context,
     qsort(unit->types, unit->type_count, sizeof(*unit->types), compare_types);
     qsort(unit->definitions, unit->definition_count,
           sizeof(*unit->definitions), compare_definitions);
+    if (enrich_foreign_bindings(context, project, unit) != SLOPH_STATUS_OK) {
+        sloph_core_free(unit); return SLOPH_STATUS_INVALID_ARGUMENT;
+    }
     if (sloph_core_validate(context, unit) != SLOPH_STATUS_OK) {
         sloph_core_free(unit); return SLOPH_STATUS_INVALID_ARGUMENT;
     }

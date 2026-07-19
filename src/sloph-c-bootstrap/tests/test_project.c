@@ -258,11 +258,48 @@ static void test_library_dependency_validation_and_growth(void) {
     assert(rmdir(libraries) == 0); assert(rmdir(root) == 0);
 }
 
+static void test_integration_projects_load(void) {
+    static const char *const projects[] = {
+        "../../tests/v1/run/basic/project",
+        "../../tests/v1/run/clause-guards/project",
+        "../../tests/v1/run/function-main-output/project",
+        "../../tests/v1/run/result-propagation/project",
+        "../libraries/math/tests/int"
+    };
+    size_t index;
+    for (index = 0u; index < sizeof(projects) / sizeof(projects[0]); ++index) {
+        SlophContext *context = NULL;
+        SlophProject *project = NULL;
+        SlophProjectOptions options = sloph_project_options_default();
+        SlophStatus status;
+        assert(sloph_context_create(NULL, &context) == SLOPH_STATUS_OK);
+        options.libraries_root = "../libraries";
+        options.target_is_set = 1;
+        options.target.operating_system = SLOPH_OS_DARWIN;
+        options.target.architecture = SLOPH_ARCH_ARM64;
+        status = sloph_project_load(context, projects[index], &options, &project);
+        if (status != SLOPH_STATUS_OK) {
+            SlophDiagnosticView diagnostic;
+            size_t count = sloph_context_diagnostic_count(context);
+            fprintf(stderr, "project load failed: %s: status %s\n",
+                    projects[index], sloph_status_name(status));
+            if (count != 0u && sloph_context_diagnostic(context, count - 1u,
+                    &diagnostic) == SLOPH_STATUS_OK)
+                fprintf(stderr, "diagnostic: %s\n", diagnostic.code);
+        }
+        assert(status == SLOPH_STATUS_OK);
+        assert(project != NULL);
+        sloph_project_free(project);
+        sloph_context_destroy(context);
+    }
+}
+
 int main(void) {
     test_manifest_and_order();
     test_duplicate_manifest_key();
     test_portable_manifest_diagnostics();
     test_unreachable_module_availability();
     test_library_dependency_validation_and_growth();
+    test_integration_projects_load();
     return 0;
 }

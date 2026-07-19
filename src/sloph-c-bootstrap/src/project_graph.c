@@ -50,7 +50,7 @@ static SlophStatus cycle_visit(CycleState *state, SlophProjectModule *module) {
     /* Scan targets in module-name order, matching the Python oracle. */
     for (index = 0u; index < state->project->module_count; ++index) {
         SlophProjectModule *target = &state->project->modules[index];
-        if (target->visit_state == 3 || !target->reachable ||
+        if (target->visit_state == -1 || !target->reachable ||
             !imports(module, target->name)) continue;
         if (target->visit_state == 0) {
             SlophStatus status = cycle_visit(state, target);
@@ -94,7 +94,7 @@ static SlophStatus report_cycle(SlophProject *project) {
     if (stack == NULL) return SLOPH_STATUS_OUT_OF_MEMORY;
     state.project = project; state.stack = stack; state.stack_count = 0u;
     for (index = 0u; index < project->module_count; ++index)
-        if (project->modules[index].visit_state != 3)
+        if (project->modules[index].visit_state != -1)
             project->modules[index].visit_state = 0;
     for (index = 0u; index < project->module_count; ++index) {
         if (project->modules[index].reachable &&
@@ -159,10 +159,10 @@ SlophStatus sloph_project_order_modules(SlophProject *project) {
         }
         if (ready == NULL) { status = report_cycle(project); break; }
         ordered[output_count++] = *ready;
-        ready->visit_state = 3;
+        ready->visit_state = -1;
         for (index = 0u; index < project->module_count; ++index) {
             SlophProjectModule *dependent = &project->modules[index];
-            if (dependent->reachable && dependent->visit_state != 3 &&
+            if (dependent->reachable && dependent->visit_state != -1 &&
                 imports(dependent, ready->name)) --dependent->visit_state;
         }
     }

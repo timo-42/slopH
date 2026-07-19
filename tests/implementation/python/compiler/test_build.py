@@ -9,7 +9,8 @@ from unittest.mock import patch
 
 from sloph.backend import emit_c
 from sloph.compiler import compile_core, compile_project
-from sloph.compiler.build import _native_inputs, _run_package_build_scripts
+from sloph.compiler import build as compiler_build
+from sloph.compiler.build import _native_inputs
 from sloph.core import DiagnosticError, parse_core
 from sloph.project import elaborate_project_v1, load_project
 
@@ -23,85 +24,39 @@ ROOT = Path(__file__).resolve().parents[4]
     "experimental C11 bridge host",
 )
 class NativeBuildTests(unittest.TestCase):
-    def test_package_build_scripts_run_in_dependency_order(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            record = root / "record"
-            packages = []
-            for name in ("dependency", "consumer"):
-                package = root / name
-                package.mkdir()
-                script = package / "build.sh"
-                script.write_text(
-                    f"#!/bin/sh\nprintf '%s\\n' {name} >> '{record}'\n",
-                    encoding="ascii",
-                )
-                script.chmod(0o755)
-                packages.append((name, package))
-            _run_package_build_scripts(tuple(packages))
-            self.assertEqual("dependency\nconsumer\n", record.read_text("ascii"))
+    def test_package_build_scripts_are_not_supported(self) -> None:
+        self.assertFalse(hasattr(compiler_build, "_run_package_build_scripts"))
 
-    def test_package_build_script_failure_is_diagnostic(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            script = root / "build.sh"
-            script.write_text("#!/bin/sh\necho broken >&2\nexit 7\n", encoding="ascii")
-            script.chmod(0o755)
-            with self.assertRaises(DiagnosticError) as raised:
-                _run_package_build_scripts((("broken", root),))
-        self.assertEqual("compiler.build_script.failed", raised.exception.diagnostic.code)
-        self.assertEqual(7, raised.exception.diagnostic.details["exit_code"])
-        self.assertIn("broken", raised.exception.diagnostic.details["stderr"])
-
-    def test_compile_project_runs_dependency_build_scripts(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            package = root / "native"
-            package.mkdir()
-            marker = package / "built"
-            script = package / "build.sh"
-            script.write_text(f"#!/bin/sh\n: > '{marker}'\n", encoding="ascii")
-            script.chmod(0o755)
-            project = root / "project"
-            (project / "src").mkdir(parents=True)
-            (project / "sloph.json").write_text(
-                '{"format":1,"package":"demo","source-root":"src",'
-                '"entry":"demo::main::main","dependencies":["os"]}\n',
-                encoding="ascii",
-            )
-            (project / "src" / "main.sloph").write_text(
-                "module demo::main;\n"
-                "import os::process::{Exit};\n"
-                "public fn main() -> Exit { Exit::Success() }\n",
-                encoding="ascii",
-            )
-            output = root / "program"
-            with patch(
-                "sloph.compiler.build.resolve_bundled_packages",
-                return_value=(("native", package),),
-            ):
-                compile_project(
-                    project,
-                    output,
-                    source_version=1,
-                )
-            self.assertTrue(marker.is_file())
-
-    def test_provider_link_inputs_are_shared_libraries(self) -> None:
+    def test_bundled_provider_metadata_is_strict_format_one(self) -> None:
         syscall = ROOT / "src" / "libraries" / "syscall"
-        subprocess.run([str(syscall / "build.sh")], cwd=syscall, check=True)
+        manifests = sorted(syscall.rglob("provider.json"))
+        self.assertEqual(4, len(manifests))
+        for manifest in manifests:
+            with self.subTest(manifest=manifest):
+                metadata = json.loads(manifest.read_text(encoding="utf-8"))
+                self.assertEqual(
+                    {"format", "module", "bindings", "sources"}, set(metadata)
+                )
+                self.assertEqual(1, metadata["format"])
+                self.assertTrue(metadata["sources"])
+
+    def test_bundled_providers_have_no_prebuilt_shared_objects(self) -> None:
+        syscall = ROOT / "src" / "libraries" / "syscall"
+        self.assertEqual([], list(syscall.rglob("*.so")))
+        self.assertEqual([], list(syscall.rglob("*.dylib")))
+        self.assertFalse((syscall / "build.sh").exists())
+
+    def test_provider_link_inputs_are_native_sources(self) -> None:
         project = load_project(ROOT / "examples" / "hello-world", source_version=1)
         unit = elaborate_project_v1(project)
         native_inputs = _native_inputs(unit)
         self.assertTrue(native_inputs)
         self.assertTrue(
-            all(path.suffix in {".so", ".dylib"} for _, paths in native_inputs for path in paths)
+            all(path.suffix in {".c", ".S"} for _, paths in native_inputs for path in paths)
         )
-        self.assertFalse(
-            any(path.suffix == ".S" for _, paths in native_inputs for path in paths)
-        )
+        self.assertTrue(all(path.is_file() for _, paths in native_inputs for path in paths))
 
-    def test_missing_provider_library_is_diagnostic(self) -> None:
+    def test_missing_provider_source_is_diagnostic(self) -> None:
         project = load_project(ROOT / "examples" / "hello-world", source_version=1)
         unit = elaborate_project_v1(project)
         identity = unit.foreign_bindings[0].provider
@@ -111,14 +66,13 @@ class NativeBuildTests(unittest.TestCase):
                 *identity.split("::")[1:]
             )
             provider.mkdir(parents=True)
-            suffix = ".dylib" if platform.system() == "Darwin" else ".so"
             (provider / "provider.json").write_text(
                 json.dumps(
                     {
                         "bindings": "bindings.json",
-                        "format": 0,
-                        "libraries": ["missing" + suffix],
+                        "format": 1,
                         "module": identity,
+                        "sources": ["missing.c"],
                     }
                 ),
                 encoding="ascii",
@@ -126,7 +80,7 @@ class NativeBuildTests(unittest.TestCase):
             with patch("sloph.compiler.build.libraries_root", return_value=libraries):
                 with self.assertRaises(DiagnosticError) as raised:
                     _native_inputs(unit)
-        self.assertEqual("compiler.provider.library", raised.exception.diagnostic.code)
+        self.assertEqual("compiler.provider.source", raised.exception.diagnostic.code)
 
     def test_exact_integer_program(self) -> None:
         unit = parse_core(

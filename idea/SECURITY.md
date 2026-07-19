@@ -1,22 +1,20 @@
 # IDEA: Secure Package Build Tasks
 
-Status: known security debt; exploratory replacement design.
+Status: automatic dependency-script execution removed; broader package-build
+isolation remains exploratory.
 
-## Temporary Unsafe Behavior
+## Current Bootstrap Behavior
 
-The bootstrap build path currently executes an executable `build.sh` found at
-the root of each dependency package before `compile` or `run`. The script runs
-once per build, in dependency order, with the package as its working directory
-and with the invoking user's inherited environment. Read-only commands such as
-`check`, formatting, and Syntax/Core inspection do not execute scripts.
+The bootstrap no longer discovers or executes package `build.sh` files.
+Versioned provider metadata declares local `.c` and `.S` inputs, which are
+validated and passed directly to the bounded host-C compile/link invocation.
+Prebuilt shared providers and runtime search paths are not used.
 
-This convention lets a package use C, C++, Rust, assembly, or another external
-toolchain without teaching the SlopH compiler how to build those languages. It
-is expedient, not a safe or final package-build contract. A timeout, bounded
-diagnostic capture, and process-group termination limit accidental failures;
-they do not sandbox hostile code.
+This removes ambient dependency-script execution from `compile` and `run`.
+Provider source and the host compiler are still trusted build inputs; general
+third-party package build tasks will require the capability design below.
 
-## Threats
+## Historical Script Threats
 
 A dependency build script has the same ambient authority as the user or CI
 worker running SlopH. It can:
@@ -64,9 +62,11 @@ possible, but it must be an explicit, inspectable graph operation. The package
 manager verifies artifact hashes, target compatibility, exported symbols, ABI
 metadata, and provenance before linking.
 
-## Exit Criteria
+## Resolution and Remaining Exit Criteria
 
-Automatic ambient `build.sh` execution can be removed when the toolchain has:
+Automatic ambient `build.sh` execution was removed by restricting bootstrap
+providers to declared static C and assembly sources. A general package-build
+facility still requires:
 
 - a versioned build-task schema and dependency graph;
 - enforceable capability isolation and declared-output handling;
@@ -74,6 +74,6 @@ Automatic ambient `build.sh` execution can be removed when the toolchain has:
 - user and CI trust policies with clear diagnostics and non-interactive modes;
 - registry support for bundled native artifacts and verified provenance.
 
-Until then, documentation and diagnostics must describe dependency build
-scripts as arbitrary code execution, and the convention must not spread into
-parsing, type checking, transforms, or read-only inspection commands.
+Until then, the bootstrap must keep rejecting executable package-task
+discovery; parsing, type checking, transforms, and read-only inspection remain
+free of external process execution.

@@ -20,16 +20,9 @@ LIBRARY = ROOT / "src" / "libraries" / "syscall"
 CC = "/usr/bin/cc"
 TARGET = CompilerTarget.host()
 PLATFORM_ROOT = LIBRARY / "src" / "posix" / TARGET.os.value / TARGET.arch.value
-SHARED_LIBRARY = PLATFORM_ROOT / (
-    "libsloph_syscall.dylib" if TARGET.os == OS.DARWIN else "libsloph_syscall.so"
-)
 
 
 class PosixLibraryTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls) -> None:
-        subprocess.run([str(LIBRARY / "build.sh")], cwd=LIBRARY, check=True)
-
     def test_application_cannot_declare_foreign_binding(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -47,7 +40,7 @@ class PosixLibraryTests(unittest.TestCase):
                 elaborate_project_v1(load_project(root, source_version=1))
         self.assertEqual("project.resolve.foreign_signature", caught.exception.diagnostic.code)
 
-    def test_legacy_provider_sources_are_rejected(self) -> None:
+    def test_legacy_provider_libraries_are_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             module_path = root / "native.sloph"
@@ -59,8 +52,8 @@ class PosixLibraryTests(unittest.TestCase):
                     {
                         "bindings": "bindings.json",
                         "format": 0,
+                        "libraries": ["native.so"],
                         "module": "demo::native",
-                        "sources": ["native.S"],
                     }
                 ),
                 encoding="ascii",
@@ -69,6 +62,51 @@ class PosixLibraryTests(unittest.TestCase):
             with self.assertRaises(DiagnosticError) as caught:
                 _load_module_provider(module)
         self.assertEqual("project.provider.shape", caught.exception.diagnostic.code)
+
+    def test_provider_rejects_duplicate_and_unsafe_bindings(self) -> None:
+        binding = {
+            "c_parameters": [],
+            "c_result": "int",
+            "effects": [],
+            "facts": {},
+            "header": "native.h",
+            "identity": "foreign.demo.call",
+            "provenance": "test",
+            "provider": "demo::native",
+            "requires": [],
+            "symbol": "demo_call",
+        }
+        cases = (
+            ([binding, binding], "project.foreign_binding.shape"),
+            ([binding | {"header": "bad\\name.h"}], "project.provider.header"),
+        )
+        for bindings, expected in cases:
+            with self.subTest(expected=expected), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                module_path = root / "native.sloph"
+                module_path.write_text("module demo::native;", encoding="ascii")
+                provider_root = root / "native"
+                provider_root.mkdir()
+                (provider_root / "provider.json").write_text(
+                    json.dumps(
+                        {
+                            "bindings": "bindings.json",
+                            "format": 1,
+                            "module": "demo::native",
+                            "sources": ["native.c"],
+                        }
+                    ),
+                    encoding="ascii",
+                )
+                (provider_root / "bindings.json").write_text(
+                    json.dumps(bindings), encoding="ascii"
+                )
+                (provider_root / "native.c").write_text("", encoding="ascii")
+                (provider_root / "native.h").write_text("", encoding="ascii")
+                module = ProjectModule("demo::native", module_path, None, (), True)
+                with self.assertRaises(DiagnosticError) as caught:
+                    _load_module_provider(module)
+            self.assertEqual(expected, caught.exception.diagnostic.code)
 
     def test_platform_provider_exposes_read_and_write(self) -> None:
         harness = r'''#include "syscall.h"
@@ -94,7 +132,7 @@ int main(void) {
             output = root / "harness"
             source.write_text(harness, encoding="ascii")
             subprocess.run(
-                [CC, "-std=c11", "-Wall", "-Wextra", "-Werror", "-I", str(PLATFORM_ROOT), str(source), str(SHARED_LIBRARY), f"-Wl,-rpath,{PLATFORM_ROOT}", "-o", str(output)],
+                [CC, "-std=c11", "-Wall", "-Wextra", "-Werror", "-I", str(PLATFORM_ROOT), str(source), str(PLATFORM_ROOT / "syscall.S"), "-o", str(output)],
                 check=True, capture_output=True,
             )
             completed = subprocess.run([output], check=False)
