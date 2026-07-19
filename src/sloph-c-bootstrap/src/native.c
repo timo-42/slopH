@@ -741,7 +741,9 @@ done:
     free(source_path); free(binary_path); free(directory);
     for (index = 0u; index < owned_path_count; ++index) free(owned_paths[index]);
     free(owned_paths);
-    free(arguments); free(timber); free(compiler);
+    free(arguments);
+    sloph_context_deallocate(context, timber, timber_length + 1u);
+    free(compiler);
     return status;
 #undef ADD_PATH
 #undef ADD_ARGUMENT

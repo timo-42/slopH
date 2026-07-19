@@ -82,7 +82,7 @@ typedef struct SlophSyntaxFunction { SlophSyntaxFunctionKind kind; char *name; S
 typedef struct SlophSyntaxValue { char *name; SlophSyntaxType *type; SlophSyntaxBlock *value; bool public_; SlophSpan span; } SlophSyntaxValue;
 
 struct SlophSyntaxModule {
-    SlophContext *context; SlophArena arena; unsigned version; size_t node_count;
+    SlophAllocator allocator; SlophArena arena; unsigned version; size_t node_count;
     char *name; SlophSyntaxImport *imports; size_t import_count;
     SlophSyntaxTypeDecl *types; size_t type_count;
     SlophSyntaxFunction *functions; size_t function_count;

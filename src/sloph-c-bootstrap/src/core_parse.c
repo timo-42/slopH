@@ -6,6 +6,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#define sloph_core_parse sloph_core_parse_unadopted
+
 typedef enum { SX_ATOM, SX_LIST } SxKind;
 typedef struct Sx Sx;
 struct Sx {
@@ -443,4 +445,21 @@ SlophStatus sloph_core_parse(SlophContext *context, const unsigned char *input,
     *out_unit=NULL;memset(&parser,0,sizeof(parser));parser.context=context;parser.limits=sloph_context_limits(context);parser.input=input;parser.length=input_length;parser.status=SLOPH_STATUS_OK;
     root=parse_sexpr(&parser);if(root==NULL)return parser.status;
     (void)decode_unit(&parser,root,out_unit);sx_destroy(root);return parser.status;
+}
+
+#undef sloph_core_parse
+SlophStatus sloph_core_parse(SlophContext *context,
+                             const unsigned char *input,
+                             size_t input_length,
+                             SlophCoreUnit **out_unit) {
+    SlophStatus status = sloph_core_parse_unadopted(
+        context, input, input_length, out_unit);
+    if (status == SLOPH_STATUS_OK) {
+        status = sloph_core_adopt_allocator(context, out_unit);
+        if (status != SLOPH_STATUS_OK) {
+            sloph_core_free(*out_unit);
+            *out_unit = NULL;
+        }
+    }
+    return status;
 }

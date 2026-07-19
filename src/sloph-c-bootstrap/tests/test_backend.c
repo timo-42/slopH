@@ -37,7 +37,8 @@ static void test_deterministic_heartwood_to_timber(void) {
     assert(strstr(first, "sl_int_add") != NULL);
     assert(strstr(first, "int main(void)") != NULL);
     assert(strstr(first, "example::Choice::Some") != NULL);
-    free(first); free(second);
+    sloph_context_deallocate(context, first, first_length + 1u);
+    sloph_context_deallocate(context, second, second_length + 1u);
     sloph_core_free(unit); sloph_context_destroy(context);
 }
 

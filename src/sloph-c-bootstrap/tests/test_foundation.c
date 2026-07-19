@@ -12,6 +12,62 @@ typedef struct FailingAllocator {
     size_t successful_calls;
 } FailingAllocator;
 
+typedef struct TrackingAllocator {
+    size_t calls;
+    size_t fail_after;
+    size_t active_allocations;
+    size_t active_bytes;
+} TrackingAllocator;
+
+static void *tracking_allocate(void *user_data, size_t size) {
+    TrackingAllocator *state = user_data;
+    void *pointer;
+    if (state->calls++ >= state->fail_after) return NULL;
+    pointer = malloc(size);
+    if (pointer != NULL) {
+        ++state->active_allocations;
+        state->active_bytes += size;
+    }
+    return pointer;
+}
+
+static void *tracking_resize(void *user_data, void *pointer, size_t old_size,
+                             size_t new_size) {
+    TrackingAllocator *state = user_data;
+    void *resized;
+    if (state->calls++ >= state->fail_after) return NULL;
+    resized = realloc(pointer, new_size);
+    if (resized != NULL && pointer == NULL) {
+        ++state->active_allocations;
+        state->active_bytes += new_size;
+    } else if (resized != NULL) {
+        if (new_size >= old_size) state->active_bytes += new_size - old_size;
+        else state->active_bytes -= old_size - new_size;
+    }
+    return resized;
+}
+
+static void tracking_deallocate(void *user_data, void *pointer, size_t size) {
+    TrackingAllocator *state = user_data;
+    if (pointer == NULL) return;
+    assert(state->active_allocations != 0u);
+    assert(state->active_bytes >= size);
+    --state->active_allocations;
+    state->active_bytes -= size;
+    free(pointer);
+}
+
+static SlophContext *tracking_context(TrackingAllocator *state) {
+    SlophContextConfig config = sloph_context_config_default();
+    SlophContext *context = NULL;
+    config.allocator.user_data = state;
+    config.allocator.allocate = tracking_allocate;
+    config.allocator.resize = tracking_resize;
+    config.allocator.deallocate = tracking_deallocate;
+    assert(sloph_context_create(&config, &context) == SLOPH_STATUS_OK);
+    return context;
+}
+
 static void *failing_allocate(void *user_data, size_t size) {
     FailingAllocator *state = user_data;
     if (state->calls++ >= state->successful_calls) return NULL;
@@ -91,6 +147,46 @@ static void test_allocation_failure(void) {
     sloph_context_destroy(context);
 }
 
+static void test_context_owned_outputs_and_yyjson(void) {
+    static const unsigned char core[] =
+        "(core 0 (types) (defs (def example::main Int (int 42))))";
+    static const unsigned char source[] =
+        "module example::main; public value main:Int { 42 }";
+    TrackingAllocator state = {0u, (size_t)-1, 0u, 0u};
+    SlophContext *context = tracking_context(&state);
+    SlophCoreUnit *unit = NULL;
+    SlophSyntaxModule *module = NULL;
+    SlophSyntaxText json = {0};
+    char *printed = NULL;
+    size_t printed_length = 0u;
+    size_t before_json, after_json_calls;
+    assert(sloph_core_parse(context, core, sizeof(core) - 1u, &unit) ==
+           SLOPH_STATUS_OK);
+    assert(sloph_core_print(context, unit, &printed, &printed_length) ==
+           SLOPH_STATUS_OK);
+    assert(state.active_allocations >= 2u);
+    sloph_context_deallocate(context, printed, printed_length + 1u);
+    assert(sloph_syntax_parse(context, source, sizeof(source) - 1u, 0u,
+                              &module) == SLOPH_STATUS_OK);
+    before_json = state.active_allocations;
+    assert(sloph_syntax_to_json(context, module, &json) == SLOPH_STATUS_OK);
+    after_json_calls = state.calls;
+    assert(after_json_calls > 0u);
+    sloph_syntax_text_free(context, &json);
+    assert(state.active_allocations == before_json);
+    state.fail_after = state.calls;
+    assert(sloph_syntax_to_json(context, module, &json) ==
+           SLOPH_STATUS_OUT_OF_MEMORY);
+    assert(json.data == NULL && state.active_allocations == before_json);
+    state.fail_after = (size_t)-1;
+    sloph_core_free(unit);
+    sloph_context_destroy(context);
+    /* Syntax modules retain an allocator value, not a context pointer. */
+    sloph_syntax_module_free(module);
+    assert(state.active_allocations == 0u);
+    assert(state.active_bytes == 0u);
+}
+
 static void test_posix_host(void) {
     SlophContext *context = NULL;
     SlophHost host = sloph_posix_host();
@@ -131,6 +227,7 @@ int main(void) {
     test_limits();
     test_diagnostics_and_storage();
     test_allocation_failure();
+    test_context_owned_outputs_and_yyjson();
     test_posix_host();
     return 0;
 }

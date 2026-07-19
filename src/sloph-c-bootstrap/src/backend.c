@@ -1204,8 +1204,15 @@ SlophStatus sloph_heartwood_to_timber(SlophContext *context,
         if (find_function(&emitter, emitter.definitions[index]->name) == NULL &&
             !emit_global(&emitter, emitter.definitions[index])) goto output_failed;
     if (!emit_main(&emitter, symbol)) goto output_failed;
-    *out_text = emitter.output.data; *out_length = emitter.output.length;
-    emitter.output.data = NULL; status = SLOPH_STATUS_OK; goto done;
+    {
+        const SlophAllocator *allocator = sloph_context_allocator(context);
+        char *result = allocator->allocate(allocator->user_data,
+                                           emitter.output.length + 1u);
+        if (result == NULL) { status = SLOPH_STATUS_OUT_OF_MEMORY; goto done; }
+        memcpy(result, emitter.output.data, emitter.output.length + 1u);
+        *out_text = result; *out_length = emitter.output.length;
+    }
+    status = SLOPH_STATUS_OK; goto done;
 output_failed:
     if (emitter.output.out_of_memory) {
         status = SLOPH_STATUS_OUT_OF_MEMORY;

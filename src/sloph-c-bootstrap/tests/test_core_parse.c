@@ -29,7 +29,7 @@ static void canonical_order_and_negative_zero(void) {
            SLOPH_STATUS_OK);
     assert(output_length == strlen(expected));
     assert(memcmp(output, expected, output_length) == 0);
-    free(output);
+    sloph_context_deallocate(context, output, output_length + 1u);
     sloph_core_free(unit);
     sloph_context_destroy(context);
 }
@@ -65,7 +65,7 @@ static void version_three_ownership_round_trip(void) {
     assert(length == strlen(input) + 1);
     assert(memcmp(output, input, strlen(input)) == 0);
     assert(output[length - 1] == '\n');
-    free(output);
+    sloph_context_deallocate(context, output, length + 1u);
     sloph_core_free(unit);
     sloph_context_destroy(context);
 }

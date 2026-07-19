@@ -1811,6 +1811,10 @@ SlophStatus sloph_project_elaborate(SlophContext *context,
         return fail(context, "project.entry.missing", "resolve",
                     "entry does not name a project value", span);
     }
+    if (sloph_core_adopt_allocator(context, &unit) != SLOPH_STATUS_OK) {
+        sloph_core_free(unit);
+        return oom(context);
+    }
     *out_unit = unit;
     return SLOPH_STATUS_OK;
 }

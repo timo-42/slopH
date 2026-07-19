@@ -24,6 +24,59 @@ bool sloph_size_multiply(size_t left, size_t right, size_t *out_value) {
     return true;
 }
 
+typedef union SlophYyjsonHeader {
+    size_t size;
+    max_align_t alignment;
+} SlophYyjsonHeader;
+
+static void *yyjson_allocate(void *user_data, size_t size) {
+    SlophYyjsonAllocator *adapter = user_data;
+    SlophYyjsonHeader *header;
+    size_t total;
+    if (!sloph_size_add(sizeof(*header), size, &total)) return NULL;
+    header = adapter->allocator.allocate(adapter->allocator.user_data, total);
+    if (header == NULL) return NULL;
+    header->size = size;
+    return header + 1;
+}
+
+static void *yyjson_resize(void *user_data, void *pointer, size_t old_size,
+                           size_t new_size) {
+    SlophYyjsonAllocator *adapter = user_data;
+    SlophYyjsonHeader *header;
+    size_t old_total, new_total;
+    (void)old_size;
+    if (pointer == NULL) return yyjson_allocate(user_data, new_size);
+    header = (SlophYyjsonHeader *)pointer - 1;
+    if (!sloph_size_add(sizeof(*header), header->size, &old_total) ||
+        !sloph_size_add(sizeof(*header), new_size, &new_total)) return NULL;
+    header = adapter->allocator.resize(adapter->allocator.user_data, header,
+                                       old_total, new_total);
+    if (header == NULL) return NULL;
+    header->size = new_size;
+    return header + 1;
+}
+
+static void yyjson_deallocate(void *user_data, void *pointer) {
+    SlophYyjsonAllocator *adapter = user_data;
+    SlophYyjsonHeader *header;
+    size_t total;
+    if (pointer == NULL) return;
+    header = (SlophYyjsonHeader *)pointer - 1;
+    if (!sloph_size_add(sizeof(*header), header->size, &total)) return;
+    adapter->allocator.deallocate(adapter->allocator.user_data, header, total);
+}
+
+void sloph_yyjson_allocator_init(SlophYyjsonAllocator *adapter,
+                                 const SlophContext *context) {
+    if (adapter == NULL || context == NULL) return;
+    adapter->allocator = *sloph_context_allocator(context);
+    adapter->interface.ctx = adapter;
+    adapter->interface.malloc = yyjson_allocate;
+    adapter->interface.realloc = yyjson_resize;
+    adapter->interface.free = yyjson_deallocate;
+}
+
 void sloph_buffer_init(SlophBuffer *buffer, SlophContext *context,
                        size_t max_bytes) {
     if (buffer == NULL) return;
@@ -105,7 +158,8 @@ unsigned char *sloph_buffer_take(SlophBuffer *buffer, size_t *out_length,
 void sloph_arena_init(SlophArena *arena, SlophContext *context,
                       size_t max_bytes, size_t block_size) {
     if (arena == NULL) return;
-    arena->context = context;
+    memset(&arena->allocator, 0, sizeof(arena->allocator));
+    if (context != NULL) arena->allocator = *sloph_context_allocator(context);
     arena->head = NULL;
     arena->allocated_bytes = 0u;
     arena->max_bytes = max_bytes;
@@ -115,8 +169,8 @@ void sloph_arena_init(SlophArena *arena, SlophContext *context,
 void sloph_arena_destroy(SlophArena *arena) {
     const SlophAllocator *allocator;
     SlophArenaBlock *block;
-    if (arena == NULL || arena->context == NULL) return;
-    allocator = sloph_context_allocator(arena->context);
+    if (arena == NULL || arena->allocator.deallocate == NULL) return;
+    allocator = &arena->allocator;
     block = arena->head;
     while (block != NULL) {
         SlophArenaBlock *next = block->next;
@@ -141,7 +195,7 @@ SlophStatus sloph_arena_allocate(SlophArena *arena, size_t size,
     size_t capacity;
     size_t allocation_size;
     uintptr_t address;
-    if (arena == NULL || arena->context == NULL || out_pointer == NULL ||
+    if (arena == NULL || arena->allocator.allocate == NULL || out_pointer == NULL ||
         size == 0u || !valid_alignment(alignment) || alignment > _Alignof(max_align_t))
         return SLOPH_STATUS_INVALID_ARGUMENT;
     *out_pointer = NULL;
@@ -164,7 +218,7 @@ SlophStatus sloph_arena_allocate(SlophArena *arena, size_t size,
         !sloph_size_add(offsetof(SlophArenaBlock, data), capacity,
                         &allocation_size))
         return SLOPH_STATUS_LIMIT_EXCEEDED;
-    allocator = sloph_context_allocator(arena->context);
+    allocator = &arena->allocator;
     block = allocator->allocate(allocator->user_data, allocation_size);
     if (block == NULL) return SLOPH_STATUS_OUT_OF_MEMORY;
     block->next = arena->head;

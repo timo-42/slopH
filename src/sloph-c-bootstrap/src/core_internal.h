@@ -157,6 +157,7 @@ typedef struct {
 } SlophCoreForeignBinding;
 
 struct SlophCoreUnit {
+    SlophAllocator allocator;
     int version;
     SlophCoreEnum *types;
     size_t type_count;
@@ -169,6 +170,8 @@ struct SlophCoreUnit {
 
 void sloph_core_type_destroy(SlophCoreType *type);
 void sloph_core_expr_destroy(SlophCoreExpr *expression);
+SlophStatus sloph_core_adopt_allocator(SlophContext *context,
+                                       SlophCoreUnit **unit);
 
 /* Implemented by the validation/evaluation slice. */
 SlophStatus sloph_core_validate(SlophContext *context, SlophCoreUnit *unit);

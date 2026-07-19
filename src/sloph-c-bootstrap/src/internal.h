@@ -2,6 +2,7 @@
 #define SLOPH_INTERNAL_H
 
 #include "sloph/context.h"
+#include "yyjson.h"
 
 #include <stdbool.h>
 
@@ -25,7 +26,7 @@ unsigned char *sloph_buffer_take(SlophBuffer *buffer, size_t *out_length,
 
 typedef struct SlophArenaBlock SlophArenaBlock;
 typedef struct SlophArena {
-    SlophContext *context;
+    SlophAllocator allocator;
     SlophArenaBlock *head;
     size_t allocated_bytes;
     size_t max_bytes;
@@ -42,5 +43,16 @@ SlophStatus sloph_arena_copy_string(SlophArena *arena, const char *source,
 
 bool sloph_size_add(size_t left, size_t right, size_t *out_value);
 bool sloph_size_multiply(size_t left, size_t right, size_t *out_value);
+
+/* yyjson's free callback does not carry a size. This adapter prefixes each
+ * allocation with its size so a SlophAllocator can still receive the exact
+ * allocation size required by its contract. */
+typedef struct SlophYyjsonAllocator {
+    SlophAllocator allocator;
+    yyjson_alc interface;
+} SlophYyjsonAllocator;
+
+void sloph_yyjson_allocator_init(SlophYyjsonAllocator *adapter,
+                                 const SlophContext *context);
 
 #endif

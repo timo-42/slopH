@@ -1,6 +1,8 @@
 #include "core_internal.h"
+#include "sloph/context.h"
 
 #include <stdlib.h>
+#include <string.h>
 
 static void string_array_destroy(char **items, size_t count) {
     size_t i;
@@ -100,7 +102,9 @@ void sloph_core_expr_destroy(SlophCoreExpr *expression) {
 
 void sloph_core_free(SlophCoreUnit *unit) {
     size_t i, j, k;
+    SlophAllocator allocator;
     if (unit == NULL) return;
+    allocator = unit->allocator;
     for (i = 0; i < unit->type_count; ++i) {
         SlophCoreEnum *type = &unit->types[i];
         free(type->name);
@@ -139,5 +143,24 @@ void sloph_core_free(SlophCoreUnit *unit) {
         free(binding->facts); free(binding->provenance);
     }
     free(unit->foreign_bindings);
-    free(unit);
+    if (allocator.deallocate != NULL)
+        allocator.deallocate(allocator.user_data, unit, sizeof(*unit));
+    else
+        free(unit);
+}
+
+SlophStatus sloph_core_adopt_allocator(SlophContext *context,
+                                       SlophCoreUnit **unit) {
+    const SlophAllocator *allocator;
+    SlophCoreUnit *adopted;
+    if (context == NULL || unit == NULL || *unit == NULL)
+        return SLOPH_STATUS_INVALID_ARGUMENT;
+    allocator = sloph_context_allocator(context);
+    adopted = allocator->allocate(allocator->user_data, sizeof(*adopted));
+    if (adopted == NULL) return SLOPH_STATUS_OUT_OF_MEMORY;
+    memcpy(adopted, *unit, sizeof(*adopted));
+    adopted->allocator = *allocator;
+    free(*unit);
+    *unit = adopted;
+    return SLOPH_STATUS_OK;
 }
