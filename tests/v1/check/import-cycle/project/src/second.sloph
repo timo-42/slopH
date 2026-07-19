@@ -1,0 +1,5 @@
+module cycle::second;
+
+import cycle::first::{first};
+
+public const second: Int { first }

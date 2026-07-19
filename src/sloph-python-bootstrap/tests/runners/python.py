@@ -12,7 +12,7 @@ REQUIRED = {"format", "name", "kind", "input", "expect-exit"}
 OPTIONAL = {"symbol", "fuel", "expect-output", "expect-diagnostics"}
 KINDS = {
     "core-check", "core-print", "core-eval", "core-run", "source-check", "source-format",
-    "source-ast", "source-core", "source-run",
+    "source-ast", "source-core", "source-run", "v1-check", "v1-format", "v1-run",
 }
 
 
@@ -99,7 +99,8 @@ def discover(root: Path) -> list[Case]:
 
 def run(case: Case) -> Outcome:
     kind = case.fields["kind"]
-    prefix = [sys.executable, "-m", "sloph", "--diagnostics", "jsonl", "unstable"]
+    stable = [sys.executable, "-m", "sloph", "--diagnostics", "jsonl"]
+    prefix = [*stable, "unstable"]
     input_path = str(case.path("input"))
     if kind in {"core-check", "core-print", "core-eval"}:
         action = {"core-check": "check", "core-print": "print", "core-eval": "eval"}[kind]
@@ -116,6 +117,12 @@ def run(case: Case) -> Outcome:
         command = [*prefix, "core", "print", input_path, "--input-format", "source"]
     elif kind == "source-run":
         command = [*prefix, "run", input_path]
+    elif kind == "v1-check":
+        command = [*stable, "check", input_path]
+    elif kind == "v1-format":
+        command = [*stable, "format", input_path, "--stdout"]
+    elif kind == "v1-run":
+        command = [*stable, "run", input_path]
     else:
         raise AssertionError(kind)
     if kind == "core-eval":
