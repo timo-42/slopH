@@ -1,6 +1,7 @@
 # Experimental Source v0
 
-Source v0 is the first authored SlopH syntax. It is a deliberately first-order,
+Source v0 is the first authored SlopH syntax. It is a historical,
+deliberately first-order,
 fully annotated profile that lowers exactly to [Core v0](./CORE_V0.md). It
 exists to test parsing, modules, inspection, elaboration, and native output; it
 does not settle the final surface language.
@@ -18,9 +19,11 @@ A project contains `sloph.json`:
 }
 ```
 
-These four fields are required and no others are accepted. `package` is one
-lowercase ASCII identifier. `source-root` is a normalized relative directory.
-`entry` is a fully qualified data value in the package.
+The manifest is strict JSON format 1. These four fields are required and no
+others are accepted; malformed JSON, duplicate keys, wrong value types, and an
+unsupported `format` are errors. `package` is one lowercase ASCII identifier.
+`source-root` is a normalized relative directory that cannot escape the
+project. `entry` is a fully qualified data value in the package.
 
 Every `.sloph` file below the source root is a module. The mapping is fixed:
 `src/foo/bar.sloph` in package `demo` declares `demo::foo::bar`. The declaration

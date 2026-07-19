@@ -28,12 +28,13 @@ Before editing code:
    every dependency milestone's `EVIDENCE.md` if present.
 2. Run `git status --short`. Existing modifications belong to the user unless
    the active task explicitly identifies them. Never discard or overwrite them.
-3. Run the narrow baseline tests for the component and the full Python bootstrap
-   suite when practical:
+3. Run the narrow baseline tests for the component and the authoritative C11
+   compiler suite when practical:
 
    ```text
-   uv run --no-project --directory src/sloph-python-bootstrap \
-     python -m unittest discover -s tests -t .
+   make test
+   make cases
+   make smoke
    ```
 
 4. Record pre-existing failures. Do not claim that the milestone introduced or
@@ -74,7 +75,7 @@ or cleanly reverted before starting the next one.
   the evaluator supports the behavior.
 - Every platform-specific behavior needs availability diagnostics on unsupported
   targets.
-- Test expectations must not mention Python class names, private optimizer
+- Test expectations must not mention host-language class/structure names, private optimizer
   passes, temporary file names, addresses, clocks, or nondeterministic ordering.
 
 ## Portable Versus Private Tests

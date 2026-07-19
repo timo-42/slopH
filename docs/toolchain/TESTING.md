@@ -3,15 +3,15 @@
 This document defines the test architecture for the language, Core, compiler,
 backends, and future bootstrap chain.
 
-The normative test corpus is implementation-neutral. The first Python
-compiler, the later self-hosted compiler, and the future reproducible bootstrap
-compiler must consume the same applicable test cases. Python tests alone do not
-define language behavior.
+The normative test corpus is implementation-neutral. The authoritative C11
+compiler, a later self-hosted compiler, and the future reproducible-bootstrap
+compiler must consume the same applicable test cases. Removed implementation
+tests do not define language behavior.
 
 ## Principles
 
 - Organize tests by stable specification boundary rather than compiler module.
-- Store shared cases as data and source files, never executable Python code.
+- Store shared cases as data and source files, never executable adapter code.
 - Run the same applicable cases through every compiler implementation.
 - Keep tests of private implementation details separate from conformance tests.
 - Make failures identify the first boundary at which behavior diverges.
@@ -51,7 +51,7 @@ sloph run
 
 Shared cases live under `tests/core/**/case.test`,
 `tests/source/**/case.test`, and `tests/v1/**/case.test`. They are data, not
-Python test programs, and use these exact manifest keys:
+executable test programs, and use these exact case keys:
 
 ```text
 format: 0
@@ -93,14 +93,13 @@ relative to the case directory. Golden output is compared as exact UTF-8 text;
 the runner does not normalize different Core forms or diagnostics into
 equality.
 
-The temporary Python adapter is
-`tests/implementation/python/runners/python.py`. Python-bootstrap-specific
-tests and shared cases run together from the component directory with:
+The authoritative adapter and implementation-specific C tests run through the
+root Makefile:
 
 ```text
-uv run --no-project --directory src/sloph-python-bootstrap \
-  python -m unittest discover \
-  -s ../../tests/implementation/python -t ../../tests/implementation/python
+make test
+make cases
+make smoke
 ```
 
 Bundled-library behavior is tested beside each library rather than through a
@@ -108,12 +107,17 @@ compiler implementation's unit tests. Each source module has an independently
 compilable project under that library's `tests/` directory, using the source
 module's filename. The project prints deterministic results to standard output,
 and its library test runner compares those bytes exactly with `expected.txt`.
-Run all bundled-library tests against the hosted bootstrap with:
+Run all bundled-library tests against the authoritative compiler with:
 
 ```text
-uv run --no-project --directory src/sloph-python-bootstrap \
-  ../libraries/run-tests.sh python -m sloph
+make cases
 ```
+
+`make cases` runs every portable and library suite; `make check` composes unit,
+portable, library, and stage-smoke gates; `make sanitize` runs the C unit and
+CLI tests with AddressSanitizer and UndefinedBehaviorSanitizer. Individual
+`core-cases`, `source-cases`, `native-cases`, and `library-cases` targets remain
+available in `src/sloph-c-bootstrap/Makefile` for narrow work.
 
 Core cases cover text parsing, validation, canonical printing, evaluation,
 resource limits, diagnostics, and CLI behavior. Source cases use either a
@@ -343,9 +347,8 @@ case must not become the only test of a language or Core behavior.
 
 ### Implementation-Specific Tests
 
-Tests under `tests/implementation/python/` may inspect private Python classes,
-helpers, caches, or algorithms. They may use Python's test framework and are
-not consumed by the self-hosted compiler or later bootstrap stages.
+Tests under `src/sloph-c-bootstrap/tests/` may inspect private C structures and
+helpers. The adapters under `tests/implementation/c/` run the portable corpus.
 
 Equivalent self-hosted implementation tests may later live in a separate
 implementation-specific directory. They cannot change the expected results of
@@ -353,9 +356,10 @@ the shared suites.
 
 ## Portable Case Format
 
-Every shared case is a directory containing a small `case.test` manifest and
-referenced input or expected-output files. No shared case imports Python or
-executes arbitrary host code.
+Every shared case is a directory containing a small `case.test` descriptor and
+referenced input or expected-output files. No shared case executes arbitrary
+host code. This bounded line format is a test-harness protocol, not a package
+manifest; projects use strict `sloph.json` format 1.
 
 Illustrative runtime case:
 
@@ -379,7 +383,7 @@ expect-stdout: stdout.txt
 expect-stderr: stderr.txt
 ```
 
-The manifest is deliberately simpler than TOML, YAML, or general JSON:
+The test descriptor is deliberately smaller than a package manifest:
 
 - UTF-8 text;
 - one `key: value` field per line;
@@ -394,9 +398,9 @@ The manifest is deliberately simpler than TOML, YAML, or general JSON:
 The complete cross-profile key catalog and escaping rules remain to be
 specified. The implemented v0 subset is fixed in
 [Experimental v0 Test Profile](#experimental-v0-test-profile). Any
-future additions must remain small enough to implement in Python, the
-self-hosted language, B0, or Bootstrap Core without a general-purpose data
-format dependency.
+future additions must remain small enough to implement in C, the self-hosted
+language, B0, or Bootstrap Core without a general-purpose data-format
+dependency.
 
 ## Shared Runners
 
@@ -405,7 +409,7 @@ A runner adapts one compiler implementation to the shared case protocol:
 ```text
 shared case data
        |
-       +-> Python runner ------> Python compiler libraries
+       +-> C runner -----------> authoritative C compiler libraries
        |
        +-> self-hosted runner -> self-hosted compiler libraries
        |
@@ -446,7 +450,7 @@ Golden outputs are used only at stable public boundaries:
 
 Golden output may not expose:
 
-- Python object representations;
+- implementation-private object representations;
 - hash-map iteration order;
 - temporary or absolute paths;
 - compiler-private optimizer passes;
@@ -491,7 +495,7 @@ Shared tests run with:
 - bounded time, memory, expansion, recursion, and output sizes.
 
 The same canonical test must produce the same target-independent artifacts
-under the Python and self-hosted implementations. Bootstrap-profile equality is
+under the C and future self-hosted implementations. Bootstrap-profile equality is
 required for every construct in that profile.
 
 ## Admission Rule

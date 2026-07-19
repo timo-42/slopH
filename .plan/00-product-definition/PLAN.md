@@ -67,7 +67,7 @@ Define commands and inputs for:
 - a deep dependency/interface edit; and
 - two or more independent worktrees building concurrently.
 
-Record OS, architecture, CPU, memory, Python, `uv`, C compiler, command, wall
+Record OS, architecture, CPU, memory, C compiler, `make`, command, wall
 time, peak memory where available, case count, and cache state in `BASELINE.md`.
 Do not present one machine's numbers as final budgets; they are the reproducible
 starting point used to approve budgets.

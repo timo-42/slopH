@@ -32,9 +32,10 @@ targets.
   Source v0 remains an experiment and carries no compatibility promise.
 - **Core:** the canonical typed Core serialization named by the v1 profile.
   Core v0 remains an experimental test vehicle.
-- **Toolchain:** the hosted Python bootstrap (`src/sloph-python-bootstrap`)
-  exposed through one `sloph` command, until the self-hosted compiler replaces
-  it at roadmap milestone 10. Requires Python 3.11+ and a host C11 compiler.
+- **Toolchain:** the authoritative hosted C11 compiler
+  (`src/sloph-c-bootstrap`), exposed through one `sloph` command. It requires a
+  host C11 compiler, `make`, `ar`, and the platform linker. Python is not a
+  build or runtime dependency.
 
 ## Host and Target Matrix
 
@@ -47,10 +48,12 @@ behavior.
 
 The supported commands are `sloph check`, `sloph format`, `sloph compile`, and
 `sloph run` over a `sloph.json` project, plus test execution via the
-repository's documented commands. Inspection (`ast`/`core` printing) is
-supported for the current profile under `sloph unstable` until the CLI is
-stabilized. Artifacts are native executables and canonical Core text; both
-must be deterministic for identical inputs.
+repository's Make targets. Public `ast` and `core` inspection commands expose
+the current representations. The explicit stage commands are
+`canopy-to-crown`, `crown-to-heartwood`, and `heartwood-to-timber`. Artifacts
+are Crown AST JSON, canonical Heartwood Core, Timber C11, and native
+executables; deterministic representations must be byte-identical for
+identical inputs.
 
 ## Compatibility Promises
 
@@ -79,8 +82,9 @@ must be deterministic for identical inputs.
 
 Effectful host access flows through effect-tracked standard-library APIs over
 the reviewed [POSIX boundary](toolchain/POSIX_BOUNDARY.md). Native provider
-metadata names only local reviewed `.c` and `.S` inputs, which are compiled
-and linked directly without executing dependency scripts.
+metadata is strict `provider.json` format 1 and names only local reviewed `.c`
+and `.S` inputs. Those sources are compiled and linked directly without
+executing dependency scripts, loading shared providers, or adding rpaths.
 
 ## Definition of Self-Hosting
 

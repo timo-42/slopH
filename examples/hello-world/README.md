@@ -6,13 +6,14 @@ returns a successful process result.
 Run it from the repository root:
 
 ```text
-sloph run examples/hello-world
+make
+src/sloph-c-bootstrap/build/bin/sloph run examples/hello-world
 ```
 
 Or compile and execute a native program:
 
 ```text
-sloph compile examples/hello-world -o hello
+src/sloph-c-bootstrap/build/bin/sloph compile examples/hello-world -o hello
 ./hello
 ```
 

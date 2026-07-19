@@ -2,7 +2,8 @@ CC ?= cc
 AR ?= ar
 ARFLAGS = rcs
 CPPFLAGS += -Iinclude -Ivendor/yyjson -D_POSIX_C_SOURCE=200809L
-CPPFLAGS += -DSLOPH_LIBRARIES_ROOT=\"$(abspath ../libraries)\"
+SLOPH_LIBRARIES_ROOT ?= $(abspath ../libraries)
+CPPFLAGS += -DSLOPH_LIBRARIES_ROOT=\"$(SLOPH_LIBRARIES_ROOT)\"
 CFLAGS ?= -O2
 STRICT_CFLAGS = -std=c11 -Wall -Wextra -Werror -pedantic
 

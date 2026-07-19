@@ -14,7 +14,7 @@ For this roadmap, SlopH is a proper language when milestone 10 is complete:
 
 - the V1 source language and canonical Core have stable, compact semantics;
 - ordinary command-line tools, services, and libraries can be written without
-  private compiler facilities or Python helper code;
+  private compiler facilities or host-language helper code;
 - clean and incremental builds satisfy the feedback-latency requirements;
 - observable behavior is defined by an implementation-neutral conformance
   corpus shared by every compiler;

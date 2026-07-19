@@ -6,7 +6,8 @@ command-line interface defined by the [product contract](../docs/PRODUCT.md). St
 Run an example from the repository root:
 
 ```text
-sloph run examples/hello-world
+make
+src/sloph-c-bootstrap/build/bin/sloph run examples/hello-world
 ```
 
 ## Example contract

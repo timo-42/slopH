@@ -25,11 +25,10 @@ sloph crown-to-heartwood
 sloph heartwood-to-timber
 ```
 
-The `unstable` command group also exposes these names while the bootstrap is
-being replaced. The names state the boundary being inspected. They are
-preferable to a generic `transform`, `lower`, or `compile` command when
-exposing an individual stage.
-The stable project-level commands may still compose these transforms behind
+These are public commands of the authoritative C11 compiler. The names state
+the boundary being inspected and are preferable to a generic `transform` or
+`lower` command when exposing an individual stage. Project-level commands
+compose these transforms behind
 operations such as `check`, `compile`, and `run`.
 
 The complete representation pipeline is:

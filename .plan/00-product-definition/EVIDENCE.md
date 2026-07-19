@@ -1,5 +1,9 @@
 # Milestone 00 Evidence
 
+Status: historical evidence for the removed Python implementation. Commands
+below record what was executed at the named commit; they are not current usage
+instructions.
+
 Working-tree description: branch `milestone-00-product-definition`, based on
 `6220be9` ("Separate SlopH and Core library layers").
 

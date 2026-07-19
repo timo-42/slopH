@@ -1,24 +1,24 @@
-# Experimental First-Order C11 Backend
+# Portable C11 Backend
 
-This backend produces the first native SlopH executables on macOS ARM64 and
-Linux AMD64. It consumes validated Core v0, emits C11 directly, and invokes the
-host C compiler. It is a portability bridge, not the final native backend and
-not part of language semantics.
+This backend produces native SlopH executables on macOS ARM64 and Linux AMD64.
+It consumes validated Heartwood Core v0 through v3, emits deterministic Timber
+C11, and invokes the host C compiler. It is a portability bridge and not part
+of language semantics.
 
-## Accepted Core profile
+## Accepted Core profiles
 
-- The selected entry is an `Int` or named data global.
-- Top-level functions are direct lambda chains with data parameters and data
-  results.
-- Every application directly targets one top-level function and is saturated.
-- Data globals, exact integers, lets, integer primitives, constructors, and
-  exhaustive cases are supported.
-- Higher-order parameters, function results, partial or excess applications,
-  dynamic calls, nested lambdas, captured closures, and function entry points
-  are rejected with `backend.c11.*` diagnostics.
-
-This is a profile restriction only. Core v0 continues to represent unary
-functions and closures for its reference evaluator.
+- Core v0 data globals and the Source v0 compatibility entry contract remain
+  supported.
+- Core v2/v3 type abstractions and applications are validated and erased for
+  the uniform boxed runtime representation.
+- Functions are runtime values. Higher-order parameters and results, partial
+  application, dynamic calls, nested lambdas, and captured closures are
+  supported by closure conversion.
+- Exact integers, bytes, lets, typed applications, constructors, exhaustive
+  cases, intrinsics, ownership forms, and selected foreign bindings are
+  supported.
+- Source v1 command projects use the manifest-selected `Exit`-returning entry
+  function and the reviewed native-provider boundary.
 
 ## Direct lowering and runtime
 
@@ -68,6 +68,7 @@ affect them. Compilation uses temporary files and atomically installs the final
 executable. C compiler failures and timeouts are structured environment
 diagnostics.
 
-The executable accepts no arguments and prints the manifest-selected or
-explicitly selected Core data value. Effects and the final application entry
-ABI remain deferred to Core v1.
+Core v0 compatibility executables print the selected canonical data value.
+Source v1 command executables run the manifest-selected application entry and
+translate its `Exit` value into the process result. Host effects are available
+only through selected, typed foreign bindings.

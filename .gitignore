@@ -1,11 +1,3 @@
-__pycache__/
-*.py[cod]
-*.egg-info/
-.pytest_cache/
-.mypy_cache/
-.coverage
 build/
-dist/
-.venv/
-src/libraries/syscall/src/posix/linux/amd64/libsloph_syscall.so
-src/libraries/syscall/src/posix/darwin/arm64/libsloph_syscall.dylib
+*.dSYM/
+.DS_Store
