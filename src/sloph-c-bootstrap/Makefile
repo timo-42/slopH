@@ -2,6 +2,7 @@ CC ?= cc
 AR ?= ar
 ARFLAGS = rcs
 CPPFLAGS += -Iinclude -Ivendor/yyjson -D_POSIX_C_SOURCE=200809L
+CPPFLAGS += -DSLOPH_LIBRARIES_ROOT=\"$(abspath ../libraries)\"
 CFLAGS ?= -O2
 STRICT_CFLAGS = -std=c11 -Wall -Wextra -Werror -pedantic
 
@@ -16,9 +17,10 @@ LIBRARY_SOURCES := $(filter-out src/cli.c,$(wildcard src/*.c)) vendor/yyjson/yyj
 LIBRARY_OBJECTS := $(patsubst %.c,$(OBJECT_DIR)/%.o,$(LIBRARY_SOURCES))
 TEST_SOURCES := $(wildcard tests/test_*.c)
 TEST_BINARIES := $(patsubst tests/%.c,$(TEST_DIR)/%,$(TEST_SOURCES))
+CLI_TESTS := $(wildcard tests/test_*.sh)
 DEPENDENCIES := $(LIBRARY_OBJECTS:.o=.d)
 
-.PHONY: all clean core-cases test sanitize
+.PHONY: all clean core-cases source-cases cases test sanitize
 
 all: $(LIBRARY) $(COMPILER)
 
@@ -40,10 +42,19 @@ $(TEST_DIR)/%: tests/%.c $(LIBRARY)
 
 test: all $(TEST_BINARIES)
 	@set -e; for test_binary in $(TEST_BINARIES); do $$test_binary; done
+	@set -e; for test_script in $(CLI_TESTS); do \
+		SLOPH_C_COMPILER="$(abspath $(COMPILER))" $$test_script; \
+	done
 
 core-cases: all
 	SLOPH_C_COMPILER="$(abspath $(COMPILER))" \
 		../../tests/implementation/c/run-core-cases.sh
+
+source-cases: all
+	SLOPH_C_COMPILER="$(abspath $(COMPILER))" \
+		../../tests/implementation/c/run-source-cases.sh
+
+cases: core-cases source-cases
 
 sanitize:
 	$(MAKE) BUILD_DIR=build/sanitize \
