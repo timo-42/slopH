@@ -250,8 +250,8 @@ static SlophCoreType *decode_type(Parser *p, Sx *node) {
         offset = node->count == 4 ? 2 : 1;
         type->as.function.mode = node->count == 4 ? copy_atom(p, node->items[1], "parameter mode") : copy_c_string("own");
         if (type->as.function.mode == NULL) p->status = SLOPH_STATUS_OUT_OF_MEMORY;
-        if (type->as.function.mode != NULL && strcmp(type->as.function.mode, "own") && strcmp(type->as.function.mode, "borrow"))
-            diagnostic(p, "core.parse.parameter_mode", "parameter mode must be own or borrow", node->items[1]->span);
+        if (type->as.function.mode != NULL && strcmp(type->as.function.mode, "own") && strcmp(type->as.function.mode, "borrow") && strcmp(type->as.function.mode, "borrow-mut"))
+            diagnostic(p, "core.parse.parameter_mode", "parameter mode must be own, borrow, or borrow-mut", node->items[1]->span);
         if (p->status == SLOPH_STATUS_OK) type->as.function.parameter = decode_type(p, node->items[offset]);
         if (p->status == SLOPH_STATUS_OK) type->as.function.result = decode_type(p, node->items[offset + 1]);
     } else if (strcmp(node->items[0]->atom, "forall") == 0) {
@@ -275,8 +275,8 @@ static int decode_binder(Parser *p, Sx *node, SlophCoreBinder *out) {
     if (node->count == 4) offset = 2;
     out->mode = node->count == 4 ? copy_atom(p, node->items[1], "binder mode") : copy_c_string("own");
     if (out->mode == NULL) p->status = SLOPH_STATUS_OUT_OF_MEMORY;
-    if (out->mode != NULL && strcmp(out->mode, "own") && strcmp(out->mode, "borrow")) {
-        diagnostic(p, "core.parse.parameter_mode", "binder mode must be own or borrow", node->items[1]->span); return 0;
+    if (out->mode != NULL && strcmp(out->mode, "own") && strcmp(out->mode, "borrow") && strcmp(out->mode, "borrow-mut")) {
+        diagnostic(p, "core.parse.parameter_mode", "binder mode must be own, borrow, or borrow-mut", node->items[1]->span); return 0;
     }
     out->name = copy_atom(p, node->items[offset], "binder name");
     if (p->status == SLOPH_STATUS_OK) out->type = decode_type(p, node->items[offset + 1]);
