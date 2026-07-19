@@ -1,12 +1,12 @@
 module memory_case::main;
 
-import memory::{AllocationError, Allocator, allocate, capacity, drop, system};
+import memory::{AllocationError, Block, allocate, capacity, drop};
 
-fn invalid(allocator: borrow Allocator) -> Result[Int, AllocationError] {
-  let buffer = allocate(allocator, 64)?;
-  defer drop(buffer);
-  defer drop(buffer);
-  Result::Ok[Int, AllocationError](capacity(buffer))
+fn invalid() -> Result[Int, AllocationError] {
+  let block = allocate(64)?;
+  defer drop(block);
+  defer drop(block);
+  Result::Ok[Int, AllocationError](capacity(block))
 }
 
-const main: Result[Int, AllocationError] { invalid(system()) }
+const main: Result[Int, AllocationError] { invalid() }

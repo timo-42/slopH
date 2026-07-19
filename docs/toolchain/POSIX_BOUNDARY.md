@@ -37,16 +37,13 @@ The complete generated C runtime still depends on libc. This boundary only
 makes descriptor I/O target-specific and keeps raw kernel details out of Core
 and ordinary packages.
 
-Virtual-memory acquisition uses a separate provider selected by
-`syscall::memory`, so descriptor-only programs do not link page operations.
-Linux and macOS providers expose reviewed `mmap`/`munmap` adapters. Generated C
-stores mapped addresses in a private token registry; Source sees only checked
-integer tokens wrapped by the owned `syscall::memory::Page` type. The ordinary
-`memory` library implements the initial page-per-allocation `Allocator` and
-`Buffer` policy and requires visible `defer memory::drop(buffer);` cleanup.
-Allocator policy is not a Core primitive. Foreign provider functions are
-package-internal imports, preventing applications from bypassing the checked
-`syscall::memory` wrapper with forged tokens.
+Explicit byte storage is no longer part of the syscall-provider boundary.
+Core defines an opaque owned `Block` capability and privileged allocation,
+bounded access, copy, and release primitives. Timber implements those
+primitives with the portable C allocator and a separate 256 MiB active-block
+budget. Source cannot observe or forge an address. The public `memory` package
+re-exports the capability and checked operations, while syscall providers are
+limited to services that actually require platform-specific bindings.
 
 ## Binding metadata and capabilities
 

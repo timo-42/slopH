@@ -36,7 +36,7 @@ for description in $(find "$repository/tests/core/native" \
             expect-diagnostics) expected_diagnostics=$value ;;
         esac
     done < "$description"
-    case "$kind" in core-run|source-run|v1-run|v1-native) ;; *) continue ;; esac
+    case "$kind" in core-run|core-native|source-run|v1-run|v1-native) ;; *) continue ;; esac
     case_dir=$(dirname "$description")
     input_path=$case_dir/$input
     stdout_file=$temporary/stdout
@@ -61,6 +61,13 @@ for description in $(find "$repository/tests/core/native" \
             if [ "$actual_exit" = 0 ] && ! cmp -s "$reference" "$stdout_file"; then
                 printf '%s\n' 'native output differs from the Core reference evaluator' >"$stderr_file"
                 actual_exit=1
+            fi ;;
+        core-native)
+            (cd "$case_dir" && "$compiler" --diagnostics jsonl unstable compile \
+                "$input_path" --input-format text --symbol "$symbol" -o "$executable") \
+                >"$stdout_file" 2>"$stderr_file" || actual_exit=$?
+            if [ "$actual_exit" = 0 ]; then
+                (cd "$case_dir" && "$executable") >"$stdout_file" 2>"$stderr_file" || actual_exit=$?
             fi ;;
         source-run)
             (cd "$case_dir" && "$compiler" --diagnostics jsonl unstable run "$input_path") \

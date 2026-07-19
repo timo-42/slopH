@@ -1,1 +1,0 @@
-{"bindings":"bindings.json","format":1,"module":"syscall::memory::linux::amd64","sources":["memory.c"]}

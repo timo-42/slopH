@@ -1,1 +1,1 @@
-{"dependencies":["syscall"],"format":0,"package":"memory"}
+{"dependencies":["core"],"format":0,"package":"memory"}

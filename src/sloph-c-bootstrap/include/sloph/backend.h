@@ -11,7 +11,7 @@ extern "C" {
  * C11 translation unit (Timber). The selected symbol is either printable data
  * or a process entry with the fixed ABI `sloph::Unit -> os::process::Exit`;
  * that ABI uses Unit::Unit and Exit::{Success,Failure}. Foreign calls use the
- * reviewed borrowed_bytes_write, page_map, and page_unmap adapter ABIs and
+ * reviewed borrowed_bytes_write adapter ABI and
  * their documented Result/error constructors. These names are toolchain ABI,
  * not target- or project-specific conventions. The NUL-terminated result is
  * owned by the caller and must be released with

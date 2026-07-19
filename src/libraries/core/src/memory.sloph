@@ -1,0 +1,28 @@
+module core::memory;
+
+import core::{Block, Int};
+import sloph::{Result, Unit};
+
+public type AllocationError {
+  InvalidSize();
+  LimitExceeded();
+  OutOfMemory();
+}
+
+public type AccessError {
+  OutOfBounds();
+  InvalidByte();
+}
+
+public intrinsic fn allocate(size: Int) -> Result[Block, AllocationError] = memory.allocate;
+public intrinsic fn capacity(block: borrow Block) -> Int = memory.capacity;
+public intrinsic fn read(block: borrow Block, offset: Int) -> Result[Int, AccessError] = memory.read;
+
+// TODO(ownership-lowering): change `block` to `borrow mut Block` when that
+// parameter mode lands in the ownership sequence.
+public intrinsic fn write(block: borrow Block, offset: Int, byte: Int) -> Result[Unit, AccessError] = memory.write;
+
+// TODO(ownership-lowering): change `target` to `borrow mut Block` when that
+// parameter mode lands in the ownership sequence.
+public intrinsic fn copy(source: borrow Block, source_offset: Int, target: borrow Block, target_offset: Int, count: Int) -> Result[Unit, AccessError] = memory.copy;
+public intrinsic fn release(block: Block) -> Unit = memory.release;

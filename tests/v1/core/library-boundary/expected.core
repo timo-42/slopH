@@ -1,15 +1,33 @@
-(core 2
+(core 3
   (types
-    (enum sloph::Bool (params) (ctor sloph::Bool::False) (ctor sloph::Bool::True))
+    (enum core::Block (ownership owned) (params))
+    (enum core::memory::AccessError
+      (ownership copy)
+      (params)
+      (ctor core::memory::AccessError::OutOfBounds)
+      (ctor core::memory::AccessError::InvalidByte))
+    (enum core::memory::AllocationError
+      (ownership copy)
+      (params)
+      (ctor core::memory::AllocationError::InvalidSize)
+      (ctor core::memory::AllocationError::LimitExceeded)
+      (ctor core::memory::AllocationError::OutOfMemory))
+    (enum sloph::Bool
+      (ownership copy)
+      (params)
+      (ctor sloph::Bool::False)
+      (ctor sloph::Bool::True))
     (enum sloph::Option
+      (ownership copy)
       (params Item)
       (ctor sloph::Option::None)
       (ctor sloph::Option::Some (field item (var Item))))
     (enum sloph::Result
+      (ownership copy)
       (params Success Failure)
       (ctor sloph::Result::Ok (field success (var Success)))
       (ctor sloph::Result::Err (field failure (var Failure))))
-    (enum sloph::Unit (params) (ctor sloph::Unit::Unit)))
+    (enum sloph::Unit (ownership copy) (params) (ctor sloph::Unit::Unit)))
   (defs
     (def core::bytes::length
       (fn Bytes Int)
@@ -32,6 +50,61 @@
     (def core::int::to_bytes
       (fn Int Bytes)
       (lam (bind v0 Int) (prim int.to_bytes (local v0))))
+    (def core::memory::allocate
+      (fn Int
+        (apply sloph::Result (named core::Block) (named core::memory::AllocationError)))
+      (lam (bind v0 Int) (prim memory.allocate (local v0))))
+    (def core::memory::capacity
+      (fn borrow (named core::Block) Int)
+      (lam (bind borrow v0 (named core::Block)) (prim memory.capacity (local v0))))
+    (def core::memory::copy
+      (fn borrow
+        (named core::Block)
+        (fn Int
+          (fn borrow
+            (named core::Block)
+            (fn Int
+              (fn Int
+                (apply sloph::Result
+                  (named sloph::Unit)
+                  (named core::memory::AccessError)))))))
+      (lam
+        (bind borrow v0 (named core::Block))
+        (lam
+          (bind v1 Int)
+          (lam
+            (bind borrow v2 (named core::Block))
+            (lam
+              (bind v3 Int)
+              (lam
+                (bind v4 Int)
+                (prim memory.copy
+                  (local v0)
+                  (local v1)
+                  (local v2)
+                  (local v3)
+                  (local v4))))))))
+    (def core::memory::read
+      (fn borrow
+        (named core::Block)
+        (fn Int (apply sloph::Result Int (named core::memory::AccessError))))
+      (lam
+        (bind borrow v0 (named core::Block))
+        (lam (bind v1 Int) (prim memory.read (local v0) (local v1)))))
+    (def core::memory::release
+      (fn (named core::Block) (named sloph::Unit))
+      (lam (bind v0 (named core::Block)) (prim memory.release (local v0))))
+    (def core::memory::write
+      (fn borrow
+        (named core::Block)
+        (fn Int
+          (fn Int
+            (apply sloph::Result (named sloph::Unit) (named core::memory::AccessError)))))
+      (lam
+        (bind borrow v0 (named core::Block))
+        (lam
+          (bind v1 Int)
+          (lam (bind v2 Int) (prim memory.write (local v0) (local v1) (local v2))))))
     (def core::runtime::trap
       (fn Bytes (named sloph::Unit))
       (lam (bind v0 Bytes) (prim runtime.trap (local v0))))

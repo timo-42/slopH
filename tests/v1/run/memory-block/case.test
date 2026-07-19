@@ -1,0 +1,6 @@
+format: 0
+name: v1/run/memory-block
+kind: v1-run
+input: project
+expect-exit: 0
+expect-output: expected.value

@@ -1,5 +1,5 @@
 module memory_case::main;
 
-import memory::{Buffer};
+import memory::{Block};
 
-const main: Buffer { Buffer::Buffer(0, 0, 0) }
+const main: Block { Block::Block() }
