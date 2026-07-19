@@ -61,7 +61,7 @@
       (fn borrow
         (named core::Block)
         (fn Int
-          (fn borrow
+          (fn borrow-mut
             (named core::Block)
             (fn Int
               (fn Int
@@ -73,7 +73,7 @@
         (lam
           (bind v1 Int)
           (lam
-            (bind borrow v2 (named core::Block))
+            (bind borrow-mut v2 (named core::Block))
             (lam
               (bind v3 Int)
               (lam
@@ -95,13 +95,13 @@
       (fn (named core::Block) (named sloph::Unit))
       (lam (bind v0 (named core::Block)) (prim memory.release (local v0))))
     (def core::memory::write
-      (fn borrow
+      (fn borrow-mut
         (named core::Block)
         (fn Int
           (fn Int
             (apply sloph::Result (named sloph::Unit) (named core::memory::AccessError)))))
       (lam
-        (bind borrow v0 (named core::Block))
+        (bind borrow-mut v0 (named core::Block))
         (lam
           (bind v1 Int)
           (lam (bind v2 Int) (prim memory.write (local v0) (local v1) (local v2))))))
