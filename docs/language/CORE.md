@@ -288,6 +288,11 @@ Every primitive needs:
 - validator rules.
 
 The primitive catalog should be reviewable as one compact document or table.
+The current explicit-storage family is `memory.allocate`, `memory.capacity`,
+`memory.read`, `memory.write`, `memory.copy`, and `memory.release`. It operates
+on the constructorless owned nominal type `core::Block`, returns nominal
+allocation/access errors through `Result`, and is rejected by the pure Core
+reference evaluator as runtime-effectful behavior.
 
 ## Ownership in Core
 

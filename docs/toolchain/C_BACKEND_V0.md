@@ -50,9 +50,10 @@ The runtime arena is a temporary implementation policy for pure, process-lived
 Source v0 programs; it does not choose the future ownership model.
 
 The Source v1 ownership slice keeps this arena for boxed runtime nodes while
-owned `memory::Buffer` payloads use separately mapped pages. Those mappings are
-released only by explicit consuming library calls, and the runtime rejects a
-normal process exit with live page tokens.
+owned `memory::Block` payloads use separate zero-initialized C allocations.
+Blocks have a distinct 256 MiB active-byte budget, are released only by an
+explicit consuming call, and are guarded against use after release and double
+release. The runtime rejects normal process exit with live Blocks.
 
 ## Host compilation
 

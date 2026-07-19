@@ -1,0 +1,42 @@
+(core 3
+  (types
+    (enum core::Block (ownership copy) (params))
+    (enum core::memory::AllocationError
+      (ownership copy)
+      (params)
+      (ctor core::memory::AllocationError::InvalidSize)
+      (ctor core::memory::AllocationError::LimitExceeded)
+      (ctor core::memory::AllocationError::OutOfMemory))
+    (enum sloph::Result
+      (ownership copy)
+      (params Success Failure)
+      (ctor sloph::Result::Ok (field success (var Success)))
+      (ctor sloph::Result::Err (field failure (var Failure))))
+    (enum sloph::Unit
+      (ownership copy)
+      (params)
+      (ctor sloph::Unit::Unit))
+    (enum os::process::Exit
+      (ownership copy)
+      (params)
+      (ctor os::process::Exit::Success)
+      (ctor os::process::Exit::Failure (field status Int))))
+  (defs
+    (def example::main
+      (fn (named sloph::Unit) (named os::process::Exit))
+      (lam (bind unit (named sloph::Unit))
+        (case
+          (prim memory.allocate (int 1))
+          (named os::process::Exit)
+          (alt sloph::Result::Ok
+            (bind block (named core::Block))
+            (let
+              (bind first (named sloph::Unit))
+              (prim memory.release (local block))
+              (let
+                (bind second (named sloph::Unit))
+                (prim memory.release (local block))
+                (con os::process::Exit::Success (types)))))
+          (alt sloph::Result::Err
+            (bind error (named core::memory::AllocationError))
+            (con os::process::Exit::Failure (types) (int 1))))))))

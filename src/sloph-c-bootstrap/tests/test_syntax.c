@@ -80,7 +80,7 @@ static void rich_json_roundtrip(void) {
     static const unsigned char source[] =
         "module rich;\n"
         "owned type Box[Item] { Box(item: Item); }\n"
-        "intrinsic type Token;\n"
+        "owned intrinsic type Token;\n"
         "intrinsic fn identity(x: Int) -> Int = int.identity;\n"
         "foreign fn raw(x: Int) -> Int = foreign.raw;\n"
         "fn choose(x: Int) -> Int { defer identity(x); case Bool::True() -> Int {\n"
@@ -90,6 +90,7 @@ static void rich_json_roundtrip(void) {
     SlophSyntaxText first={0},second={0};
     assert(sloph_syntax_parse(ctx,source,sizeof(source)-1u,1u,&parsed)==SLOPH_STATUS_OK);
     assert(sloph_syntax_to_json(ctx,parsed,&first)==SLOPH_STATUS_OK);
+    assert(strstr(first.data,"\"kind\":\"IntrinsicTypeDecl\",\"name\":\"Token\",\"owned\":true")!=NULL);
     assert(sloph_syntax_from_json(ctx,(const unsigned char*)first.data,first.length,1u,&decoded)==SLOPH_STATUS_OK);
     assert(sloph_syntax_to_json(ctx,decoded,&second)==SLOPH_STATUS_OK);
     assert(first.length==second.length&&memcmp(first.data,second.data,first.length)==0);

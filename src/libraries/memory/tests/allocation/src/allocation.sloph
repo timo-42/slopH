@@ -1,19 +1,16 @@
 module memory_test::allocation;
 
-import memory::{AllocationError, Allocator, allocate, capacity, drop, system};
-
-fn allocated_capacity(allocator: borrow Allocator) -> Result[Int, AllocationError] {
-  case allocate(allocator, 123) -> Result[Int, AllocationError] {
-    Result::Ok(buffer) => {
-      defer drop(buffer);
-      Result::Ok[Int, AllocationError](capacity(buffer))
-    }
-    Result::Err(buffer_failure) => {
-      Result::Err[Int, AllocationError](buffer_failure)
-    }
-  }
-}
+import memory::{AllocationError, Block, allocate, capacity, drop};
 
 const main: Result[Int, AllocationError] {
-  allocated_capacity(system())
+  case allocate(123) -> Result[Int, AllocationError] {
+    Result::Ok(block) => {
+      let stored: Int = capacity(block);
+      let released: Unit = drop(block);
+      Result::Ok[Int, AllocationError](stored)
+    }
+    Result::Err(failure) => {
+      Result::Err[Int, AllocationError](failure)
+    }
+  }
 }

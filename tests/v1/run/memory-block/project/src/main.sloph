@@ -1,0 +1,51 @@
+module memory_case::main;
+
+import memory::{AccessError, AllocationError, Block, allocate, capacity, copy, drop, read, write};
+
+type Observations {
+  Observations(
+    zero: Result[Int, AccessError],
+    written: Result[Unit, AccessError],
+    copied: Result[Unit, AccessError],
+    byte: Result[Int, AccessError],
+    bounds: Result[Int, AccessError],
+    invalid_byte: Result[Unit, AccessError],
+    invalid_size: AllocationError,
+    limit: AllocationError
+  );
+}
+
+fn allocation_error(size: Int) -> AllocationError {
+  case allocate(size) -> AllocationError {
+    Result::Ok(block) => {
+      let released: Unit = drop(block);
+      AllocationError::InvalidSize()
+    }
+    Result::Err(error) => { error }
+  }
+}
+
+const main: Result[Observations, AllocationError] {
+  case allocate(4) -> Result[Observations, AllocationError] {
+    Result::Ok(source) => {
+      case allocate(4) -> Result[Observations, AllocationError] {
+        Result::Ok(target) => {
+          let zero: Result[Int, AccessError] = read(source, 1);
+          let written: Result[Unit, AccessError] = write(source, 0, 65);
+          let copied: Result[Unit, AccessError] = copy(source, 0, target, 1, 1);
+          let byte: Result[Int, AccessError] = read(target, 1);
+          let bounds: Result[Int, AccessError] = read(target, 4);
+          let invalid_byte: Result[Unit, AccessError] = write(target, 0, 256);
+          let released_source: Unit = drop(source);
+          let released_target: Unit = drop(target);
+          Result::Ok[Observations, AllocationError](Observations::Observations(
+            zero, written, copied, byte, bounds, invalid_byte,
+            allocation_error(-1), allocation_error(268435457)
+          ))
+        }
+        Result::Err(target_error) => { Result::Err[Observations, AllocationError](target_error) }
+      }
+    }
+    Result::Err(source_error) => { Result::Err[Observations, AllocationError](source_error) }
+  }
+}

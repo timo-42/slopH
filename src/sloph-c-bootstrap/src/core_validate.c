@@ -84,7 +84,34 @@ static SlophStatus wf(Check*c,SlophCoreType*t,SlophCoreSpan s,const char**vars,s
 static SlophCoreType *env_get(Env e,const char*n){size_t i=e.count;while(i){--i;if(!strcmp(e.names[i],n))return e.types[i];}return NULL;}
 static SlophStatus binder(Check*c,SlophCoreBinder*b,const char**vars,size_t n){size_t i;if(!local_id(b->name))return fail(c,"core.validate.local_identity","invalid local identity",b->span);for(i=0;i<c->binder_count;++i)if(!strcmp(c->all_binders[i],b->name))return fail(c,"core.validate.duplicate_local","local binder is reused in one definition",b->span);if(c->binder_count==c->binder_cap){size_t z=c->binder_cap?c->binder_cap*2u:16u;const char**p=(const char**)realloc(c->all_binders,z*sizeof(*p));if(!p)return SLOPH_STATUS_OUT_OF_MEMORY;c->all_binders=p;c->binder_cap=z;}c->all_binders[c->binder_count++]=b->name;return wf(c,b->type,b->span,vars,n);}
 static SlophCoreType tint={.kind=SLOPH_TYPE_INT},tbytes={.kind=SLOPH_TYPE_BYTES},tbool={.kind=SLOPH_TYPE_NAMED,.as.name="sloph::Bool"},tunit={.kind=SLOPH_TYPE_NAMED,.as.name="sloph::Unit"};
-static bool primitive(const char*n,int v,SlophCoreType***p,size_t*c,SlophCoreType**r){static SlophCoreType*i2[]={&tint,&tint},*i1[]={&tint},*b1[]={&tbytes};if(!strcmp(n,"int.add")||!strcmp(n,"int.sub")||!strcmp(n,"int.mul")){*p=i2;*c=2;*r=&tint;return true;}if(!v)return false;if(!strcmp(n,"int.equal")||!strcmp(n,"int.less")){*p=i2;*c=2;*r=&tbool;return true;}if(!strcmp(n,"int.to_bytes")){*p=i1;*c=1;*r=&tbytes;return true;}if(!strcmp(n,"bytes.length")){*p=b1;*c=1;*r=&tint;return true;}if(!strcmp(n,"runtime.trap")){*p=b1;*c=1;*r=&tunit;return true;}return false;}
+static SlophCoreType tblock={.kind=SLOPH_TYPE_NAMED,.as.name="core::Block"};
+static SlophCoreType talloc_error={.kind=SLOPH_TYPE_NAMED,.as.name="core::memory::AllocationError"};
+static SlophCoreType taccess_error={.kind=SLOPH_TYPE_NAMED,.as.name="core::memory::AccessError"};
+static bool primitive(const char*n,int v,SlophCoreType***p,size_t*c,SlophCoreType**r){
+    static SlophCoreType*i2[]={&tint,&tint},*i1[]={&tint},*b1[]={&tbytes};
+    static SlophCoreType*block1[]={&tblock},*block_int[]={&tblock,&tint};
+    static SlophCoreType*block_int_int[]={&tblock,&tint,&tint};
+    static SlophCoreType*copy5[]={&tblock,&tint,&tblock,&tint,&tint};
+    static SlophCoreType*alloc_items[]={&tblock,&talloc_error};
+    static SlophCoreType*read_items[]={&tint,&taccess_error};
+    static SlophCoreType*write_items[]={&tunit,&taccess_error};
+    static SlophCoreType alloc_result={.kind=SLOPH_TYPE_APPLIED,.as.applied={.constructor="sloph::Result",.items=alloc_items,.count=2u}};
+    static SlophCoreType read_result={.kind=SLOPH_TYPE_APPLIED,.as.applied={.constructor="sloph::Result",.items=read_items,.count=2u}};
+    static SlophCoreType write_result={.kind=SLOPH_TYPE_APPLIED,.as.applied={.constructor="sloph::Result",.items=write_items,.count=2u}};
+    if(!strcmp(n,"int.add")||!strcmp(n,"int.sub")||!strcmp(n,"int.mul")){*p=i2;*c=2;*r=&tint;return true;}
+    if(!v)return false;
+    if(!strcmp(n,"int.equal")||!strcmp(n,"int.less")){*p=i2;*c=2;*r=&tbool;return true;}
+    if(!strcmp(n,"int.to_bytes")){*p=i1;*c=1;*r=&tbytes;return true;}
+    if(!strcmp(n,"bytes.length")){*p=b1;*c=1;*r=&tint;return true;}
+    if(!strcmp(n,"runtime.trap")){*p=b1;*c=1;*r=&tunit;return true;}
+    if(!strcmp(n,"memory.allocate")){*p=i1;*c=1;*r=&alloc_result;return true;}
+    if(!strcmp(n,"memory.capacity")){*p=block1;*c=1;*r=&tint;return true;}
+    if(!strcmp(n,"memory.read")){*p=block_int;*c=2;*r=&read_result;return true;}
+    if(!strcmp(n,"memory.write")){*p=block_int_int;*c=3;*r=&write_result;return true;}
+    if(!strcmp(n,"memory.copy")){*p=copy5;*c=5;*r=&write_result;return true;}
+    if(!strcmp(n,"memory.release")){*p=block1;*c=1;*r=&tunit;return true;}
+    return false;
+}
 static SlophStatus infer(Check*,SlophCoreExpr*,Env,const char**,size_t,SlophCoreType**);
 static SlophStatus infer(Check*c,SlophCoreExpr*x,Env e,const char**vars,size_t n,SlophCoreType**out){
     SlophStatus r;SlophCoreType*a,*b;size_t i;

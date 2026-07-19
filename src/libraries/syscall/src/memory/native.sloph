@@ -1,5 +1,0 @@
-module syscall::memory::native;
-
-public type NativeMapError {
-  Native(native_code: Int);
-}

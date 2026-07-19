@@ -123,12 +123,13 @@ static const SlophSyntaxType *infer_source_type(LowerEnv *env,
         resolved = resolve_name(env, target->as.name, 1, target->span,
                                 (const void **)&function);
         if (resolved != NULL && out_module != NULL) {
-            size_t i;
+            size_t i, best = 0u;
             for (i = 0u; i < env->project->module_count; ++i) {
                 size_t prefix = strlen(env->project->modules[i].name);
                 if (strncmp(resolved, env->project->modules[i].name, prefix) == 0 &&
-                    resolved[prefix] == ':' && resolved[prefix + 1u] == ':') {
-                    *out_module = &env->project->modules[i]; break;
+                    resolved[prefix] == ':' && resolved[prefix + 1u] == ':' &&
+                    prefix > best) {
+                    *out_module = &env->project->modules[i]; best = prefix;
                 }
             }
         }
@@ -527,13 +528,14 @@ static SlophCoreType *infer_expr_type(LowerEnv *env,
             SlophSyntaxType applied_arguments;
             if (function == NULL) { free(resolved); return NULL; }
             if (resolved != NULL) {
+                size_t best = 0u;
                 for (i = 0u; i < env->project->module_count; ++i) {
                     size_t prefix = strlen(env->project->modules[i].name);
                     if (strncmp(resolved, env->project->modules[i].name,
                                 prefix) == 0 && resolved[prefix] == ':' &&
-                        resolved[prefix + 1u] == ':') {
+                        resolved[prefix + 1u] == ':' && prefix > best) {
                         function_module = &env->project->modules[i];
-                        break;
+                        best = prefix;
                     }
                 }
             }
@@ -1454,7 +1456,8 @@ static SlophStatus validate_imports(SlophContext *context,
             const SlophSyntaxTypeDecl *type = &module->syntax->types[j];
             if (type->kind == SLOPH_SYNTAX_TYPE_DECL_INTRINSIC &&
                 (!module->bundled || strcmp(module->name, "core") != 0 ||
-                 (strcmp(type->name, "Int") != 0 && strcmp(type->name, "Bytes") != 0))) {
+                 (strcmp(type->name, "Int") != 0 && strcmp(type->name, "Bytes") != 0 &&
+                  strcmp(type->name, "Block") != 0))) {
                 char details[512], message[512];
                 (void)snprintf(details, sizeof(details),
                                "{\"module\":\"%s\",\"type\":\"%s\"}",
@@ -1544,7 +1547,11 @@ SlophStatus sloph_project_elaborate(SlophContext *context,
                 SLOPH_SYNTAX_FUNCTION_FOREIGN) ++foreign_count;
         for (i = 0u; i < project->modules[module_index].syntax->type_count; ++i)
             if (project->modules[module_index].syntax->types[i].kind ==
-                SLOPH_SYNTAX_TYPE_DECL_ENUM) ++type_count;
+                    SLOPH_SYNTAX_TYPE_DECL_ENUM ||
+                (project->modules[module_index].syntax->types[i].kind ==
+                    SLOPH_SYNTAX_TYPE_DECL_INTRINSIC &&
+                 strcmp(project->modules[module_index].syntax->types[i].name,
+                        "Block") == 0)) ++type_count;
     }
     unit = calloc(1u, sizeof(*unit));
     if (unit == NULL) return oom(context);
@@ -1608,7 +1615,11 @@ SlophStatus sloph_project_elaborate(SlophContext *context,
         for (value_index = 0u; value_index < module->syntax->type_count;
              ++value_index) {
             if (module->syntax->types[value_index].kind !=
-                SLOPH_SYNTAX_TYPE_DECL_ENUM) continue;
+                    SLOPH_SYNTAX_TYPE_DECL_ENUM &&
+                !(module->syntax->types[value_index].kind ==
+                    SLOPH_SYNTAX_TYPE_DECL_INTRINSIC &&
+                  strcmp(module->syntax->types[value_index].name,
+                         "Block") == 0)) continue;
             if (lower_enum(&env, &module->syntax->types[value_index],
                            &unit->types[type_index++]) != SLOPH_STATUS_OK) {
                 sloph_core_free(unit); return SLOPH_STATUS_INVALID_ARGUMENT;

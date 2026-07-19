@@ -1,0 +1,7 @@
+format: 0
+name: core/native/block-double-release
+kind: core-native
+input: input.core
+symbol: example::main
+expect-exit: 2
+expect-diagnostics: expected.stderr

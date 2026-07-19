@@ -210,14 +210,6 @@ static SlophStatus validate_foreign_bindings(Emitter *emitter) {
                 type_is(binding->parameters[2], SLOPH_TYPE_INT, NULL) &&
                 type_is(binding->parameters[3], SLOPH_TYPE_INT, NULL) &&
                 result_shape(binding->result, NULL);
-        } else if (strcmp(binding->adapter, "page_map") == 0) {
-            shape = binding->parameter_count == 1u &&
-                type_is(binding->parameters[0], SLOPH_TYPE_INT, NULL) &&
-                result_shape(binding->result, NULL);
-        } else if (strcmp(binding->adapter, "page_unmap") == 0) {
-            shape = binding->parameter_count == 1u &&
-                type_is(binding->parameters[0], SLOPH_TYPE_INT, NULL) &&
-                type_is(binding->result, SLOPH_TYPE_NAMED, "sloph::Unit");
         }
         if (!shape)
             return backend_failure(emitter, "backend.c11.foreign_adapter",
@@ -547,7 +539,7 @@ static bool emit_call(Emitter *emitter, const char *name, size_t result,
 static bool emit_primitive(Emitter *emitter, SlophCoreExpr *expression,
                            const Local *locals, size_t local_count,
                            const char *indent, size_t *out_result) {
-    size_t *values, index, result = new_temporary(emitter);
+    size_t *values, index, result;
     const char *name = expression->as.prim.name;
     SlophCoreForeignBinding *binding;
     values = calloc(expression->as.prim.count != 0u ? expression->as.prim.count : 1u,
@@ -556,6 +548,7 @@ static bool emit_primitive(Emitter *emitter, SlophCoreExpr *expression,
     for (index = 0u; index < expression->as.prim.count; ++index)
         if (!emit_expression(emitter, expression->as.prim.items[index], locals,
                              local_count, indent, &values[index])) { free(values); return false; }
+    result = new_temporary(emitter);
     if (strcmp(name, "bytes.length") == 0) {
         if (!text_printf(&emitter->output,
             "%sif(t%zu->kind!=2u)sl_die(\"bytes.length received non-Bytes value\");\n"
@@ -567,6 +560,72 @@ static bool emit_primitive(Emitter *emitter, SlophCoreExpr *expression,
     } else if (strcmp(name, "runtime.trap") == 0) {
         if (!text_printf(&emitter->output, "%ssl_trap_bytes(t%zu);\n%sSlValue *t%zu=NULL;\n",
                          indent, values[0], indent, result)) goto failed;
+    } else if (strcmp(name, "memory.allocate") == 0) {
+        size_t ok=constructor_id(emitter,"sloph::Result::Ok"),err=constructor_id(emitter,"sloph::Result::Err");
+        size_t invalid=constructor_id(emitter,"core::memory::AllocationError::InvalidSize");
+        size_t limit=constructor_id(emitter,"core::memory::AllocationError::LimitExceeded");
+        size_t oom_tag=constructor_id(emitter,"core::memory::AllocationError::OutOfMemory");
+        emitter->temporary += 6u;
+        if (!text_printf(&emitter->output,
+            "%ssize_t t%zu=0u;SlValue *t%zu=NULL;\n"
+            "%sif(!sl_int_size(t%zu,&t%zu)){SlValue *t%zu=sl_con(%zuu,0u,NULL);SlValue *t%zu[]={t%zu};t%zu=sl_con(%zuu,1u,t%zu);}\n"
+            "%selse if(t%zu>SL_MAX_BLOCK_BYTES-sl_active_block_bytes){SlValue *t%zu=sl_con(%zuu,0u,NULL);SlValue *t%zu[]={t%zu};t%zu=sl_con(%zuu,1u,t%zu);}\n"
+            "%selse{SlValue *t%zu=sl_block_new(t%zu);if(t%zu!=NULL){SlValue *t%zu[]={t%zu};t%zu=sl_con(%zuu,1u,t%zu);}else{SlValue *t%zu=sl_con(%zuu,0u,NULL);SlValue *t%zu[]={t%zu};t%zu=sl_con(%zuu,1u,t%zu);}}\n",
+            indent,result+1u,result,
+            indent,values[0],result+1u,result+2u,invalid,result+3u,result+2u,result,err,result+3u,
+            indent,result+1u,result+2u,limit,result+3u,result+2u,result,err,result+3u,
+            indent,result+2u,result+1u,result+2u,result+3u,result+2u,result,ok,result+3u,
+            result+4u,oom_tag,result+5u,result+4u,result,err,result+5u)) goto failed;
+    } else if (strcmp(name, "memory.capacity") == 0) {
+        if (!text_printf(&emitter->output,
+            "%sSlBlock *t%zu=sl_block_get(t%zu);SlValue *t%zu=sl_int_u64((uint64_t)t%zu->capacity);\n",
+            indent,result+1u,values[0],result,result+1u)) goto failed;
+        emitter->temporary += 1u;
+    } else if (strcmp(name, "memory.read") == 0) {
+        size_t ok=constructor_id(emitter,"sloph::Result::Ok"),err=constructor_id(emitter,"sloph::Result::Err");
+        size_t bounds=constructor_id(emitter,"core::memory::AccessError::OutOfBounds");
+        emitter->temporary += 5u;
+        if (!text_printf(&emitter->output,
+            "%sSlBlock *t%zu=sl_block_get(t%zu);size_t t%zu=0u;SlValue *t%zu=NULL;\n"
+            "%sif(!sl_int_size(t%zu,&t%zu)||t%zu>=t%zu->capacity){SlValue *t%zu=sl_con(%zuu,0u,NULL);SlValue *t%zu[]={t%zu};t%zu=sl_con(%zuu,1u,t%zu);}\n"
+            "%selse{SlValue *t%zu[]={sl_int_u64((uint64_t)t%zu->data[t%zu])};t%zu=sl_con(%zuu,1u,t%zu);}\n",
+            indent,result+1u,values[0],result+2u,result,
+            indent,values[1],result+2u,result+2u,result+1u,result+3u,bounds,result+4u,result+3u,result,err,result+4u,
+            indent,result+3u,result+1u,result+2u,result,ok,result+3u)) goto failed;
+    } else if (strcmp(name, "memory.write") == 0) {
+        size_t ok=constructor_id(emitter,"sloph::Result::Ok"),err=constructor_id(emitter,"sloph::Result::Err");
+        size_t bounds=constructor_id(emitter,"core::memory::AccessError::OutOfBounds");
+        size_t invalid=constructor_id(emitter,"core::memory::AccessError::InvalidByte");
+        size_t unit=constructor_id(emitter,"sloph::Unit::Unit");
+        emitter->temporary += 7u;
+        if (!text_printf(&emitter->output,
+            "%sSlBlock *t%zu=sl_block_get(t%zu);size_t t%zu=0u,t%zu=0u;SlValue *t%zu=NULL;\n"
+            "%sif(!sl_int_size(t%zu,&t%zu)||t%zu>=t%zu->capacity){SlValue *t%zu=sl_con(%zuu,0u,NULL);SlValue *t%zu[]={t%zu};t%zu=sl_con(%zuu,1u,t%zu);}\n"
+            "%selse if(!sl_int_size(t%zu,&t%zu)||t%zu>255u){SlValue *t%zu=sl_con(%zuu,0u,NULL);SlValue *t%zu[]={t%zu};t%zu=sl_con(%zuu,1u,t%zu);}\n"
+            "%selse{t%zu->data[t%zu]=(unsigned char)t%zu;SlValue *t%zu=sl_con(%zuu,0u,NULL);SlValue *t%zu[]={t%zu};t%zu=sl_con(%zuu,1u,t%zu);}\n",
+            indent,result+1u,values[0],result+2u,result+3u,result,
+            indent,values[1],result+2u,result+2u,result+1u,result+4u,bounds,result+5u,result+4u,result,err,result+5u,
+            indent,values[2],result+3u,result+3u,result+4u,invalid,result+5u,result+4u,result,err,result+5u,
+            indent,result+1u,result+2u,result+3u,result+4u,unit,result+5u,result+4u,result,ok,result+5u)) goto failed;
+    } else if (strcmp(name, "memory.copy") == 0) {
+        size_t ok=constructor_id(emitter,"sloph::Result::Ok"),err=constructor_id(emitter,"sloph::Result::Err");
+        size_t bounds=constructor_id(emitter,"core::memory::AccessError::OutOfBounds");
+        size_t unit=constructor_id(emitter,"sloph::Unit::Unit");
+        emitter->temporary += 9u;
+        if (!text_printf(&emitter->output,
+            "%sSlBlock *t%zu=sl_block_get(t%zu),*t%zu=sl_block_get(t%zu);size_t t%zu=0u,t%zu=0u,t%zu=0u;SlValue *t%zu=NULL;\n"
+            "%sif(t%zu==t%zu)sl_die(\"memory.copy source and target must be distinct Blocks\");\n"
+            "%sif(!sl_int_size(t%zu,&t%zu)||!sl_int_size(t%zu,&t%zu)||!sl_int_size(t%zu,&t%zu)||t%zu>t%zu->capacity||t%zu>t%zu->capacity-t%zu||t%zu>t%zu->capacity||t%zu>t%zu->capacity-t%zu){SlValue *t%zu=sl_con(%zuu,0u,NULL);SlValue *t%zu[]={t%zu};t%zu=sl_con(%zuu,1u,t%zu);}\n"
+            "%selse{if(t%zu)memcpy(t%zu->data+t%zu,t%zu->data+t%zu,t%zu);SlValue *t%zu=sl_con(%zuu,0u,NULL);SlValue *t%zu[]={t%zu};t%zu=sl_con(%zuu,1u,t%zu);}\n",
+            indent,result+1u,values[0],result+2u,values[2],result+3u,result+4u,result+5u,result,
+            indent,result+1u,result+2u,
+            indent,values[1],result+3u,values[3],result+4u,values[4],result+5u,result+3u,result+1u,result+5u,result+1u,result+3u,result+4u,result+2u,result+5u,result+2u,result+4u,result+6u,bounds,result+7u,result+6u,result,err,result+7u,
+            indent,result+5u,result+2u,result+4u,result+1u,result+3u,result+5u,result+6u,unit,result+7u,result+6u,result,ok,result+7u)) goto failed;
+    } else if (strcmp(name, "memory.release") == 0) {
+        size_t unit=constructor_id(emitter,"sloph::Unit::Unit");
+        if (!text_printf(&emitter->output,
+            "%ssl_block_release(t%zu);SlValue *t%zu=sl_con(%zuu,0u,NULL);\n",
+            indent,values[0],result,unit)) goto failed;
     } else if (strcmp(name, "int.add") == 0 || strcmp(name, "int.sub") == 0 ||
                strcmp(name, "int.mul") == 0) {
         const char *operation = strcmp(name, "int.add") == 0 ? "add" :
@@ -612,26 +671,6 @@ static bool emit_primitive(Emitter *emitter, SlophCoreExpr *expression,
                 free(interrupted); free(native_error); goto failed;
             }
             free(interrupted); free(native_error);
-        } else if (strcmp(binding->adapter, "page_map") == 0) {
-            const char *error_type = binding->result->as.applied.items[1]->as.name;
-            char *native_error = qualified_constructor(error_type, "Native");
-            if (native_error == NULL) goto failed;
-            emitter->temporary += 8u;
-            if (!text_printf(&emitter->output,
-                "%suint64_t t%zu=sl_int_u64_value(t%zu,\"page allocation size is outside native range\");SlValue *t%zu=NULL;\n"
-                "%sif(t%zu>(uint64_t)SIZE_MAX||t%zu>(uint64_t)SL_MAX_ARENA){SlValue *t%zu[]={sl_int_u64((uint64_t)ENOMEM)};SlValue *t%zu=sl_con(%zuu,1u,t%zu);SlValue *t%zu[]={t%zu};t%zu=sl_con(%zuu,1u,t%zu);}else{size_t t%zu=0u;errno=0;void *t%zu=%s((size_t)t%zu,&t%zu);int t%zu=errno;if(t%zu!=NULL){uint64_t t%zu=sl_page_register(t%zu,t%zu);SlValue *t%zu[]={sl_int_u64(t%zu)};t%zu=sl_con(%zuu,1u,t%zu);}else{unsigned t%zu=(unsigned)(t%zu?t%zu:ENOMEM);SlValue *t%zu[]={sl_int_u64((uint64_t)t%zu)};SlValue *t%zu=sl_con(%zuu,1u,t%zu);SlValue *t%zu[]={t%zu};t%zu=sl_con(%zuu,1u,t%zu);}}\n",
-                indent,result+1u,values[0],result,indent,result+1u,result+1u,result+2u,result+3u,constructor_id(emitter,native_error),result+2u,result+4u,result+3u,result,err,result+4u,
-                result+2u,result+3u,binding->symbol,result+1u,result+2u,result+4u,result+3u,result+5u,result+3u,result+2u,result+6u,result+5u,result,ok,result+6u,
-                result+7u,result+4u,result+4u,result+2u,result+7u,result+3u,constructor_id(emitter,native_error),result+2u,result+4u,result+3u,result,err,result+4u)) {
-                free(native_error); goto failed;
-            }
-            free(native_error);
-        } else if (strcmp(binding->adapter, "page_unmap") == 0) {
-            size_t unit_tag = constructor_id(emitter, "sloph::Unit::Unit");
-            emitter->temporary += 4u;
-            if (!text_printf(&emitter->output,
-                "%suint64_t t%zu=sl_int_u64_value(t%zu,\"page token is outside native range\");SlPage *t%zu=sl_page_lookup(t%zu);errno=0;int t%zu=%s(t%zu->address,t%zu->size);int t%zu=errno;if(t%zu!=0){(void)t%zu;sl_die(\"native page release failed\");}t%zu->active=0;--sl_active_pages;SlValue *t%zu=sl_con(%zuu,0u,NULL);\n",
-                indent,result+1u,values[0],result+2u,result+1u,result+3u,binding->symbol,result+2u,result+2u,result+4u,result+3u,result+4u,result+2u,result,unit_tag)) goto failed;
         } else goto failed;
     } else goto failed;
     free(values); *out_result = result; return true;
@@ -998,7 +1037,7 @@ static bool emit_main(Emitter *emitter, const char *symbol) {
         "(void)&sl_int_compare;(void)&sl_int_to_bytes;(void)&sl_con;(void)&sl_bytes;"
         "(void)&sl_closure;(void)&sl_apply;(void)&sl_int_u64;(void)&sl_int_u64_value;"
         "(void)&sl_trap_bytes;(void)&sl_exit_code;(void)&sl_print_value;"
-        "(void)&sl_page_register;(void)&sl_page_lookup;";
+        "(void)&sl_int_size;(void)&sl_block_get;(void)&sl_block_new;(void)&sl_block_release;";
     if (function != NULL) {
         size_t unit = constructor_id(emitter, "sloph::Unit::Unit");
         size_t success = constructor_id(emitter, "os::process::Exit::Success");
@@ -1048,8 +1087,7 @@ static SlophStatus validate_runtime_contracts(Emitter *emitter,
         char *native_error = NULL, *interrupted = NULL;
         bool valid = true;
         if (strcmp(binding->adapter, "unavailable") == 0) continue;
-        if (strcmp(binding->adapter, "borrowed_bytes_write") == 0 ||
-            strcmp(binding->adapter, "page_map") == 0) {
+        if (strcmp(binding->adapter, "borrowed_bytes_write") == 0) {
             valid = result_shape(binding->result, &error_type) &&
                 constructor_id(emitter, "sloph::Result::Ok") != SIZE_MAX &&
                 constructor_id(emitter, "sloph::Result::Err") != SIZE_MAX;
@@ -1061,8 +1099,6 @@ static SlophStatus validate_runtime_contracts(Emitter *emitter,
                 valid = valid && interrupted != NULL &&
                     constructor_id(emitter, interrupted) != SIZE_MAX;
             }
-        } else if (strcmp(binding->adapter, "page_unmap") == 0) {
-            valid = constructor_id(emitter, "sloph::Unit::Unit") != SIZE_MAX;
         }
         free(native_error); free(interrupted);
         if (!valid)

@@ -218,7 +218,7 @@ static void test_binding_metadata(void) {
         "\"provider\":\"native::linux::amd64\",\"requires\":[],"
         "\"effects\":[\"io\"],\"facts\":{\"result\":\"must_use\"},"
         "\"provenance\":\"test\",\"header\":\"bindings.json\","
-        "\"adapter\":{\"kind\":\"page_map\",\"arguments\":[\"c_size\"],"
+        "\"adapter\":{\"kind\":\"demo_adapter\",\"arguments\":[\"c_size\"],"
         "\"result\":\"pointer_errno\",\"sloph_parameters\":[\"Int\"],"
         "\"sloph_result\":\"Result[Int, demo::Error]\"}}";
     Fixture fixture;
