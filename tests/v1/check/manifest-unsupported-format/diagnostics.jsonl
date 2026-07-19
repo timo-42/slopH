@@ -1,0 +1,1 @@
+{"code":"project.manifest.format","details":{"format":0},"message":"only project manifest format 1 is supported","message_id":"project.manifest.format","phase":"project","schema":"sloph.diagnostic","severity":"error","span":{"end":0,"start":0},"version":0}

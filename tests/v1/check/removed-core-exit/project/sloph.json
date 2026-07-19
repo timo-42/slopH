@@ -1,0 +1,6 @@
+{
+  "format": 1,
+  "package": "os_case",
+  "source-root": "src",
+  "entry": "os_case::main::main"
+}

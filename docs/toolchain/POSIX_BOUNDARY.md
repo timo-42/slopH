@@ -3,8 +3,8 @@
 Status: implemented experimental Source v1/Core v2-v3 boundary.
 
 POSIX descriptor I/O is a normal bundled library, not a mandatory Core
-feature. A project opts in with `dependencies = ["syscall"]`, or indirectly
-through `dependencies = ["std"]`. The compiler loads the library's SlopH
+feature. A project opts in with `"dependencies": ["syscall"]`, or indirectly
+through `"dependencies": ["std"]`. The compiler loads the library's SlopH
 source and reviewed binding metadata into the same compilation unit as the
 application.
 

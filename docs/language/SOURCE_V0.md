@@ -7,13 +7,15 @@ does not settle the final surface language.
 
 ## Project and modules
 
-A project contains `sloph.toml`:
+A project contains `sloph.json`:
 
-```toml
-format = 0
-package = "demo"
-source-root = "src"
-entry = "demo::main::main"
+```json
+{
+  "format": 1,
+  "package": "demo",
+  "source-root": "src",
+  "entry": "demo::main::main"
+}
 ```
 
 These four fields are required and no others are accepted. `package` is one

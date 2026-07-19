@@ -1,0 +1,1 @@
+{"code":"project.manifest.source_root","details":{"source_root":"../src"},"message":"source-root must be a normalized relative path","message_id":"project.manifest.source_root","phase":"project","schema":"sloph.diagnostic","severity":"error","span":{"end":0,"start":0},"version":0}

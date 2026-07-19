@@ -1,0 +1,7 @@
+{
+  "format": 1,
+  "package": "memory_case",
+  "source-root": "src",
+  "entry": "memory_case::main::main",
+  "dependencies": ["memory"]
+}

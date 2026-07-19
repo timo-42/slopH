@@ -1,0 +1,1 @@
+{"code":"project.manifest.missing","details":{"fields":["entry"]},"message":"manifest is missing required fields","message_id":"project.manifest.missing","phase":"project","schema":"sloph.diagnostic","severity":"error","span":{"end":0,"start":0},"version":0}

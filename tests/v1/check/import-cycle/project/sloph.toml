@@ -1,4 +1,0 @@
-format = 0
-package = "cycle"
-source-root = "src"
-entry = "cycle::first::first"

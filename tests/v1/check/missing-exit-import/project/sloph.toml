@@ -1,5 +1,0 @@
-format = 0
-package = "os_case"
-source-root = "src"
-entry = "os_case::main::main"
-dependencies = ["os"]

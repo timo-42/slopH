@@ -1,4 +1,0 @@
-format = 0
-package = "intrinsic_case"
-source-root = "src"
-entry = "intrinsic_case::main::main"

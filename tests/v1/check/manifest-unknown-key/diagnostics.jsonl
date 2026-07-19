@@ -1,0 +1,1 @@
+{"code":"project.manifest.unknown","details":{"fields":["unknown"]},"message":"manifest contains unknown fields","message_id":"project.manifest.unknown","phase":"project","schema":"sloph.diagnostic","severity":"error","span":{"end":0,"start":0},"version":0}

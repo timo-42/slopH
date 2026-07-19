@@ -1,0 +1,6 @@
+{
+  "format": 1,
+  "package": "features",
+  "source-root": "src",
+  "entry": "features::main::main"
+}

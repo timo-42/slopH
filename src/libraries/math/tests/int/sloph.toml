@@ -1,5 +1,0 @@
-format = 0
-package = "math_tests"
-source-root = "src"
-entry = "math_tests::int::main"
-dependencies = ["math", "os", "std"]

@@ -1,4 +1,0 @@
-format = 0
-package = "features"
-source-root = "src"
-entry = "features::main::main"
