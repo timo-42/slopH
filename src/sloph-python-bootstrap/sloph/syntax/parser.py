@@ -8,7 +8,7 @@ from sloph.syntax._integer import parse_decimal
 from sloph.syntax.model import (
     Availability, Binder, BinaryExpr, Block, BytesExpr, CallExpr, CaseAlternative, CaseExpr, ConditionalImportAlternative, ConditionalImportDecl, ConstructorDecl,
     ConstructorExpr, FieldDecl, ForeignFunctionDecl, FunctionDecl, GlobalExpr, ImportDecl, IntExpr, IntrinsicFunctionDecl, IntrinsicTypeDecl,
-    AppliedType, FunctionType, IfExpr, InferredType, IntType, LambdaExpr, LetBinding, LocalExpr, Module, NamedType, PrimitiveExpr, TypeDecl,
+    AppliedType, Expr, FunctionType, IfExpr, InferredType, IntType, LambdaExpr, LetBinding, LocalExpr, Module, NamedType, PrimitiveExpr, TypeDecl,
     TargetConstantPattern, TargetPattern, TargetTuplePattern, TypeRef, ValueDecl,
 )
 from sloph.syntax.transform import Capture, Literal, Transform, TransformRegistry, standard_transform_registry
@@ -542,7 +542,7 @@ class _Parser:
         if self.tokens[self.i + 1].text[:1].isupper():
             return self.constructor_function_clauses(parameter, result)
         literals: set[int] = set()
-        clauses: list[tuple[int | str, Block, Span]] = []
+        clauses: list[tuple[int | str, Expr | None, Block, Span]] = []
         catchall = False
         while self.peek("|"):
             clause_start = self.take("|").start
@@ -566,17 +566,42 @@ class _Parser:
                 name = self.lower_ident("pattern binder")
                 if catchall:
                     self.error("function clause is unreachable after a catch-all", name)
-                catchall = True
                 pattern = name.text
+            guard: Expr | None = None
+            if self.peek("when"):
+                if isinstance(pattern, int):
+                    self.error("guards on integer function patterns are not supported")
+                self.take("when")
+                guard = self.expr()
+            elif isinstance(pattern, str):
+                catchall = True
             self.take("=>")
             body = self.block() if self.peek("{") else Block((), self.expr(), self.node(self.tokens[self.i - 1].start, self.tokens[self.i - 1].end))
-            clauses.append((pattern, body, self.node(clause_start, body.span.end)))
+            clauses.append((pattern, guard, body, self.node(clause_start, body.span.end)))
         if not catchall:
-            self.error("integer function clauses require a final binder or underscore catch-all")
+            self.error("integer function clauses require a final unguarded binder or underscore catch-all")
 
         fallback: Block | None = None
-        for pattern, body, span in reversed(clauses):
+        for pattern, guard, body, span in reversed(clauses):
             if isinstance(pattern, str):
+                if guard is not None:
+                    assert fallback is not None
+                    guard_case = CaseExpr(
+                        guard,
+                        result,
+                        (
+                            CaseAlternative("Bool::False", (), fallback, span),
+                            CaseAlternative("Bool::True", (), body, span),
+                        ),
+                        span,
+                    )
+                    bindings: tuple[LetBinding, ...] = ()
+                    if pattern not in ("_", parameter.name):
+                        alias = Binder(pattern, parameter.type, span)
+                        source = LocalExpr(parameter.name, span)
+                        bindings = (LetBinding(alias, source, span),)
+                    fallback = Block(bindings, guard_case, span)
+                    continue
                 if pattern not in ("_", parameter.name):
                     alias = Binder(pattern, parameter.type, span)
                     source = LocalExpr(parameter.name, span)
@@ -615,6 +640,8 @@ class _Parser:
                 )
             self.take("(")
             binders = self.comma_list(self.pattern_binder)
+            if self.peek("when"):
+                self.error("guards on constructor function clauses are not supported")
             self.take("=>")
             body = self.block()
             alternatives.append(

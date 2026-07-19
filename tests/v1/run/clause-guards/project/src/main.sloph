@@ -1,0 +1,35 @@
+module guards::main;
+
+import os::process::{Exit};
+import core::int::{to_bytes};
+import std::io::{write};
+
+fn sign(n: Int) -> Int
+| 0 => 0
+| n when n < 0 => -1
+| _ => 1
+
+fn classify(n: Int) -> Bytes
+| 0 => "zero"
+| n when n < -9 => "very negative"
+| n when n < 0 => "negative"
+| 9 => "nine"
+| n when 99 < n => "huge"
+| _ => "positive"
+
+fn report(n: Int) -> Unit {
+  let sign_written = write(to_bytes(sign(n)));
+  let space_written = write(" ");
+  let class_written = write(classify(n));
+  write("\n")
+}
+
+public fn main() -> Exit {
+  let minus_twenty = report(-20);
+  let minus_three = report(-3);
+  let zero = report(0);
+  let nine = report(9);
+  let forty = report(40);
+  let thousand = report(1000);
+  Exit::Success()
+}

@@ -1,0 +1,8 @@
+module guards::main;
+
+fn shrink(n: Int) -> Int
+| n when 0 < n => n - 1
+
+public fn main() -> Int {
+  shrink(3)
+}
