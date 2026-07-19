@@ -20,15 +20,16 @@ static SlophStatus manifest_error(SlophProject *project, const char *code,
 
 static SlophStatus copy_required_string(SlophProject *project, yyjson_val *root,
                                         const char *key, char **out) {
-    yyjson_val *value = yyjson_obj_get(root, key);
+    const char *field = key != NULL ? key : "";
+    yyjson_val *value = yyjson_obj_get(root, field);
     const char *text;
     char details[96];
     if (!yyjson_is_str(value) || yyjson_get_len(value) == 0u) {
-        (void)snprintf(details, sizeof(details), "{\"field\":\"%s\"}", key);
+        (void)snprintf(details, sizeof(details), "{\"field\":\"%s\"}", field);
         return manifest_error(project, "project.manifest.field_type",
-                              strcmp(key, "package") == 0
+                              strcmp(field, "package") == 0
                                 ? "manifest field 'package' must be a non-empty string"
-                                : strcmp(key, "entry") == 0
+                                : strcmp(field, "entry") == 0
                                   ? "manifest field 'entry' must be a non-empty string"
                                   : "manifest field 'source-root' must be a non-empty string",
                               details);
