@@ -138,6 +138,47 @@ static void branch_ownership_must_match(void) {
     sloph_context_destroy(context);
 }
 
+static void owned_type_arguments_make_container_owned(void) {
+    static const char input[] =
+        "(core 3 (types "
+        "(enum e::R (ownership owned) (params) (ctor e::R::R)) "
+        "(enum e::Box (ownership copy) (params T) "
+        "(ctor e::Box::Box (field item (var T))))) "
+        "(defs (def e::leak (fn (apply e::Box (named e::R)) Int) "
+        "(lam (bind box (apply e::Box (named e::R))) (int 0)))))";
+    SlophContext *context = new_context();
+    SlophCoreUnit *unit = NULL;
+    SlophDiagnosticView diagnostic;
+    assert(sloph_core_parse(context, (const unsigned char *)input,
+                            strlen(input), &unit) == SLOPH_STATUS_OK);
+    assert(sloph_core_validate(context, unit) == SLOPH_STATUS_INVALID_ARGUMENT);
+    assert(sloph_context_diagnostic(context, 0u, &diagnostic) == SLOPH_STATUS_OK);
+    assert(strcmp(diagnostic.code, "core.validate.owned_not_consumed") == 0);
+    sloph_core_free(unit);
+    sloph_context_destroy(context);
+}
+
+static void copy_type_cannot_hide_owned_container(void) {
+    static const char input[] =
+        "(core 3 (types "
+        "(enum e::R (ownership owned) (params) (ctor e::R::R)) "
+        "(enum e::Box (ownership copy) (params T) "
+        "(ctor e::Box::Box (field item (var T)))) "
+        "(enum e::Bad (ownership copy) (params) "
+        "(ctor e::Bad::Bad (field hidden (apply e::Box (named e::R)))))) "
+        "(defs))";
+    SlophContext *context = new_context();
+    SlophCoreUnit *unit = NULL;
+    SlophDiagnosticView diagnostic;
+    assert(sloph_core_parse(context, (const unsigned char *)input,
+                            strlen(input), &unit) == SLOPH_STATUS_OK);
+    assert(sloph_core_validate(context, unit) == SLOPH_STATUS_INVALID_ARGUMENT);
+    assert(sloph_context_diagnostic(context, 0u, &diagnostic) == SLOPH_STATUS_OK);
+    assert(strcmp(diagnostic.code, "core.validate.owned_field_in_copy_type") == 0);
+    sloph_core_free(unit);
+    sloph_context_destroy(context);
+}
+
 int main(void) {
     canonical_order_and_negative_zero();
     malformed_list_has_exact_span();
@@ -145,5 +186,7 @@ int main(void) {
     mutable_borrow_round_trip();
     overlapping_mutable_borrow_is_rejected();
     branch_ownership_must_match();
+    owned_type_arguments_make_container_owned();
+    copy_type_cannot_hide_owned_container();
     return 0;
 }
