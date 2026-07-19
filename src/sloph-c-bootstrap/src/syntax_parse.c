@@ -273,6 +273,40 @@ static SlophSyntaxBlock *synthetic_block(Parser *p, SlophSyntaxExpr *result,
     return block;
 }
 
+static SlophSyntaxBlock *clause_alias_block(Parser *p,
+                                            SlophSyntaxBlock *body,
+                                            const char *alias,
+                                            const SlophSyntaxBinder *parameter,
+                                            SlophSpan span) {
+    SlophSyntaxStatement *statements;
+    SlophSyntaxExpr *source;
+    if (body == NULL || alias == NULL || strcmp(alias, "_") == 0 ||
+        strcmp(alias, parameter->name) == 0) return body;
+    if (sloph_syntax_alloc(p->module,
+            (body->statement_count + 1u) * sizeof(*statements),
+            alignof(SlophSyntaxStatement), (void **)&statements) !=
+        SLOPH_STATUS_OK) return NULL;
+    memset(&statements[0], 0, sizeof(statements[0]));
+    statements[0].kind = SLOPH_SYNTAX_STMT_LET;
+    statements[0].span = span;
+    statements[0].as.let.binder.name = (char *)alias;
+    statements[0].as.let.binder.type = parameter->type;
+    statements[0].as.let.binder.mode = "own";
+    statements[0].as.let.binder.span = span;
+    source = new_expr(p, SLOPH_SYNTAX_EXPR_LOCAL, span);
+    if (source == NULL) return NULL;
+    source->as.name = parameter->name;
+    statements[0].as.let.value = source;
+    if (body->statement_count != 0u)
+        memcpy(statements + 1u, body->statements,
+               body->statement_count * sizeof(*statements));
+    body->statements = statements;
+    ++body->statement_count;
+    body->span = span;
+    count_node(p, span);
+    return body;
+}
+
 static SlophSyntaxBlock *parse_function_clauses(Parser *p,
                                                 SlophSyntaxBinder *parameter,
                                                 SlophSyntaxType *result_type) {
@@ -361,7 +395,8 @@ static SlophSyntaxBlock *parse_function_clauses(Parser *p,
     for (i = clauses.count; i > 0u && p->status == SLOPH_STATUS_OK; --i) {
         SyntaxClause *clause = &((SyntaxClause *)clauses.data)[i - 1u];
         if (!clause->integer_pattern && clause->guard == NULL) {
-            fallback = clause->body;
+            fallback = clause_alias_block(p, clause->body, clause->pattern,
+                                          parameter, clause->span);
         } else {
             SlophSyntaxExpr *condition;
             SlophSyntaxExpr *choice;
@@ -384,6 +419,9 @@ static SlophSyntaxBlock *parse_function_clauses(Parser *p,
             choice->as.if_.then_body = clause->body;
             choice->as.if_.else_body = fallback;
             fallback = synthetic_block(p, choice, clause->span);
+            if (!clause->integer_pattern)
+                fallback = clause_alias_block(p, fallback, clause->pattern,
+                                              parameter, clause->span);
         }
     }
     vector_destroy(p, &clauses);

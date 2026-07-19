@@ -506,35 +506,62 @@ def _load_module_provider(module: ProjectModule) -> tuple[ForeignBinding, ...]:
     if not manifest_path.is_file():
         return ()
     try:
-        metadata = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        metadata = json.loads(
+            manifest_path.read_text(encoding="utf-8"),
+            object_pairs_hook=_manifest_object,
+            parse_constant=_invalid_json_constant,
+        )
+    except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as error:
         fail("project.provider.syntax", "project", f"invalid native provider metadata: {error}", path=str(manifest_path))
-    if not isinstance(metadata, dict) or set(metadata) != {"format", "module", "bindings", "libraries"}:
+    if not isinstance(metadata, dict) or set(metadata) != {"format", "module", "bindings", "sources"}:
         fail("project.provider.shape", "project", "native provider metadata has missing or unknown fields", path=str(manifest_path))
-    if metadata["format"] != 0 or metadata["module"] != module.name:
+    if type(metadata["format"]) is not int or not isinstance(metadata["module"], str):
+        fail("project.provider.shape", "project", "native provider metadata fields have invalid types", path=str(manifest_path))
+    if metadata["format"] != 1 or metadata["module"] != module.name:
         fail("project.provider.identity", "project", "native provider identity does not match its module", path=str(manifest_path), module=module.name)
     binding_name = metadata["bindings"]
-    libraries = metadata["libraries"]
-    if not isinstance(binding_name, str) or Path(binding_name).name != binding_name:
+    sources = metadata["sources"]
+    if not _provider_filename(binding_name):
         fail("project.provider.shape", "project", "provider bindings must be a local filename", path=str(manifest_path))
-    if not isinstance(libraries, list) or not libraries or not all(isinstance(item, str) and Path(item).name == item and item.endswith((".so", ".dylib")) for item in libraries):
-        fail("project.provider.shape", "project", "provider libraries must be local shared-library filenames", path=str(manifest_path))
-    if len(libraries) != len(set(libraries)):
-        fail("project.provider.shape", "project", "provider libraries must not contain duplicates", path=str(manifest_path))
+    if not isinstance(sources, list) or not sources or not all(_provider_filename(item) and item.endswith((".c", ".S")) for item in sources):
+        fail("project.provider.shape", "project", "provider sources must be local C or assembly filenames", path=str(manifest_path))
+    if len(sources) != len(set(sources)):
+        fail("project.provider.shape", "project", "provider sources must not contain duplicates", path=str(manifest_path))
+    invalid_sources = [str(provider_root / name) for name in sources if (provider_root / name).is_symlink() or not (provider_root / name).is_file()]
+    if invalid_sources:
+        fail("project.provider.shape", "project", "provider sources are missing or invalid", path=str(manifest_path), sources=invalid_sources)
     binding_path = provider_root / binding_name
+    if binding_path.is_symlink() or not binding_path.is_file():
+        fail("project.provider.shape", "project", "provider bindings must be a local regular file", path=str(binding_path))
     try:
-        bindings = json.loads(binding_path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        bindings = json.loads(
+            binding_path.read_text(encoding="utf-8"),
+            object_pairs_hook=_manifest_object,
+            parse_constant=_invalid_json_constant,
+        )
+    except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as error:
         fail("project.foreign_binding.syntax", "project", f"invalid foreign binding metadata: {error}", path=str(binding_path))
     if not isinstance(bindings, list):
         fail("project.foreign_binding.shape", "project", "foreign binding metadata must be an array", path=str(binding_path))
     decoded = tuple(_decode_foreign_binding(item, binding_path) for item in bindings)
+    identities = [binding.identity for binding in decoded]
+    if len(identities) != len(set(identities)):
+        fail("project.foreign_binding.shape", "project", "foreign binding identities must be unique", path=str(binding_path))
     if any(binding.provider != module.name for binding in decoded):
         fail("project.provider.binding", "project", "foreign binding names a different provider", path=str(binding_path), provider=module.name)
     for binding in decoded:
-        if Path(binding.header).name != binding.header or not (provider_root / binding.header).is_file():
+        header = provider_root / binding.header
+        if not _provider_filename(binding.header) or header.is_symlink() or not header.is_file():
             fail("project.provider.header", "project", "native provider header is missing or invalid", path=str(provider_root / binding.header), provider=module.name)
     return decoded
+
+
+def _provider_filename(value: object) -> bool:
+    return (
+        isinstance(value, str)
+        and value not in {"", ".", ".."}
+        and all(character.isascii() and (character.isalnum() or character in "_-." ) for character in value)
+    )
 
 
 def _decode_foreign_binding(raw: object, path: Path) -> ForeignBinding:
@@ -556,7 +583,13 @@ def _decode_foreign_binding(raw: object, path: Path) -> ForeignBinding:
         if not isinstance(adapter, dict) or set(adapter) != expected:
             fail("project.foreign_binding.adapter", "project", "invalid foreign adapter metadata", path=str(path))
         source_parameters = adapter["sloph_parameters"]
-        if not isinstance(source_parameters, list):
+        if (
+            not isinstance(source_parameters, list)
+            or not isinstance(adapter["arguments"], list)
+            or not all(isinstance(item, str) for item in adapter["arguments"])
+            or not isinstance(adapter["result"], str)
+            or not adapter["result"]
+        ):
             fail("project.foreign_binding.adapter", "project", "adapter parameters must be an array", path=str(path))
         parameters = tuple(_binding_type(item, path) for item in source_parameters)
         result = _binding_type(adapter["sloph_result"], path)

@@ -1,1 +1,1 @@
-{"bindings":"bindings.json","format":0,"libraries":["libsloph_memory.dylib"],"module":"syscall::memory::darwin::arm64"}
+{"bindings":"bindings.json","format":1,"module":"syscall::memory::darwin::arm64","sources":["memory.c"]}

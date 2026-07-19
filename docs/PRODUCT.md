@@ -78,11 +78,9 @@ must be deterministic for identical inputs.
 ## Security and Capability Boundary
 
 Effectful host access flows through effect-tracked standard-library APIs over
-the reviewed [POSIX boundary](toolchain/POSIX_BOUNDARY.md). Known deviation:
-the bootstrap executes dependency `build.sh` scripts during `compile`/`run`
-with ambient user authority. This is accepted, documented security debt
-([idea/SECURITY.md](../idea/SECURITY.md)) and must be replaced before V1 is
-declared production.
+the reviewed [POSIX boundary](toolchain/POSIX_BOUNDARY.md). Native provider
+metadata names only local reviewed `.c` and `.S` inputs, which are compiled
+and linked directly without executing dependency scripts.
 
 ## Definition of Self-Hosting
 

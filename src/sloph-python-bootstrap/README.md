@@ -17,8 +17,7 @@ uv run --no-project --directory src/sloph-python-bootstrap \
   -s ../../tests/implementation/python -t ../../tests/implementation/python
 ```
 
-Native `compile` and `run` operations execute an executable `build.sh` at the
-root of each dependency package before compiling. This temporary convention
-allows external native toolchains but grants dependency scripts the invoking
-user's ambient authority. Read-only operations do not execute scripts; see
-[`idea/SECURITY.md`](../../idea/SECURITY.md).
+Native `compile` and `run` operations read strict versioned provider metadata
+and pass its declared local `.c` and `.S` sources directly to the host C
+compiler. They do not discover or execute dependency build scripts, load
+prebuilt shared providers, or add runtime search paths.

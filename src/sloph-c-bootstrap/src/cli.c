@@ -1,7 +1,9 @@
 #include "sloph/context.h"
+#include "sloph/backend.h"
 #include "sloph/core.h"
 #include "sloph/compiler.h"
 #include "sloph/host.h"
+#include "sloph/native.h"
 #include "sloph/project.h"
 #include "sloph/syntax.h"
 
@@ -10,6 +12,13 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <time.h>
+#include <unistd.h>
+#include "yyjson.h"
+
+#if defined(__APPLE__)
+extern char *mkdtemp(char *template_name);
+#endif
 
 typedef enum DiagnosticMode {
     DIAGNOSTIC_HUMAN,
@@ -23,7 +32,10 @@ typedef enum CommandAction {
     ACTION_PROJECT_CHECK,
     ACTION_SOURCE_FORMAT,
     ACTION_AST_CHECK,
-    ACTION_AST_PRINT
+    ACTION_AST_PRINT,
+    ACTION_TIMBER_PRINT,
+    ACTION_NATIVE_COMPILE,
+    ACTION_NATIVE_RUN
 } CommandAction;
 
 typedef enum InputFormat { INPUT_TEXT, INPUT_SOURCE, INPUT_JSON } InputFormat;
@@ -42,17 +54,22 @@ typedef struct Command {
     size_t fuel;
     int has_fuel;
     int transformation;
+    int output_set;
+    const char *compiler;
+    const char *emit_c;
+    int timings;
 } Command;
 
 static const char TOP_LEVEL_HELP[] =
     "usage: sloph [-h] [--diagnostics {human,jsonl}] [--version]\n"
-    "             {unstable,canopy-to-crown,crown-to-heartwood,check,format,ast,core,compile,run} ...\n"
+    "             {unstable,canopy-to-crown,crown-to-heartwood,heartwood-to-timber,check,format,ast,core,compile,run} ...\n"
     "\n"
     "positional arguments:\n"
-    "  {unstable,canopy-to-crown,crown-to-heartwood,check,format,ast,core,compile,run}\n"
+    "  {unstable,canopy-to-crown,crown-to-heartwood,heartwood-to-timber,check,format,ast,core,compile,run}\n"
     "    unstable            unstable implementation tools\n"
     "    canopy-to-crown     transform Source canopy into Crown AST JSON\n"
     "    crown-to-heartwood  transform a Crown project into canonical Heartwood Core\n"
+    "    heartwood-to-timber transform Heartwood Core into Timber C11\n"
     "    check               check a Source v1 project\n"
     "    format              format a Source v1 file\n"
     "    ast                 public Source v1 AST tools\n"
@@ -92,6 +109,20 @@ static const char CROWN_TO_HEARTWOOD_HELP[] =
     "  -o OUTPUT, --output OUTPUT\n"
     "                        write Heartwood Core to OUTPUT (default: -)\n";
 
+static const char HEARTWOOD_TO_TIMBER_HELP[] =
+    "usage: sloph heartwood-to-timber [-h] --symbol GLOBAL_ID [-o OUTPUT] INPUT\n"
+    "\n"
+    "transform Heartwood Core into deterministic Timber C11\n"
+    "\n"
+    "positional arguments:\n"
+    "  INPUT                 Heartwood Core file, or - for standard input\n"
+    "\n"
+    "options:\n"
+    "  -h, --help            show this help message and exit\n"
+    "  --symbol GLOBAL_ID    global definition used as program entry\n"
+    "  -o OUTPUT, --output OUTPUT\n"
+    "                        write Timber C11 to OUTPUT (default: -)\n";
+
 static const char *transformation_help(int argc, char **argv) {
     int index = 1;
     if (index < argc && strcmp(argv[index], "--diagnostics") == 0) index += 2;
@@ -105,6 +136,8 @@ static const char *transformation_help(int argc, char **argv) {
         return CANOPY_TO_CROWN_HELP;
     if (strcmp(argv[index], "crown-to-heartwood") == 0)
         return CROWN_TO_HEARTWOOD_HELP;
+    if (strcmp(argv[index], "heartwood-to-timber") == 0)
+        return HEARTWOOD_TO_TIMBER_HELP;
     return NULL;
 }
 
@@ -271,6 +304,7 @@ static int parse_command(int argc, char **argv, Command *command,
     memset(command, 0, sizeof(*command));
     command->diagnostics = DIAGNOSTIC_HUMAN;
     command->output = "-";
+    command->compiler = "cc";
     if (index < argc && strcmp(argv[index], "--diagnostics") == 0) {
         const char *value;
         if (!take_value(argc, argv, &index, &value)) {
@@ -305,6 +339,10 @@ static int parse_command(int argc, char **argv, Command *command,
         command->action = ACTION_CORE_PRINT;
         command->input_format = INPUT_SOURCE;
         command->transformation = 2;
+    } else if (strcmp(group, "heartwood-to-timber") == 0) {
+        command->action = ACTION_TIMBER_PRINT;
+        command->input_format = INPUT_TEXT;
+        command->transformation = 3;
     } else if (strcmp(group, "core") == 0) {
         const char *action;
         if (index >= argc) {
@@ -335,13 +373,32 @@ static int parse_command(int argc, char **argv, Command *command,
         else if (strcmp(action, "print") == 0) command->action = ACTION_AST_PRINT;
         else { *out_error = "invalid AST command"; return 0; }
         command->input_format = INPUT_SOURCE;
+    } else if (strcmp(group, "compile") == 0) {
+        command->action = ACTION_NATIVE_COMPILE;
+        command->input_format = INPUT_SOURCE;
+    } else if (strcmp(group, "run") == 0) {
+        command->action = ACTION_NATIVE_RUN;
+        command->input_format = INPUT_SOURCE;
     } else {
         *out_error = "invalid command"; return 0;
     }
     while (index < argc) {
         const char *option = argv[index];
         const char *value;
-        if (strcmp(option, "--symbol") == 0 && command->action == ACTION_CORE_EVAL) {
+        if (strcmp(option, "--") == 0) {
+            ++index;
+            if (index >= argc || command->input != NULL) {
+                *out_error = "unrecognized arguments"; return 0;
+            }
+            command->input = argv[index++];
+            if (index != argc) {
+                *out_error = "unrecognized arguments"; return 0;
+            }
+            continue;
+        } else if (strcmp(option, "--symbol") == 0 &&
+            (command->action == ACTION_CORE_EVAL ||
+             command->action == ACTION_TIMBER_PRINT ||
+             command->action == ACTION_NATIVE_COMPILE)) {
             if (!take_value(argc, argv, &index, &value)) {
                 *out_error = "argument --symbol: expected one argument"; return 0;
             }
@@ -358,17 +415,39 @@ static int parse_command(int argc, char **argv, Command *command,
         } else if ((strcmp(option, "-o") == 0 ||
                     strcmp(option, "--output") == 0) &&
                    (command->action == ACTION_CORE_PRINT ||
-                    command->action == ACTION_AST_PRINT)) {
+                    command->action == ACTION_AST_PRINT ||
+                    command->action == ACTION_TIMBER_PRINT ||
+                    command->action == ACTION_NATIVE_COMPILE)) {
             if (!take_value(argc, argv, &index, &value)) {
                 *out_error = "argument --output: expected one argument"; return 0;
             }
             command->output = value;
+            command->output_set = 1;
+        } else if (strcmp(option, "--cc") == 0 &&
+                   (command->action == ACTION_NATIVE_COMPILE ||
+                    command->action == ACTION_NATIVE_RUN)) {
+            if (!take_value(argc, argv, &index, &value)) {
+                *out_error = "argument --cc: expected one argument"; return 0;
+            }
+            command->compiler = value;
+        } else if (strcmp(option, "--emit-c") == 0 &&
+                   (command->action == ACTION_NATIVE_COMPILE ||
+                    command->action == ACTION_NATIVE_RUN)) {
+            if (!take_value(argc, argv, &index, &value)) {
+                *out_error = "argument --emit-c: expected one argument"; return 0;
+            }
+            command->emit_c = value;
+        } else if (strcmp(option, "--timings") == 0 &&
+                   (command->action == ACTION_NATIVE_COMPILE ||
+                    command->action == ACTION_NATIVE_RUN)) {
+            command->timings = 1;
         } else if (strcmp(option, "--input-format") == 0 &&
                    command->transformation == 0 &&
                    (command->action == ACTION_CORE_CHECK ||
                     command->action == ACTION_CORE_PRINT ||
                     command->action == ACTION_AST_CHECK ||
-                    command->action == ACTION_AST_PRINT)) {
+                    command->action == ACTION_AST_PRINT ||
+                    (unstable && command->action == ACTION_NATIVE_COMPILE))) {
             if (!take_value(argc, argv, &index, &value)) {
                 *out_error = "argument --input-format: expected one argument"; return 0;
             }
@@ -379,6 +458,10 @@ static int parse_command(int argc, char **argv, Command *command,
                 command->action == ACTION_AST_PRINT) {
                 if (strcmp(value, "source") == 0) command->input_format = INPUT_SOURCE;
                 else if (strcmp(value, "json") == 0) command->input_format = INPUT_JSON;
+                else { *out_error = "argument --input-format: invalid choice"; return 0; }
+            } else if (command->action == ACTION_NATIVE_COMPILE) {
+                if (strcmp(value, "text") == 0) command->input_format = INPUT_TEXT;
+                else if (strcmp(value, "source") == 0) command->input_format = INPUT_SOURCE;
                 else { *out_error = "argument --input-format: invalid choice"; return 0; }
             } else {
                 if (strcmp(value, "text") == 0) command->input_format = INPUT_TEXT;
@@ -440,6 +523,20 @@ static int parse_command(int argc, char **argv, Command *command,
     }
     if (command->action == ACTION_CORE_EVAL && command->symbol == NULL) {
         *out_error = "the following arguments are required: --symbol"; return 0;
+    }
+    if (command->action == ACTION_TIMBER_PRINT && command->symbol == NULL) {
+        *out_error = "the following arguments are required: --symbol"; return 0;
+    }
+    if (command->action == ACTION_NATIVE_COMPILE && !command->output_set) {
+        *out_error = "the following arguments are required: -o/--output"; return 0;
+    }
+    if (command->action == ACTION_NATIVE_COMPILE &&
+        command->input_format == INPUT_TEXT && command->symbol == NULL) {
+        *out_error = "--symbol is required with --input-format text"; return 0;
+    }
+    if (command->action == ACTION_NATIVE_COMPILE &&
+        command->input_format == INPUT_SOURCE && command->symbol != NULL) {
+        *out_error = "--symbol is only valid with --input-format text"; return 0;
     }
     if (command->action == ACTION_SOURCE_FORMAT &&
         command->format_mode == FORMAT_WRITE && strcmp(command->input, "-") == 0) {
@@ -606,6 +703,61 @@ static int status_exit_code(SlophStatus status, SlophContext *context) {
     return 1;
 }
 
+static char *runtime_failure_details(int exit_code,
+                                     const unsigned char *error,
+                                     size_t error_length) {
+    yyjson_mut_doc *document = yyjson_mut_doc_new(NULL);
+    yyjson_mut_val *root;
+    char *text;
+    if (document == NULL) return NULL;
+    root = yyjson_mut_obj(document);
+    yyjson_mut_doc_set_root(document, root);
+    yyjson_mut_obj_add_int(document, root, "exit_code", exit_code);
+    yyjson_mut_obj_add_val(document, root, "stderr",
+                           yyjson_mut_strncpy(document,
+                                              error != NULL
+                                                  ? (const char *)error : "",
+                                              error_length));
+    text = yyjson_mut_write(document, 0u, NULL);
+    yyjson_mut_doc_free(document);
+    return text;
+}
+
+static uint64_t cli_monotonic_nanoseconds(void) {
+    struct timespec value;
+    if (clock_gettime(CLOCK_MONOTONIC, &value) != 0) return 0u;
+    return (uint64_t)value.tv_sec * UINT64_C(1000000000) +
+           (uint64_t)value.tv_nsec;
+}
+
+static char *cli_temporary_template(const char *prefix) {
+    const char *base = getenv("TMPDIR");
+    size_t base_length, size;
+    char *result;
+    if (base == NULL || *base == '\0') base = "/tmp";
+    base_length = strlen(base);
+    while (base_length > 1u && base[base_length - 1u] == '/') --base_length;
+    size = base_length + 1u + strlen(prefix) + sizeof("XXXXXX");
+    result = malloc(size);
+    if (result != NULL)
+        (void)snprintf(result, size, "%.*s/%sXXXXXX", (int)base_length,
+                       base, prefix);
+    return result;
+}
+
+static void render_timing(DiagnosticMode mode, const char *phase,
+                          uint64_t nanoseconds) {
+    if (mode == DIAGNOSTIC_JSONL) {
+        fputs("{\"nanoseconds\":", stderr);
+        (void)fprintf(stderr, "%llu", (unsigned long long)nanoseconds);
+        fputs(",\"phase\":", stderr); json_string(stderr, phase);
+        fputs(",\"schema\":\"sloph.timing\",\"version\":0}\n", stderr);
+    } else {
+        (void)fprintf(stderr, "timing %s: %llu ns\n", phase,
+                      (unsigned long long)nanoseconds);
+    }
+}
+
 int main(int argc, char **argv) {
     Command command;
     const char *usage_error = NULL;
@@ -622,6 +774,13 @@ int main(int argc, char **argv) {
     SlophStatus status;
     int exit_code;
     int format_changed = 0;
+    char *run_directory = NULL;
+    char *run_executable = NULL;
+    int run_directory_created = 0;
+    SlophProcessResult process_result;
+    SlophNativeTimings native_timings;
+    uint64_t command_started = 0u;
+    uint64_t source_lowered = 0u;
     const char *command_help = transformation_help(argc, argv);
     if (command_help != NULL) {
         fputs(command_help, stdout);
@@ -651,7 +810,11 @@ int main(int argc, char **argv) {
         return 4;
     }
     status = SLOPH_STATUS_OK;
+    command_started = cli_monotonic_nanoseconds();
     if (command.action == ACTION_PROJECT_CHECK ||
+        ((command.action == ACTION_NATIVE_COMPILE ||
+          command.action == ACTION_NATIVE_RUN) &&
+         command.input_format == INPUT_SOURCE) ||
         ((command.action == ACTION_CORE_CHECK ||
           command.action == ACTION_CORE_PRINT) &&
          command.input_format == INPUT_SOURCE)) {
@@ -664,7 +827,10 @@ int main(int argc, char **argv) {
             status = sloph_core_print(context, unit, &output, &output_length);
     } else if (command.action == ACTION_CORE_CHECK ||
                command.action == ACTION_CORE_PRINT ||
-               command.action == ACTION_CORE_EVAL) {
+               command.action == ACTION_CORE_EVAL ||
+               command.action == ACTION_TIMBER_PRINT ||
+               (command.action == ACTION_NATIVE_COMPILE &&
+                command.input_format == INPUT_TEXT)) {
         status = read_input(context, command.input, 0, &input, &input_length);
         if (status == SLOPH_STATUS_OK)
             status = sloph_core_parse(context, input, input_length, &unit);
@@ -673,9 +839,12 @@ int main(int argc, char **argv) {
                 status = sloph_core_validate(context, unit);
             else if (command.action == ACTION_CORE_PRINT)
                 status = sloph_core_print(context, unit, &output, &output_length);
-            else
+            else if (command.action == ACTION_CORE_EVAL)
                 status = sloph_core_evaluate(context, unit, command.symbol,
                                              &output, &output_length);
+            else if (command.action == ACTION_TIMBER_PRINT)
+                status = sloph_heartwood_to_timber(context, unit, command.symbol,
+                                                   &output, &output_length);
         }
     } else {
         status = read_input(context, command.input, 1, &input, &input_length);
@@ -714,6 +883,111 @@ int main(int argc, char **argv) {
                                   syntax_output.length);
         }
     }
+    source_lowered = cli_monotonic_nanoseconds();
+    if (status == SLOPH_STATUS_OK &&
+        (command.action == ACTION_NATIVE_COMPILE ||
+         command.action == ACTION_NATIVE_RUN)) {
+        SlophNativeOptions native_options = sloph_native_options_default();
+        SlophProjectManifestView manifest;
+        const char *symbol = command.symbol;
+        native_options.compiler = command.compiler;
+        native_options.emit_c_path = command.emit_c;
+        native_options.timings = command.timings ? &native_timings : NULL;
+        if (symbol == NULL && project != NULL &&
+            sloph_project_manifest(project, &manifest) == SLOPH_STATUS_OK)
+            symbol = manifest.entry;
+        if (command.action == ACTION_NATIVE_RUN) {
+            run_directory = cli_temporary_template("sloph-run-");
+            if (run_directory == NULL) {
+                status = SLOPH_STATUS_OUT_OF_MEMORY;
+            } else if (mkdtemp(run_directory) == NULL) {
+                (void)sloph_context_add_diagnostic_full(
+                    context, "compiler.temporary", "environment",
+                    "temporary directory could not be created", "{}",
+                    SLOPH_UNKNOWN_SPAN, SLOPH_SEVERITY_ERROR);
+                status = SLOPH_STATUS_IO_ERROR;
+            } else {
+                run_directory_created = 1;
+                run_executable = malloc(strlen(run_directory) +
+                                        sizeof("/program"));
+                if (run_executable == NULL) {
+                    status = SLOPH_STATUS_OUT_OF_MEMORY;
+                } else {
+                    (void)sprintf(run_executable, "%s/program", run_directory);
+                    native_options.output_path = run_executable;
+                }
+            }
+        } else {
+            native_options.output_path = command.output;
+        }
+        if (status == SLOPH_STATUS_OK)
+            status = sloph_native_compile(context, unit, project, symbol,
+                                          &native_options);
+        if (status == SLOPH_STATUS_OK && command.timings) {
+            render_timing(command.diagnostics, "c_compile_link",
+                          native_timings.c_compile_link_nanoseconds);
+            render_timing(command.diagnostics, "core_to_c",
+                          native_timings.core_to_c_nanoseconds);
+            if (command.input_format == INPUT_SOURCE) {
+                render_timing(command.diagnostics, "dependency_build", 0u);
+                render_timing(command.diagnostics, "source_to_core",
+                    source_lowered >= command_started
+                        ? source_lowered - command_started : 0u);
+            }
+        }
+        if (status == SLOPH_STATUS_OK && command.action == ACTION_NATIVE_RUN) {
+            const char *arguments[] = {run_executable, NULL};
+            SlophProcessOptions process_options;
+            char *details;
+            memset(&process_options, 0, sizeof(process_options));
+            process_options.arguments = arguments;
+            process_options.timeout_seconds = 30u;
+            /* Timber enforces its public 1 MiB output limit atomically. Leave
+             * room for the bounded runtime diagnostic on the second pipe. */
+            process_options.output_limit = 2097152u;
+            process_options.tail_limit = 65536u;
+            status = sloph_process_run(context, &process_options, &process_result);
+            if (status == SLOPH_STATUS_OK && process_result.timed_out) {
+                (void)sloph_context_add_diagnostic_full(
+                    context, "compiler.run.timeout", "environment",
+                    "compiled program exceeded the 30 second limit", "{}",
+                    SLOPH_UNKNOWN_SPAN, SLOPH_SEVERITY_ERROR);
+                status = SLOPH_STATUS_PROCESS_ERROR;
+            } else if (status == SLOPH_STATUS_OK && process_result.output_exceeded) {
+                (void)sloph_context_add_diagnostic_full(
+                    context, "compiler.run.output_limit", "environment",
+                    "compiled program output exceeded 2097152 bytes",
+                    "{\"configured\":2097152}", SLOPH_UNKNOWN_SPAN,
+                    SLOPH_SEVERITY_ERROR);
+                status = SLOPH_STATUS_LIMIT_EXCEEDED;
+            } else if (status == SLOPH_STATUS_OK && process_result.exit_code != 0 &&
+                       command.diagnostics == DIAGNOSTIC_JSONL &&
+                       command.source_version == 0u) {
+                details = runtime_failure_details(process_result.exit_code,
+                    process_result.standard_error,
+                    process_result.standard_error_length);
+                (void)sloph_context_add_diagnostic_full(
+                    context, "compiler.runtime.failed", "runtime",
+                    "compiled program failed", details != NULL ? details : "{}",
+                    SLOPH_UNKNOWN_SPAN, SLOPH_SEVERITY_ERROR);
+                free(details);
+                status = SLOPH_STATUS_INVALID_ARGUMENT;
+            } else if (status == SLOPH_STATUS_OK && process_result.exit_code != 0) {
+                status = SLOPH_STATUS_INVALID_ARGUMENT;
+            }
+            if (command.diagnostics == DIAGNOSTIC_HUMAN ||
+                command.source_version == 1u ||
+                process_result.exit_code == 0) {
+                if (process_result.standard_output_length != 0u)
+                    (void)fwrite(process_result.standard_output, 1u,
+                                 process_result.standard_output_length, stdout);
+                if (process_result.standard_error_length != 0u)
+                    (void)fwrite(process_result.standard_error, 1u,
+                                 process_result.standard_error_length, stderr);
+            }
+            sloph_process_result_free(&process_result);
+        }
+    }
     if (status == SLOPH_STATUS_OK && output != NULL) {
         status = write_output(command.output, output, output_length);
         if (status != SLOPH_STATUS_OK) {
@@ -739,5 +1013,11 @@ int main(int argc, char **argv) {
     sloph_core_free(unit);
     free(input);
     sloph_context_destroy(context);
+    if (run_directory_created) {
+        if (run_executable != NULL) (void)unlink(run_executable);
+        (void)rmdir(run_directory);
+    }
+    free(run_executable);
+    free(run_directory);
     return exit_code;
 }

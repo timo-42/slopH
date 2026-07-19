@@ -93,10 +93,9 @@ uv run --no-project --directory src/sloph-python-bootstrap \
   ../libraries/run-tests.sh python -m sloph
 ```
 
-Bootstrap `compile` and `run` commands currently execute package-root
-`build.sh` files belonging to dependencies. Treat adding such a dependency as
-granting arbitrary build-time code execution; the intended sandboxed
-replacement is tracked in [`idea/SECURITY.md`](idea/SECURITY.md).
+Native providers declare reviewed local `.c` and `.S` inputs in strict
+`provider.json` metadata. The compiler passes those sources directly to the
+host C compiler; dependency packages do not execute build scripts.
 
 ## Repository Layout
 

@@ -1,5 +1,6 @@
 #include "sloph/context.h"
 #include "sloph/syntax.h"
+#include "../src/syntax_internal.h"
 
 #include <assert.h>
 #include <string.h>
@@ -96,4 +97,30 @@ static void rich_json_roundtrip(void) {
     sloph_syntax_module_free(parsed);sloph_syntax_module_free(decoded);sloph_context_destroy(ctx);
 }
 
-int main(void) { basic_v0(); v1_transform(); rejects_v0_zero_parameters(); rich_json_roundtrip(); return 0; }
+static void clause_binder_alias(void) {
+    static const unsigned char source[] =
+        "module clauses; fn decrement(item: Int) -> Int "
+        "| 0 => 0 | n => n - 1";
+    SlophContext *ctx = context();
+    SlophSyntaxModule *module = NULL;
+    SlophSyntaxExpr *choice;
+    SlophSyntaxBlock *fallback;
+    SlophSyntaxStatement *alias;
+    assert(sloph_syntax_parse(ctx, source, sizeof(source) - 1u, 1u,
+                              &module) == SLOPH_STATUS_OK);
+    assert(module->function_count == 1u);
+    choice = module->functions[0].body->result;
+    assert(choice->kind == SLOPH_SYNTAX_EXPR_IF);
+    fallback = choice->as.if_.else_body;
+    assert(fallback->statement_count == 1u);
+    alias = &fallback->statements[0];
+    assert(alias->kind == SLOPH_SYNTAX_STMT_LET);
+    assert(strcmp(alias->as.let.binder.name, "n") == 0);
+    assert(alias->as.let.value->kind == SLOPH_SYNTAX_EXPR_LOCAL);
+    assert(strcmp(alias->as.let.value->as.name, "item") == 0);
+    assert(fallback->result->kind == SLOPH_SYNTAX_EXPR_BINARY);
+    sloph_syntax_module_free(module);
+    sloph_context_destroy(ctx);
+}
+
+int main(void) { basic_v0(); v1_transform(); rejects_v0_zero_parameters(); rich_json_roundtrip(); clause_binder_alias(); return 0; }

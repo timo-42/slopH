@@ -61,13 +61,11 @@ class ExperimentalCliTests(unittest.TestCase):
 
 
 class StableV1CliTests(unittest.TestCase):
-    def test_check_does_not_run_package_build_scripts(self) -> None:
-        with patch("sloph.compiler.build._run_package_build_scripts") as build_scripts:
-            result = main(
-                ["check", str(ROOT / "examples" / "hello-world")]
-            )
+    def test_check_does_not_require_native_compilation(self) -> None:
+        result = main(
+            ["check", str(ROOT / "examples" / "hello-world")]
+        )
         self.assertEqual(0, result)
-        build_scripts.assert_not_called()
 
     def test_ast_json_identifies_version_one(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

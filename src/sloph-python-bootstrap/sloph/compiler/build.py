@@ -16,7 +16,7 @@ from sloph._resources import libraries_root
 from sloph.backend import emit_c
 from sloph.core.diagnostics import fail
 from sloph.core.model import CoreUnit
-from sloph.project import elaborate_project, load_manifest, load_project, resolve_bundled_packages
+from sloph.project import elaborate_project, load_project
 
 
 @dataclass(frozen=True, slots=True)
@@ -25,6 +25,15 @@ class BuildResult:
     symbol: str
     timings_ns: dict[str, int]
     c_bytes: int
+
+
+def _unique_json_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"duplicate JSON field {key!r}")
+        result[key] = value
+    return result
 
 
 def compile_project(
@@ -36,10 +45,6 @@ def compile_project(
     source_version: int = 0,
 ) -> BuildResult:
     start = perf_counter_ns()
-    if source_version == 1:
-        manifest = load_manifest(project)
-        packages = resolve_bundled_packages(("prelude", *manifest.dependencies))
-        _run_package_build_scripts(packages)
     dependencies_built = perf_counter_ns()
     loaded = load_project(project, source_version=source_version)
     if source_version == 1:
@@ -104,18 +109,14 @@ def _compile(
             for include_root, _ in native_inputs
             for argument in ("-I", str(include_root))
         ]
-        provider_libraries = [
-            str(library)
-            for _, libraries in native_inputs
-            for library in libraries
-        ]
-        runtime_arguments = [
-            f"-Wl,-rpath,{include_root}"
-            for include_root, _ in native_inputs
+        provider_sources = [
+            str(source)
+            for _, sources in native_inputs
+            for source in sources
         ]
         command = [
             compiler, *flags, *include_arguments, str(source_path),
-            *provider_libraries, *runtime_arguments, "-o", str(binary_path),
+            *provider_sources, "-o", str(binary_path),
         ]
         returncode, stderr_bytes = _run_process_bounded(command, compiler)
         if returncode != 0:
@@ -337,53 +338,23 @@ def _native_inputs(unit: CoreUnit) -> tuple[tuple[Path, tuple[Path, ...]], ...]:
         root = libraries_root() / parts[0] / "src" / Path(*parts[1:])
         manifest_path = root / "provider.json"
         try:
-            metadata = json.loads(manifest_path.read_text(encoding="utf-8"))
-        except (OSError, UnicodeError, json.JSONDecodeError) as error:
+            metadata = json.loads(
+                manifest_path.read_text(encoding="utf-8"),
+                object_pairs_hook=_unique_json_object,
+            )
+        except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as error:
             fail("compiler.provider.metadata", "environment", f"native provider metadata could not be loaded: {error}", provider=identity, path=str(manifest_path))
-        if not isinstance(metadata, dict) or set(metadata) != {"format", "module", "bindings", "libraries"} or metadata.get("format") != 0 or metadata.get("module") != identity:
+        if not isinstance(metadata, dict) or set(metadata) != {"format", "module", "bindings", "sources"} or type(metadata.get("format")) is not int or metadata.get("format") != 1 or metadata.get("module") != identity:
             fail("compiler.provider.metadata", "environment", "native provider metadata is invalid", provider=identity, path=str(manifest_path))
-        names = metadata["libraries"]
-        if not isinstance(names, list) or not names or not all(isinstance(name, str) and Path(name).name == name and name.endswith((".so", ".dylib")) for name in names) or len(names) != len(set(names)):
-            fail("compiler.provider.metadata", "environment", "native provider libraries are invalid", provider=identity, path=str(manifest_path))
-        libraries = tuple(root / name for name in names)
-        missing = [str(library) for library in libraries if not library.is_file()]
+        names = metadata["sources"]
+        if not isinstance(names, list) or not names or not all(isinstance(name, str) and Path(name).name == name and name.endswith((".c", ".S")) for name in names) or len(names) != len(set(names)):
+            fail("compiler.provider.metadata", "environment", "native provider sources are invalid", provider=identity, path=str(manifest_path))
+        sources = tuple(root / name for name in names)
+        missing = [str(source) for source in sources if source.is_symlink() or not source.is_file()]
         if missing:
-            fail("compiler.provider.library", "environment", "native provider library has not been built", provider=identity, missing=missing)
-        result.append((root, libraries))
+            fail("compiler.provider.source", "environment", "native provider source is missing or invalid", provider=identity, missing=missing)
+        result.append((root, sources))
     return tuple(result)
-
-
-def _run_package_build_scripts(packages: tuple[tuple[str, Path], ...]) -> None:
-    for package, root in packages:
-        script = root / "build.sh"
-        if not script.exists():
-            continue
-        if script.is_symlink() or not script.is_file() or not os.access(script, os.X_OK):
-            fail(
-                "compiler.build_script.invalid",
-                "environment",
-                "package build.sh must be an executable regular file",
-                package=package,
-                script=str(script),
-            )
-        returncode, stderr_bytes = _run_process_bounded(
-            [str(script)],
-            str(script),
-            cwd=root,
-            diagnostic_prefix="compiler.build_script",
-            description="package build script",
-            details={"package": package, "script": str(script)},
-        )
-        if returncode != 0:
-            fail(
-                "compiler.build_script.failed",
-                "environment",
-                "package build.sh failed",
-                package=package,
-                script=str(script),
-                exit_code=returncode,
-                stderr=stderr_bytes.decode("utf-8", errors="replace"),
-            )
 
 
 def _atomic_text(path: Path, content: str) -> None:
