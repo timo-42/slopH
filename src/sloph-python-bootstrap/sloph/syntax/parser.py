@@ -108,7 +108,7 @@ def _lex(data: bytes, limits: Limits, *, version: int = 0) -> tuple[_Token, ...]
             if i >= len(text):
                 fail("syntax.parse.byte_literal", "parse", "unterminated byte literal", Span(start, len(text)))
             i += 1
-        elif version == 1 and ch in "+-*<":
+        elif version == 1 and ch in "+-*<?":
             i += 1
         elif ch in _PUNCT:
             i += 1
@@ -266,12 +266,63 @@ class _Parser:
         self.take(close)
         return tuple(values)
 
-    def block(self) -> Block:
-        start = self.take("{").start; bindings = []
+    def block(self, propagation: TypeRef | None = None) -> Block:
+        start = self.take("{").start
+        return self.block_rest(start, propagation)
+
+    def block_rest(self, start: int, propagation: TypeRef | None) -> Block:
+        bindings = []
         while self.peek("let"):
-            bstart = self.take().start; binder = self.binder(allow_inferred=self.version == 1); self.take("="); value = self.expr(); end = self.take(";").end
+            bstart = self.take().start; binder = self.binder(allow_inferred=self.version == 1); self.take("="); value = self.expr()
+            if self.version == 1 and self.peek("?"):
+                question = self.take("?")
+                if propagation is None or not (
+                    isinstance(propagation, AppliedType)
+                    and propagation.constructor.split("::")[-1] == "Result"
+                    and len(propagation.arguments) == 2
+                ):
+                    fail(
+                        "syntax.parse.propagation_context",
+                        "parse",
+                        "the '?' operator requires a top-level let binding in a "
+                        "function returning Result[Success, Failure]",
+                        Span(question.start, question.end),
+                    )
+                self.take(";")
+                rest = self.block_rest(self.token.start, propagation)
+                span = self.node(bstart, rest.span.end)
+                failure_name = f"{binder.name}_failure"
+                failure = Binder(failure_name, InferredType(span), span)
+                err_body = Block(
+                    (),
+                    ConstructorExpr(
+                        "Result::Err",
+                        (LocalExpr(failure_name, span),),
+                        span,
+                        propagation.arguments,
+                    ),
+                    span,
+                )
+                case = CaseExpr(
+                    value,
+                    propagation,
+                    (
+                        CaseAlternative("Result::Ok", (binder,), rest, span),
+                        CaseAlternative("Result::Err", (failure,), err_body, span),
+                    ),
+                    span,
+                )
+                return Block(tuple(bindings), case, self.node(start, rest.span.end))
+            end = self.take(";").end
             bindings.append(LetBinding(binder, value, self.node(bstart, end)))
         result = self.expr()
+        if self.version == 1 and self.peek("?"):
+            fail(
+                "syntax.parse.propagation_context",
+                "parse",
+                "the '?' operator is only supported on let bindings",
+                Span(self.token.start, self.token.end),
+            )
         if self.peek(";"): self.take(";")
         end = self.take("}").end
         return Block(tuple(bindings), result, self.node(start, end))
@@ -527,7 +578,11 @@ class _Parser:
     def fn_decl(self, public: bool, start: int) -> FunctionDecl:
         self.take("fn"); name = self.lower_ident("function"); type_parameters = self.type_parameters(); self.take("("); params = self.comma_list(self.binder)
         self.take("->"); result = self.type_ref()
-        body = self.function_clauses(params, result) if self.version == 1 and self.peek("|") else self.block()
+        body = (
+            self.function_clauses(params, result)
+            if self.version == 1 and self.peek("|")
+            else self.block(propagation=result if self.version == 1 else None)
+        )
         return FunctionDecl(name.text, params, result, body, public, self.node(start, body.span.end), type_parameters)
 
     def function_clauses(self, params: tuple[Binder, ...], result: TypeRef) -> Block:

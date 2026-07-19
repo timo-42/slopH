@@ -1,0 +1,37 @@
+module propagation::main;
+
+import os::process::{Exit};
+import core::int::{to_bytes};
+import std::io::{write};
+
+fn decrement(n: Int) -> Result[Int, Bytes]
+| 0 => Result::Err[Int, Bytes]("zero")
+| n => Result::Ok[Int, Bytes](n - 1)
+
+fn decrement_twice(n: Int) -> Result[Int, Bytes] {
+  let first = decrement(n)?;
+  let second = decrement(first)?;
+  Result::Ok[Int, Bytes](second)
+}
+
+fn show(outcome: Result[Int, Bytes]) -> Unit {
+  case outcome -> Unit {
+    Result::Ok(item) => {
+      let label = write("ok ");
+      let item_written = write(to_bytes(item));
+      write("\n")
+    }
+    Result::Err(message) => {
+      let error_label = write("err ");
+      let message_written = write(message);
+      write("\n")
+    }
+  }
+}
+
+public fn main() -> Exit {
+  let five = show(decrement_twice(5));
+  let one = show(decrement_twice(1));
+  let zero = show(decrement_twice(0));
+  Exit::Success()
+}
