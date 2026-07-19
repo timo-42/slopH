@@ -4,6 +4,7 @@ from sloph.syntax.format import format_source
 from sloph.syntax.json import syntax_from_json, syntax_to_json
 from sloph.syntax.model import *
 from sloph.syntax.parser import parse_source, parse_source_v1
+from sloph.syntax.transform import Capture, Literal, Transform, TransformRegistry
 from sloph.syntax.validate import validate_syntax
 
 __all__ = [
@@ -15,4 +16,5 @@ __all__ = [
     "TargetTuplePattern", "TargetPattern", "Availability",
     "ConditionalImportAlternative", "ConditionalImportDecl", "Import", "FieldDecl",
     "ConstructorDecl", "TypeDecl", "IntrinsicTypeDecl", "FunctionDecl", "IntrinsicFunctionDecl", "ForeignFunctionDecl", "ValueDecl", "Module",
+    "Capture", "Literal", "Transform", "TransformRegistry",
 ]

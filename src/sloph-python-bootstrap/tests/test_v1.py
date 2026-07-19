@@ -8,7 +8,7 @@ import unittest
 from sloph.compiler import compile_project
 from sloph.core import evaluate, format_core, format_value, parse_core
 from sloph.project import elaborate_project_v1
-from sloph.syntax import parse_source_v1
+from sloph.syntax import Capture, IfExpr, Literal, Transform, parse_source_v1
 
 
 MANIFEST = """format = 0
@@ -285,6 +285,54 @@ const main: Int { factorial(6) }
             completed = subprocess.run([output], check=False, capture_output=True)
         self.assertEqual(0, completed.returncode)
         self.assertEqual(b"(value 0 (int 720))\n", completed.stdout)
+
+    def test_standard_conditionals_use_the_transform_dispatcher(self) -> None:
+        module = parse_source_v1(
+            "module demo; const main: Int { unless 1 < 2 { 10 } else { 42 } }"
+        )
+        expression = module.values[0].value.result
+        self.assertIsInstance(expression, IfExpr)
+        self.assertEqual(42, expression.then_body.result.value)
+        self.assertEqual(10, expression.else_body.result.value)
+
+    def test_custom_transform_uses_generic_typed_capture_pattern(self) -> None:
+        def expand(captures, span):
+            return IfExpr(
+                captures["condition"],
+                captures["yes"],
+                captures["no"],
+                span,
+            )
+
+        choose = Transform(
+            "example::choose",
+            "choose",
+            (
+                Capture("condition", "Expr"),
+                Capture("yes", "Block"),
+                Literal("otherwise"),
+                Capture("no", "Block"),
+            ),
+            expand,
+        )
+        module = parse_source_v1(
+            "module demo; const main: Int { choose 1 < 2 { 10 } otherwise { 20 } }",
+            transforms=(choose,),
+        )
+        self.assertIsInstance(module.values[0].value.result, IfExpr)
+
+    def test_transform_leading_name_conflicts_before_body_parsing(self) -> None:
+        duplicate = Transform(
+            "example::if",
+            "if",
+            (Capture("value", "Expr"),),
+            lambda captures, span: captures["value"],
+        )
+        with self.assertRaisesRegex(Exception, "provided by both"):
+            parse_source_v1(
+                "module demo; const main: Int { 0 }",
+                transforms=(duplicate,),
+            )
 
     def test_function_main_writes_bytes_and_returns_exit(self) -> None:
         project = self._project(

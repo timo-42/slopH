@@ -11,6 +11,7 @@ from sloph.syntax.model import (
     AppliedType, FunctionType, IfExpr, InferredType, IntType, LambdaExpr, LetBinding, LocalExpr, Module, NamedType, PrimitiveExpr, TypeDecl,
     TargetConstantPattern, TargetPattern, TargetTuplePattern, TypeRef, ValueDecl,
 )
+from sloph.syntax.transform import Capture, Literal, Transform, TransformRegistry, standard_transform_registry
 
 
 @dataclass(frozen=True, slots=True)
@@ -21,7 +22,7 @@ class _Token:
 
 
 _PUNCT = frozenset("{}[](),;:=|")
-_KEYWORDS = frozenset({"module", "import", "when", "is", "public", "type", "fn", "value", "const", "let", "case", "if", "else", "primitive", "intrinsic", "foreign"})
+_KEYWORDS = frozenset({"module", "import", "when", "is", "public", "type", "fn", "value", "const", "let", "case", "primitive", "intrinsic", "foreign"})
 
 
 def _limit(name: str, configured: int, span: Span = Span(0, 0)) -> None:
@@ -129,9 +130,25 @@ def _lex(data: bytes, limits: Limits, *, version: int = 0) -> tuple[_Token, ...]
     return tuple(out)
 
 
+@dataclass(slots=True)
+class _TransformState:
+    depth: int = 0
+    expansions: int = 0
+
+
 class _Parser:
-    def __init__(self, tokens: tuple[_Token, ...], limits: Limits, *, version: int = 0):
+    def __init__(
+        self,
+        tokens: tuple[_Token, ...],
+        limits: Limits,
+        *,
+        version: int = 0,
+        transforms: TransformRegistry | None = None,
+        transform_state: _TransformState | None = None,
+    ):
         self.tokens, self.limits, self.version, self.i, self.depth, self.nodes = tokens, limits, version, 0, 0, 0
+        self.transforms = transforms or TransformRegistry()
+        self.transform_state = transform_state or _TransformState()
 
     @property
     def token(self) -> _Token: return self.tokens[self.i]
@@ -284,13 +301,9 @@ class _Parser:
 
     def atom(self):
         token = self.token
-        if self.version == 1 and self.peek("if"):
-            start = self.take("if").start
-            condition = self.expr()
-            then_body = self.block()
-            self.take("else")
-            else_body = self.block()
-            return IfExpr(condition, then_body, else_body, self.node(start, else_body.span.end))
+        transform = self.transforms.get(token.text) if self.version == 1 else None
+        if transform is not None:
+            return self.transform_invocation(transform)
         if self.version == 1 and self.peek("fn"):
             start = self.take("fn").start
             self.take("(")
@@ -342,6 +355,42 @@ class _Parser:
             fail("syntax.parse.invalid_name", "parse", "value names must start with a lowercase letter or underscore",
                  span, role="value", name=name)
         return LocalExpr(name, self.node(span.start, span.end)) if "::" not in name else GlobalExpr(name, self.node(span.start, span.end))
+
+    def transform_invocation(self, transform: Transform):
+        start = self.take(transform.name).start
+        state = self.transform_state
+        state.expansions += 1
+        if state.expansions > self.limits.transform_expansions:
+            _limit("transform_expansions", self.limits.transform_expansions, Span(start, self.token.end))
+        state.depth += 1
+        if state.depth > self.limits.transform_depth:
+            state.depth -= 1
+            _limit("transform_depth", self.limits.transform_depth, Span(start, self.token.end))
+        captures: dict[str, object] = {}
+        try:
+            for part in transform.pattern:
+                if isinstance(part, Literal):
+                    self.take(part.text)
+                elif isinstance(part, Capture) and part.category == "Expr":
+                    captures[part.name] = self.expr()
+                elif isinstance(part, Capture) and part.category == "Block":
+                    captures[part.name] = self.block()
+                else:
+                    raise AssertionError(f"unsupported transform pattern part {part!r}")
+            end = self.tokens[self.i - 1].end
+            result = transform.expand(captures, self.node(start, end))
+            if not isinstance(result, (IntExpr, BytesExpr, LocalExpr, GlobalExpr, CallExpr, LambdaExpr, IfExpr, ConstructorExpr, PrimitiveExpr, CaseExpr)):
+                fail(
+                    "syntax.transform.output_category",
+                    "transform",
+                    f"transform {transform.identity!r} did not return an expression",
+                    Span(start, end),
+                    transform=transform.identity,
+                    expected="Expr",
+                )
+            return result
+        finally:
+            state.depth -= 1
 
     def case_expr(self) -> CaseExpr:
         start = self.take("case").start; scrutinee = self.expr(); self.take("->"); result_type = self.type_ref(); self.take("{")
@@ -640,10 +689,21 @@ def parse_source(source: str | bytes, limits: Limits | None = None) -> Module:
     return module
 
 
-def parse_source_v1(source: str | bytes, limits: Limits | None = None) -> Module:
+def parse_source_v1(
+    source: str | bytes,
+    limits: Limits | None = None,
+    *,
+    transforms: tuple[Transform, ...] = (),
+) -> Module:
     """Parse Source v1 without changing the experimental Source v0 contract."""
     actual = limits or Limits()
-    module = _Parser(_lex(_source_bytes(source, actual), actual, version=1), actual, version=1).module()
+    registry = standard_transform_registry().extended(transforms)
+    module = _Parser(
+        _lex(_source_bytes(source, actual), actual, version=1),
+        actual,
+        version=1,
+        transforms=registry,
+    ).module()
     from sloph.syntax.validate import validate_syntax
     validate_syntax(module, actual, version=1)
     return module
