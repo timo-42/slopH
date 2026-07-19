@@ -14,7 +14,8 @@ extern "C" {
  * reviewed borrowed_bytes_write, page_map, and page_unmap adapter ABIs and
  * their documented Result/error constructors. These names are toolchain ABI,
  * not target- or project-specific conventions. The NUL-terminated result is
- * owned by the caller and must be released with free(3); out_length excludes
+ * owned by the caller and must be released with
+ * sloph_context_deallocate(context, text, out_length + 1); out_length excludes
  * the NUL. */
 SlophStatus sloph_heartwood_to_timber(SlophContext *context,
                                       SlophCoreUnit *unit,

@@ -1006,7 +1006,7 @@ int main(int argc, char **argv) {
         render_standalone_diagnostic(command.diagnostics, command.input,
                                      "tool.internal", "internal",
                                      "internal compiler failure: allocation");
-    free(output);
+    sloph_context_deallocate(context, output, output_length + 1u);
     sloph_syntax_text_free(context, &syntax_output);
     sloph_syntax_module_free(module);
     sloph_project_free(project);

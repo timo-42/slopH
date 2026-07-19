@@ -44,7 +44,7 @@ int main(void) {
     assert(sloph_core_print(context, unit, &printed, &printed_length) == SLOPH_STATUS_OK);
     assert(strstr(printed, "demo::main::main") != NULL);
     assert(strstr(printed, "(int 42)") != NULL);
-    free(printed);
+    sloph_context_deallocate(context, printed, printed_length + 1u);
     sloph_core_free(unit);
     sloph_context_destroy(context);
     return 0;

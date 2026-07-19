@@ -63,6 +63,12 @@ const char *sloph_status_name(SlophStatus status) {
     return "unknown";
 }
 
+void sloph_context_deallocate(SlophContext *context, void *pointer,
+                              size_t size) {
+    if (context == NULL || pointer == NULL) return;
+    context->allocator.deallocate(context->allocator.user_data, pointer, size);
+}
+
 const char *sloph_severity_name(SlophSeverity severity) {
     switch (severity) {
         case SLOPH_SEVERITY_ERROR: return "error";

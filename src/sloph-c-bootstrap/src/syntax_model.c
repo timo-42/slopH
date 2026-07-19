@@ -13,7 +13,7 @@ SlophStatus sloph_syntax_new_module(SlophContext *context, unsigned version,
     module = allocator->allocate(allocator->user_data, sizeof(*module));
     if (module == NULL) return SLOPH_STATUS_OUT_OF_MEMORY;
     memset(module, 0, sizeof(*module));
-    module->context = context;
+    module->allocator = *allocator;
     module->version = version;
     sloph_arena_init(&module->arena, context,
                      sloph_context_limits(context)->project_bytes, 4096u);
@@ -46,7 +46,7 @@ SlophStatus sloph_syntax_diagnostic(SlophContext *context, const char *code,
 void sloph_syntax_module_free(SlophSyntaxModule *module) {
     SlophAllocator allocator;
     if (module == NULL) return;
-    allocator = *sloph_context_allocator(module->context);
+    allocator = module->allocator;
     sloph_arena_destroy(&module->arena);
     allocator.deallocate(allocator.user_data, module, sizeof(*module));
 }

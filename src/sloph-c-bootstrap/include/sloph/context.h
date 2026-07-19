@@ -19,6 +19,10 @@ void sloph_context_destroy(SlophContext *context);
 void sloph_context_clear_diagnostics(SlophContext *context);
 const SlophLimits *sloph_context_limits(const SlophContext *context);
 const SlophAllocator *sloph_context_allocator(const SlophContext *context);
+/* Release a buffer returned by a context-backed compiler API. `size` is the
+ * allocation size documented by that API (normally returned_length + 1). */
+void sloph_context_deallocate(SlophContext *context, void *pointer,
+                              size_t size);
 
 size_t sloph_context_diagnostic_count(const SlophContext *context);
 SlophStatus sloph_context_diagnostic(const SlophContext *context, size_t index,
