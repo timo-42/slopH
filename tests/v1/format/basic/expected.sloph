@@ -1,0 +1,13 @@
+module demo::format;
+
+public fn double(item: Int) -> Int {
+  (item + item)
+}
+
+public fn choose(flag: Bool) -> Int {
+  if flag {
+    double(2)
+  } else {
+    0
+  }
+}

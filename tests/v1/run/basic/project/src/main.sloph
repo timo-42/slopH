@@ -1,0 +1,19 @@
+module demo::main;
+
+import os::process::{Exit};
+import std::io::{write};
+
+fn describe(count: Int) -> Bytes
+| 0 => "none"
+| 1 => "one"
+| n => "many"
+
+public fn main() -> Exit {
+  let zero = write(describe(0));
+  let separator_one = write(" ");
+  let one = write(describe(1));
+  let separator_many = write(" ");
+  let many = write(describe(7));
+  let newline = write("\n");
+  Exit::Success()
+}

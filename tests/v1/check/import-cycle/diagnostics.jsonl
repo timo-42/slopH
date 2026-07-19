@@ -1,0 +1,1 @@
+{"code":"project.import.cycle","details":{"modules":["cycle::first","cycle::second"]},"message":"module imports must be acyclic","message_id":"project.import.cycle","phase":"resolve","schema":"sloph.diagnostic","severity":"error","span":{"end":0,"start":0},"version":0}

@@ -40,9 +40,18 @@ sloph unstable compile
 sloph unstable run
 ```
 
-Shared cases live under `tests/core/**/case.test` and
-`tests/source/**/case.test`. They are data, not Python test programs, and use
-these exact manifest keys:
+The stable Source v1 profile is additionally exercised through the supported
+commands:
+
+```text
+sloph check
+sloph format
+sloph run
+```
+
+Shared cases live under `tests/core/**/case.test`,
+`tests/source/**/case.test`, and `tests/v1/**/case.test`. They are data, not
+Python test programs, and use these exact manifest keys:
 
 ```text
 format: 0
@@ -64,7 +73,13 @@ The fixed field catalog is:
 - `fuel` is permitted only for `core-eval` and sets its evaluation bound;
 - `expect-output` and `expect-diagnostics` optionally name golden files;
 - `kind` is exactly `core-check`, `core-print`, `core-eval`, `core-run`, `source-check`,
-  `source-format`, `source-ast`, `source-core`, or `source-run`.
+  `source-format`, `source-ast`, `source-core`, `source-run`, `v1-check`,
+  `v1-format`, or `v1-run`.
+
+The `v1-*` kinds run the stable Source v1 commands: `v1-check` runs
+`sloph check`, `v1-format` runs `sloph format --stdout`, and `v1-run` runs
+`sloph run` on a project directory, comparing standard output and structured
+diagnostics exactly like the corresponding `source-*` kinds.
 
 Unknown or duplicate fields, missing required fields, invalid values, and fields
 not permitted for the selected kind are case-format errors. Referenced paths are

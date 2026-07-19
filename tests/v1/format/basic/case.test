@@ -1,0 +1,6 @@
+format: 0
+name: v1/format/basic
+kind: v1-format
+input: input.sloph
+expect-exit: 0
+expect-output: expected.sloph
