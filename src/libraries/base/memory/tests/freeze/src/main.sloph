@@ -1,0 +1,25 @@
+module memory_freeze_test::main;
+
+import memory::{allocate, freeze};
+import memory_freeze_test::buffer::{put};
+import os::process::{Exit};
+import std::io::{write};
+
+public fn main() -> Exit {
+  case allocate(3) -> Exit {
+    Result::Err(allocation_error) => { Exit::Failure(1) }
+    Result::Ok(block) => {
+      let first = put(block, 0, 97);
+      let second = put(block, 1, 98);
+      let third = put(block, 2, 99);
+      case freeze(block, 3) -> Exit {
+        Result::Err(access_error) => { Exit::Failure(2) }
+        Result::Ok(bytes) => {
+          let bytes_written = write(bytes);
+          let newline_written = write(bytes"\n");
+          Exit::Success()
+        }
+      }
+    }
+  }
+}

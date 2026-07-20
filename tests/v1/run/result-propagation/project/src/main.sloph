@@ -5,7 +5,7 @@ import core::int::{to_bytes};
 import std::io::{write};
 
 fn decrement(n: Int) -> Result[Int, Bytes]
-| 0 => Result::Err[Int, Bytes]("zero")
+| 0 => Result::Err[Int, Bytes](bytes"zero")
 | n => Result::Ok[Int, Bytes](n - 1)
 
 fn decrement_twice(n: Int) -> Result[Int, Bytes] {
@@ -17,14 +17,14 @@ fn decrement_twice(n: Int) -> Result[Int, Bytes] {
 fn show(outcome: Result[Int, Bytes]) -> Unit {
   case outcome -> Unit {
     Result::Ok(item) => {
-      let label = write("ok ");
+      let label = write(bytes"ok ");
       let item_written = write(to_bytes(item));
-      write("\n")
+      write(bytes"\n")
     }
     Result::Err(message) => {
-      let error_label = write("err ");
+      let error_label = write(bytes"err ");
       let message_written = write(message);
-      write("\n")
+      write(bytes"\n")
     }
   }
 }

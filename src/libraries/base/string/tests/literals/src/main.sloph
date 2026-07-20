@@ -1,0 +1,14 @@
+module string_test::main;
+
+import core::int::{to_bytes};
+import os::process::{Exit};
+import std::io::{write};
+import string::{ascii_length, utf8_length};
+
+public fn main() -> Exit {
+  let ascii_written = write(to_bytes(ascii_length(ascii"abc")));
+  let separator = write(bytes"\n");
+  let utf8_written = write(to_bytes(utf8_length(utf8"h\xc3\xa9")));
+  let newline = write(bytes"\n");
+  Exit::Success()
+}

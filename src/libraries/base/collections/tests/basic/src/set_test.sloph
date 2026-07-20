@@ -1,0 +1,23 @@
+module collections_tests::set_test;
+
+import collections::list::{List};
+import collections::set::{Set, contains, insert, length, remove};
+import core::bytes::{equal};
+import core::int::{to_bytes};
+import std::io::{write};
+
+fn print_bool(item: Bool) -> Unit {
+  if item { write(bytes"true\n") } else { write(bytes"false\n") }
+}
+
+public fn run_set() -> Unit {
+  let empty = Set::Set[Bytes](List::Nil[Bytes]());
+  let first = insert[Bytes](empty, bytes"x", equal);
+  let duplicate = insert[Bytes](first, bytes"x", equal);
+  let second = insert[Bytes](duplicate, bytes"y", equal);
+  let present = print_bool(contains[Bytes](second, bytes"y", equal));
+  let removed = remove[Bytes](second, bytes"x", equal);
+  let absent = print_bool(contains[Bytes](removed, bytes"x", equal));
+  let size_written = write(to_bytes(length[Bytes](removed)));
+  write(bytes"\n")
+}

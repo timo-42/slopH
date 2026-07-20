@@ -1,0 +1,13 @@
+module string::utf8;
+
+import core::{Int, Utf8};
+import core::bytes::{length};
+import sloph::{Bool};
+
+// Returns encoded byte length. Scalar indexing is intentionally absent: callers
+// must choose an explicit decoder/iterator once that API is available.
+public fn utf8_length(text: borrow Utf8) -> Int {
+  case text -> Int { Utf8::Utf8(bytes) => { length(bytes) } }
+}
+
+public fn utf8_is_empty(text: borrow Utf8) -> Bool { utf8_length(text) == 0 }

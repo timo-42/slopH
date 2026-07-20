@@ -1,0 +1,23 @@
+module core;
+
+public intrinsic type Int;
+public intrinsic type Bytes;
+public type Ascii { Ascii(bytes: Bytes); }
+public type Utf8 { Utf8(bytes: Bytes); }
+public intrinsic type IEEE_F16;
+public intrinsic type BF16;
+public intrinsic type IEEE_F32;
+public intrinsic type IEEE_F64;
+public intrinsic type SaturatingF16;
+public intrinsic type SaturatingBF16;
+public intrinsic type SaturatingF32;
+public intrinsic type SaturatingF64;
+public intrinsic type TrappingF16;
+public intrinsic type TrappingBF16;
+public intrinsic type TrappingF32;
+public intrinsic type TrappingF64;
+public intrinsic type CheckedF16;
+public intrinsic type CheckedBF16;
+public intrinsic type CheckedF32;
+public intrinsic type CheckedF64;
+public owned intrinsic type Block;

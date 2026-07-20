@@ -1,0 +1,14 @@
+module std_io_tests::main;
+
+import core::bytes::{length};
+import core::int::{to_bytes};
+import os::process::{Exit};
+import std::io::{Input, Output, read_all, write, write_to};
+
+public fn main() -> Exit {
+  let input = read_all(Input::StandardInput());
+  let label_written = write_to(Output::StandardOutput(), bytes"stdin bytes = ");
+  let length_written = write(to_bytes(length(input)));
+  let newline_written = write(bytes"\n");
+  Exit::Success()
+}

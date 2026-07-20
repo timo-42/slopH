@@ -1,0 +1,18 @@
+module float_test::main;
+
+import core::float::{f64_abs, f64_add, f64_clamp, f64_div, f64_from_int, f64_to_bytes};
+import os::process::{Exit};
+import std::io::{write};
+
+fn report(number: IEEE_F64) -> Unit {
+  let output = write(f64_to_bytes(number));
+  write(bytes"\n")
+}
+
+public fn main() -> Exit {
+  let sum = report(f64_add(f64_from_int(2), f64_from_int(3)));
+  let quotient = report(f64_div(f64_from_int(7), f64_from_int(2)));
+  let absolute = report(f64_abs(f64_from_int(0 - 4)));
+  let clamped = report(f64_clamp(f64_from_int(9), f64_from_int(0), f64_from_int(5)));
+  Exit::Success()
+}

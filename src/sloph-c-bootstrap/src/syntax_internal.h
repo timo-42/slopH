@@ -33,6 +33,9 @@ typedef enum SlophSyntaxExprKind {
     SLOPH_SYNTAX_EXPR_CONSTRUCTOR, SLOPH_SYNTAX_EXPR_PRIMITIVE,
     SLOPH_SYNTAX_EXPR_CASE
 } SlophSyntaxExprKind;
+typedef enum SlophSyntaxBytesKind {
+    SLOPH_SYNTAX_BYTES_RAW, SLOPH_SYNTAX_BYTES_ASCII, SLOPH_SYNTAX_BYTES_UTF8
+} SlophSyntaxBytesKind;
 typedef struct SlophSyntaxExpr SlophSyntaxExpr;
 typedef struct SlophSyntaxBlock SlophSyntaxBlock;
 typedef struct SlophSyntaxCaseAlternative {
@@ -43,7 +46,7 @@ struct SlophSyntaxExpr {
     SlophSyntaxExprKind kind; SlophSpan span;
     union {
         char *integer;
-        struct { unsigned char *data; size_t length; } bytes;
+        struct { unsigned char *data; size_t length; SlophSyntaxBytesKind kind; } bytes;
         char *name;
         struct { SlophSyntaxExpr *function; SlophSyntaxExpr **arguments; size_t argument_count; SlophSyntaxType **type_arguments; size_t type_argument_count; } call;
         struct { char *operator_; SlophSyntaxExpr *left; SlophSyntaxExpr *right; } binary;

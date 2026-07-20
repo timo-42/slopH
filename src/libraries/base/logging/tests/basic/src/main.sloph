@@ -1,0 +1,16 @@
+module logging_tests::main;
+
+import collections::list::{List};
+import json::{Value};
+import logging::{Field, Level, Logger, log};
+import os::process::{Exit};
+import std::io::{Output};
+
+public fn main() -> Exit {
+  let fields = List::Cons[Field](
+    Field::Field(bytes"count", Value::Integer(7)),
+    List::Nil[Field]()
+  );
+  let written = log(Logger::Logger(Level::Trace(), Output::StandardOutput()), 123, Level::Info(), bytes"request complete", fields);
+  Exit::Success()
+}

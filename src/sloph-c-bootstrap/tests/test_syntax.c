@@ -146,4 +146,48 @@ static void mutable_borrow_round_trip(void) {
     sloph_context_destroy(ctx);
 }
 
-int main(void) { basic_v0(); v1_transform(); rejects_v0_zero_parameters(); rich_json_roundtrip(); clause_binder_alias(); mutable_borrow_round_trip(); return 0; }
+static void explicit_text_literals(void) {
+    static const unsigned char source[] =
+        "module literals; const raw: Bytes { bytes\"a\\x00\\xff\" } "
+        "const narrow: Ascii { ascii\"hello\" } "
+        "const text: Utf8 { utf8\"h\\xc3\\xa9\" }";
+    static const unsigned char bare[] =
+        "module literals; const bad: Bytes { \"ambiguous\" }";
+    static const unsigned char bad_ascii[] =
+        "module literals; const bad: Ascii { ascii\"\\xff\" }";
+    static const unsigned char bad_utf8[] =
+        "module literals; const bad: Utf8 { utf8\"\\xc3\" }";
+    SlophContext *ctx = context(); SlophSyntaxModule *module = NULL;
+    SlophSyntaxText formatted = {0}, json = {0};
+    SlophSyntaxModule *decoded = NULL;
+    assert(sloph_syntax_parse(ctx, source, sizeof(source)-1u, 1u, &module) ==
+           SLOPH_STATUS_OK);
+    assert(module->values[0].value->result->as.bytes.kind == SLOPH_SYNTAX_BYTES_RAW);
+    assert(module->values[1].value->result->as.bytes.kind == SLOPH_SYNTAX_BYTES_ASCII);
+    assert(module->values[2].value->result->as.bytes.kind == SLOPH_SYNTAX_BYTES_UTF8);
+    assert(sloph_syntax_format(ctx, module, &formatted) == SLOPH_STATUS_OK);
+    assert(strstr(formatted.data, "bytes\"a\\0\\xff\"") != NULL);
+    assert(strstr(formatted.data, "ascii\"hello\"") != NULL);
+    assert(strstr(formatted.data, "utf8\"h\\xc3\\xa9\"") != NULL);
+    assert(sloph_syntax_to_json(ctx, module, &json) == SLOPH_STATUS_OK);
+    assert(strstr(json.data, "\"encoding\":\"ascii\"") != NULL);
+    assert(strstr(json.data, "\"encoding\":\"utf8\"") != NULL);
+    assert(sloph_syntax_from_json(ctx, (const unsigned char *)json.data,
+                                 json.length, 1u, &decoded) == SLOPH_STATUS_OK);
+    assert(decoded->values[2].value->result->as.bytes.kind ==
+           SLOPH_SYNTAX_BYTES_UTF8);
+    sloph_syntax_module_free(decoded); sloph_syntax_text_free(ctx, &json);
+    sloph_syntax_text_free(ctx, &formatted); sloph_syntax_module_free(module);
+    module = NULL; sloph_context_clear_diagnostics(ctx);
+    assert(sloph_syntax_parse(ctx, bare, sizeof(bare)-1u, 1u, &module) ==
+           SLOPH_STATUS_INVALID_ARGUMENT);
+    sloph_context_clear_diagnostics(ctx);
+    assert(sloph_syntax_parse(ctx, bad_ascii, sizeof(bad_ascii)-1u, 1u, &module) ==
+           SLOPH_STATUS_INVALID_ARGUMENT);
+    sloph_context_clear_diagnostics(ctx);
+    assert(sloph_syntax_parse(ctx, bad_utf8, sizeof(bad_utf8)-1u, 1u, &module) ==
+           SLOPH_STATUS_INVALID_ARGUMENT);
+    sloph_context_destroy(ctx);
+}
+
+int main(void) { basic_v0(); v1_transform(); rejects_v0_zero_parameters(); rich_json_roundtrip(); clause_binder_alias(); mutable_borrow_round_trip(); explicit_text_literals(); return 0; }

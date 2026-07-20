@@ -91,7 +91,7 @@ static SlophCoreType talloc_error={.kind=SLOPH_TYPE_NAMED,.as.name="core::memory
 static SlophCoreType taccess_error={.kind=SLOPH_TYPE_NAMED,.as.name="core::memory::AccessError"};
 static SlophCoreType trange_error={.kind=SLOPH_TYPE_NAMED,.as.name="core::bytes::RangeError"};
 static bool primitive(const char*n,int v,SlophCoreType***p,size_t*c,SlophCoreType**r){
-    static SlophCoreType*i2[]={&tint,&tint},*i1[]={&tint},*b1[]={&tbytes},*b2[]={&tbytes,&tbytes};
+    static SlophCoreType*i3[]={&tint,&tint,&tint},*i2[]={&tint,&tint},*i1[]={&tint},*b1[]={&tbytes},*b2[]={&tbytes,&tbytes};
     static SlophCoreType*bytes_int[]={&tbytes,&tint},*bytes_int_int[]={&tbytes,&tint,&tint};
     static SlophCoreType*block1[]={&tblock},*block_int[]={&tblock,&tint};
     static SlophCoreType*block_int_int[]={&tblock,&tint,&tint};
@@ -112,6 +112,10 @@ static bool primitive(const char*n,int v,SlophCoreType***p,size_t*c,SlophCoreTyp
     if(!v)return false;
     if(!strcmp(n,"int.equal")||!strcmp(n,"int.less")){*p=i2;*c=2;*r=&tbool;return true;}
     if(!strcmp(n,"int.to_bytes")){*p=i1;*c=1;*r=&tbytes;return true;}
+    if(!strcmp(n,"float.f64.from_int")||!strcmp(n,"float.f64.abs")){*p=i1;*c=1;*r=&tint;return true;}
+    if(!strcmp(n,"float.f64.to_bytes")){*p=i1;*c=1;*r=&tbytes;return true;}
+    if(!strcmp(n,"float.f64.add")||!strcmp(n,"float.f64.sub")||!strcmp(n,"float.f64.mul")||!strcmp(n,"float.f64.div")){*p=i2;*c=2;*r=&tint;return true;}
+    if(!strcmp(n,"float.f64.clamp")){*p=i3;*c=3;*r=&tint;return true;}
     if(!strcmp(n,"bytes.length")){*p=b1;*c=1;*r=&tint;return true;}
     if(!strcmp(n,"bytes.equal")){*p=b2;*c=2;*r=&tbool;return true;}
     if(!strcmp(n,"bytes.at")){*p=bytes_int;*c=2;*r=&option_int;return true;}

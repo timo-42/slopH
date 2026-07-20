@@ -1,0 +1,47 @@
+module semver;
+
+public type Version {
+  Version(major: Int, minor: Int, patch: Int);
+}
+
+public type Ordering {
+  Less();
+  Equal();
+  Greater();
+}
+
+public fn is_valid(version: borrow Version) -> Bool {
+  case version -> Bool {
+    Version::Version(major, minor, patch) => {
+      if major < 0 { Bool::False() } else {
+        if minor < 0 { Bool::False() } else {
+          if patch < 0 { Bool::False() } else { Bool::True() }
+        }
+      }
+    }
+  }
+}
+
+public fn compare(left: borrow Version, right: borrow Version) -> Ordering {
+  case left -> Ordering {
+    Version::Version(left_major, left_minor, left_patch) => {
+      case right -> Ordering {
+        Version::Version(right_major, right_minor, right_patch) => {
+          if left_major < right_major { Ordering::Less() } else {
+            if right_major < left_major { Ordering::Greater() } else {
+              if left_minor < right_minor { Ordering::Less() } else {
+                if right_minor < left_minor { Ordering::Greater() } else {
+                  if left_patch < right_patch { Ordering::Less() } else {
+                    if right_patch < left_patch { Ordering::Greater() } else {
+                      Ordering::Equal()
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,4 +1,0 @@
-module prelude;
-
-public import core::{Bytes, Int};
-public import sloph::{Bool, Option, Result, Unit};

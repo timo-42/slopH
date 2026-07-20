@@ -565,7 +565,34 @@ static bool emit_primitive(Emitter *emitter, SlophCoreExpr *expression,
         if (!emit_expression(emitter, expression->as.prim.items[index], locals,
                              local_count, indent, &values[index])) { free(values); return false; }
     result = new_temporary(emitter);
-    if (strcmp(name, "bytes.length") == 0) {
+    if (strcmp(name, "float.f64.from_int") == 0) {
+        if (!text_printf(&emitter->output, "%sSlValue *t%zu=sl_float_from_int(t%zu);\n",
+                         indent, result, values[0])) goto failed;
+    } else if (strcmp(name, "float.f64.to_bytes") == 0) {
+        if (!text_printf(&emitter->output, "%sSlValue *t%zu=sl_float_to_bytes(t%zu);\n",
+                         indent, result, values[0])) goto failed;
+    } else if (strcmp(name, "float.f64.add") == 0 ||
+               strcmp(name, "float.f64.sub") == 0 ||
+               strcmp(name, "float.f64.mul") == 0 ||
+               strcmp(name, "float.f64.div") == 0) {
+        const char *operator_ = strcmp(name, "float.f64.add") == 0 ? "+" :
+                                (strcmp(name, "float.f64.sub") == 0 ? "-" :
+                                (strcmp(name, "float.f64.mul") == 0 ? "*" : "/"));
+        if (!text_printf(&emitter->output,
+            "%sSlValue *t%zu=sl_float(sl_float_get(t%zu)%ssl_float_get(t%zu));\n",
+            indent, result, values[0], operator_, values[1])) goto failed;
+    } else if (strcmp(name, "float.f64.abs") == 0) {
+        if (!text_printf(&emitter->output,
+            "%sdouble t%zu=sl_float_get(t%zu);SlValue *t%zu=sl_float(t%zu<0.0?-t%zu:t%zu);\n",
+            indent, result+1u, values[0], result, result+1u, result+1u, result+1u)) goto failed;
+        emitter->temporary += 1u;
+    } else if (strcmp(name, "float.f64.clamp") == 0) {
+        if (!text_printf(&emitter->output,
+            "%sdouble t%zu=sl_float_get(t%zu),t%zu=sl_float_get(t%zu),t%zu=sl_float_get(t%zu);SlValue *t%zu=sl_float(t%zu<t%zu?t%zu:(t%zu>t%zu?t%zu:t%zu));\n",
+            indent,result+1u,values[0],result+2u,values[1],result+3u,values[2],result,
+            result+1u,result+2u,result+2u,result+1u,result+3u,result+3u,result+1u)) goto failed;
+        emitter->temporary += 3u;
+    } else if (strcmp(name, "bytes.length") == 0) {
         if (!text_printf(&emitter->output,
             "%sif(t%zu->kind!=2u)sl_die(\"bytes.length received non-Bytes value\");\n"
             "%sSlValue *t%zu=sl_int_u64((uint64_t)t%zu->as.bytes.len);\n",
@@ -1182,6 +1209,7 @@ static bool emit_main(Emitter *emitter, const char *symbol) {
     const char *keep =
         "(void)&sl_int_literal;(void)&sl_int_add;(void)&sl_int_sub;(void)&sl_int_mul;"
         "(void)&sl_int_compare;(void)&sl_int_to_bytes;(void)&sl_con;(void)&sl_bytes;"
+        "(void)&sl_float;(void)&sl_float_from_int;(void)&sl_float_get;(void)&sl_float_to_bytes;"
         "(void)&sl_bytes_concat;(void)&sl_bytes_utf8;"
         "(void)&sl_closure;(void)&sl_apply;(void)&sl_int_u64;(void)&sl_int_u64_value;"
         "(void)&sl_trap_bytes;(void)&sl_exit_code;(void)&sl_print_value;"
@@ -1191,11 +1219,11 @@ static bool emit_main(Emitter *emitter, const char *symbol) {
         size_t success = constructor_id(emitter, "os::process::Exit::Success");
         size_t failure = constructor_id(emitter, "os::process::Exit::Failure");
         return text_printf(&emitter->output,
-            "int main(void){%sSlValue *argument=sl_con(%zuu,0u,NULL);SlValue *result=sl_f%zu(argument);if(result->kind!=1u)sl_die(\"main did not return Exit\");int status=2;if(result->as.con.tag==%zuu)status=0;else if(result->as.con.tag==%zuu&&result->as.con.count==1u)status=sl_exit_code(result->as.con.field[0]);else sl_die(\"main returned invalid Exit\");sl_flush_output();sl_destroy();return status;}\n",
+            "int main(void){(void)setlocale(LC_NUMERIC,\"C\");%sSlValue *argument=sl_con(%zuu,0u,NULL);SlValue *result=sl_f%zu(argument);if(result->kind!=1u)sl_die(\"main did not return Exit\");int status=2;if(result->as.con.tag==%zuu)status=0;else if(result->as.con.tag==%zuu&&result->as.con.count==1u)status=sl_exit_code(result->as.con.field[0]);else sl_die(\"main returned invalid Exit\");sl_flush_output();sl_destroy();return status;}\n",
             keep,unit,entry,success,failure);
     }
     return text_printf(&emitter->output,
-        "int main(void){%sSlValue *result=sl_g%zu();sl_print_value(result);sl_char('\\n');sl_flush_output();sl_destroy();return 0;}\n",
+        "int main(void){(void)setlocale(LC_NUMERIC,\"C\");%sSlValue *result=sl_g%zu();sl_print_value(result);sl_char('\\n');sl_flush_output();sl_destroy();return 0;}\n",
         keep,entry);
 }
 

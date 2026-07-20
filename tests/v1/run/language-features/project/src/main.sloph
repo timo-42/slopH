@@ -79,6 +79,6 @@ const main: Evidence {
     apply(increment, 41),
     make_adder(40)(2),
     unless 1 < 2 { 10 } else { 42 },
-    "hello\n\x00\xff"
+    bytes"hello\n\x00\xff"
   )
 }

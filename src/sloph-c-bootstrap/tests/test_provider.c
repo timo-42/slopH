@@ -66,18 +66,22 @@ static void fixture_create(Fixture *fixture) {
 
     add_directory(fixture->libraries, sizeof(fixture->libraries), root,
                   "libraries");
-    add_directory(path, sizeof(path), fixture->libraries, "prelude");
+    add_directory(nested, sizeof(nested), fixture->libraries, "core");
+    add_directory(path, sizeof(path), nested, "prelude");
     join(source, sizeof(source), path, "library.json");
     write_text(source,
-        "{\"dependencies\":[],\"format\":0,\"package\":\"prelude\"}");
+        "{\"dependencies\":[],\"format\":1,\"layer\":\"core\","
+        "\"package\":\"prelude\"}");
     add_directory(nested, sizeof(nested), path, "src");
     join(source, sizeof(source), nested, "root.sloph");
     write_text(source, "module prelude; public const unit: Int { 0 }");
 
-    add_directory(path, sizeof(path), fixture->libraries, "native");
+    add_directory(nested, sizeof(nested), fixture->libraries, "base");
+    add_directory(path, sizeof(path), nested, "native");
     join(source, sizeof(source), path, "library.json");
     write_text(source,
-        "{\"dependencies\":[],\"format\":0,\"package\":\"native\"}");
+        "{\"dependencies\":[],\"format\":1,\"layer\":\"base\","
+        "\"package\":\"native\"}");
     add_directory(nested, sizeof(nested), path, "src");
     add_directory(path, sizeof(path), nested, "linux");
     join(source, sizeof(source), path, "amd64.sloph");
@@ -99,20 +103,22 @@ static void fixture_remove(const Fixture *fixture) {
     join(path, sizeof(path), fixture->project, "sloph.json"); unlink(path);
     join(path, sizeof(path), fixture->project, "src"); rmdir(path);
     rmdir(fixture->project);
-    join(path, sizeof(path), fixture->libraries, "prelude/src/root.sloph"); unlink(path);
-    join(path, sizeof(path), fixture->libraries, "prelude/library.json"); unlink(path);
-    join(path, sizeof(path), fixture->libraries, "prelude/src"); rmdir(path);
-    join(path, sizeof(path), fixture->libraries, "prelude"); rmdir(path);
+    join(path, sizeof(path), fixture->libraries, "core/prelude/src/root.sloph"); unlink(path);
+    join(path, sizeof(path), fixture->libraries, "core/prelude/library.json"); unlink(path);
+    join(path, sizeof(path), fixture->libraries, "core/prelude/src"); rmdir(path);
+    join(path, sizeof(path), fixture->libraries, "core/prelude"); rmdir(path);
+    join(path, sizeof(path), fixture->libraries, "core"); rmdir(path);
     join(path, sizeof(path), fixture->provider, "bindings.json"); unlink(path);
     join(path, sizeof(path), fixture->provider, "native.c"); unlink(path);
     unlink(fixture->manifest);
     rmdir(fixture->provider);
-    join(path, sizeof(path), fixture->libraries, "native/src/linux/amd64.sloph");
+    join(path, sizeof(path), fixture->libraries, "base/native/src/linux/amd64.sloph");
     unlink(path);
-    join(path, sizeof(path), fixture->libraries, "native/library.json"); unlink(path);
-    join(path, sizeof(path), fixture->libraries, "native/src/linux"); rmdir(path);
-    join(path, sizeof(path), fixture->libraries, "native/src"); rmdir(path);
-    join(next, sizeof(next), fixture->libraries, "native"); rmdir(next);
+    join(path, sizeof(path), fixture->libraries, "base/native/library.json"); unlink(path);
+    join(path, sizeof(path), fixture->libraries, "base/native/src/linux"); rmdir(path);
+    join(path, sizeof(path), fixture->libraries, "base/native/src"); rmdir(path);
+    join(next, sizeof(next), fixture->libraries, "base/native"); rmdir(next);
+    join(next, sizeof(next), fixture->libraries, "base"); rmdir(next);
     rmdir(fixture->libraries);
     rmdir(fixture->root);
 }

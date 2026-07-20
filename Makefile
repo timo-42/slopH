@@ -5,13 +5,18 @@ PREFIX ?= /usr/local
 DESTDIR ?=
 INSTALL ?= install
 
-.PHONY: all test cases smoke check sanitize install clean
+.PHONY: all test cases smoke check sanitize install clean apps
 
 all:
 	$(MAKE) -C $(COMPILER_DIR) all
+	$(MAKE) -C apps/jsonfmt all
 
 test:
 	$(MAKE) -C $(COMPILER_DIR) test
+	$(MAKE) -C apps/jsonfmt test
+
+apps:
+	$(MAKE) -C apps/jsonfmt all
 
 cases:
 	$(MAKE) -C $(COMPILER_DIR) cases
@@ -48,8 +53,12 @@ install:
 	$(INSTALL) -d "$(DESTDIR)$(PREFIX)/bin"
 	$(INSTALL) -m 755 "$(COMPILER_DIR)/build/install/bin/sloph" \
 		"$(DESTDIR)$(PREFIX)/bin/sloph"
+	$(MAKE) -B -C apps/jsonfmt all
+	$(INSTALL) -m 755 apps/jsonfmt/build/sloph-jsonfmt \
+		"$(DESTDIR)$(PREFIX)/bin/sloph-jsonfmt"
 	$(INSTALL) -d "$(DESTDIR)$(PREFIX)/share/sloph/libraries"
 	cp -R src/libraries/. "$(DESTDIR)$(PREFIX)/share/sloph/libraries/"
 
 clean:
 	$(MAKE) -C $(COMPILER_DIR) clean
+	$(MAKE) -C apps/jsonfmt clean

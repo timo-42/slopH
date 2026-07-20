@@ -1,0 +1,19 @@
+module json::dom;
+
+import collections::list::{List};
+import core::{Utf8};
+
+// Numbers retain their validated source lexeme so formatting is reproducible.
+// Objects are ordered member lists, deliberately preserving duplicate keys.
+public type Value {
+  Null();
+  Boolean(boolean: Bool);
+  Number(lexeme: Utf8);
+  String(text: Utf8);
+  Array(items: List[Value]);
+  Object(members: List[Member]);
+}
+
+public type Member {
+  Member(name: Utf8, item: Value);
+}
