@@ -39,6 +39,14 @@ Global options:
 Only options meaningful to a command are accepted. For example, `--target`
 does not affect source formatting.
 
+`--profile dev` is the default debug and iteration policy: complete checking,
+source-level debug information, uniform generic code, and the minimal bounded
+optimization pipeline. `--profile release` reuses the same checked Core and may
+run bounded specialization and additional optimization. Profiles never change
+source semantics, validity, diagnostics, or safety checks; they only select
+code-generation, optimization, debug-information, and profile-specific artifact
+policies.
+
 ## Current Compiler Pipeline
 
 The current public stage commands name both sides of each boundary:
@@ -72,6 +80,12 @@ scripts, load shared providers, or add runtime search paths.
   must reject unsupported semantic versions rather than guess.
 - Canonical text, JSON, and binary output is deterministic and independent of
   hash-map order, worker scheduling, and irrelevant workspace paths.
+- Every supported binary semantic intermediate accepted or produced by the
+  toolchain can be validated and rendered as canonical text by the shipped
+  executable. Decoding is bounded and never executes embedded code. Backend
+  products such as native object files and executables are excluded.
+- The binary Syntax representation required in registry packages renders to
+  canonical source text, not merely an AST diagnostic dump.
 - A file input may use format detection. Standard input requires an explicit
   `--input-format` whenever more than one representation is accepted.
 - Human diagnostics use standard error. `--diagnostics jsonl` emits one
