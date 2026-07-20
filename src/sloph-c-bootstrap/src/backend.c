@@ -580,17 +580,19 @@ static bool emit_primitive(Emitter *emitter, SlophCoreExpr *expression,
         size_t none=constructor_id(emitter,"sloph::Option::None"),some=constructor_id(emitter,"sloph::Option::Some");
         emitter->temporary += 2u;
         if (!text_printf(&emitter->output,
-            "%sif(t%zu->kind!=2u)sl_die(\"bytes.at received non-Bytes value\");size_t t%zu=0u;SlValue *t%zu=NULL;\n"
+            "%sif(t%zu->kind!=2u)sl_die(\"bytes.at received non-Bytes value\");\n"
+            "%ssize_t t%zu=0u;SlValue *t%zu=NULL;\n"
             "%sif(!sl_int_size(t%zu,&t%zu)||t%zu>=t%zu->as.bytes.len)t%zu=sl_con(%zuu,0u,NULL);else{SlValue *t%zu[]={sl_int_u64((uint64_t)t%zu->as.bytes.data[t%zu])};t%zu=sl_con(%zuu,1u,t%zu);}\n",
-            indent,values[0],result+1u,result,indent,values[1],result+1u,result+1u,values[0],result,none,result+2u,values[0],result+1u,result,some,result+2u)) goto failed;
+            indent,values[0],indent,result+1u,result,indent,values[1],result+1u,result+1u,values[0],result,none,result+2u,values[0],result+1u,result,some,result+2u)) goto failed;
     } else if (strcmp(name, "bytes.slice") == 0) {
         size_t ok=constructor_id(emitter,"sloph::Result::Ok"),err=constructor_id(emitter,"sloph::Result::Err"),bounds=constructor_id(emitter,"core::bytes::RangeError::OutOfBounds");
         emitter->temporary += 5u;
         if (!text_printf(&emitter->output,
-            "%sif(t%zu->kind!=2u)sl_die(\"bytes.slice received non-Bytes value\");size_t t%zu=0u,t%zu=0u;SlValue *t%zu=NULL;\n"
+            "%sif(t%zu->kind!=2u)sl_die(\"bytes.slice received non-Bytes value\");\n"
+            "%ssize_t t%zu=0u,t%zu=0u;SlValue *t%zu=NULL;\n"
             "%sif(!sl_int_size(t%zu,&t%zu)||!sl_int_size(t%zu,&t%zu)||t%zu>t%zu->as.bytes.len||t%zu>t%zu->as.bytes.len-t%zu){SlValue *t%zu=sl_con(%zuu,0u,NULL);SlValue *t%zu[]={t%zu};t%zu=sl_con(%zuu,1u,t%zu);}\n"
             "%selse{SlValue *t%zu=sl_bytes(t%zu?t%zu->as.bytes.data+t%zu:NULL,t%zu);SlValue *t%zu[]={t%zu};t%zu=sl_con(%zuu,1u,t%zu);}\n",
-            indent,values[0],result+1u,result+2u,result,
+            indent,values[0],indent,result+1u,result+2u,result,
             indent,values[1],result+1u,values[2],result+2u,result+1u,values[0],result+2u,values[0],result+1u,result+3u,bounds,result+4u,result+3u,result,err,result+4u,
             indent,result+3u,result+2u,values[0],result+1u,result+2u,result+4u,result+3u,result,ok,result+4u)) goto failed;
     } else if (strcmp(name, "bytes.concat") == 0) {
