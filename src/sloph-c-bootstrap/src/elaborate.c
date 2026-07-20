@@ -906,6 +906,10 @@ static SlophCoreExpr *lower_expr(LowerEnv *env,
             active.local_values = local_values;
             target->body = lower_block(&active, alternative->body);
             free(locals); free(local_types); free(local_values);
+            if (target->body == NULL) {
+                sloph_core_expr_destroy(result);
+                return NULL;
+            }
         }
         if (result->as.case_.scrutinee == NULL || result->as.case_.result_type == NULL ||
             (result->as.case_.alternative_count != 0u && result->as.case_.alternatives == NULL)) {
@@ -1443,8 +1447,16 @@ static SlophStatus lower_function(LowerEnv *env,
     env->type_variables = NULL; env->type_variable_count = 0u;
     out->value = body;
     if (body != NULL && out->name != NULL) return SLOPH_STATUS_OK;
-    return sloph_context_diagnostic_count(env->context) != 0u ?
-           SLOPH_STATUS_INVALID_ARGUMENT : oom(env->context);
+    if (sloph_context_diagnostic_count(env->context) != 0u)
+        return SLOPH_STATUS_INVALID_ARGUMENT;
+    if (body == NULL) {
+        char message[512];
+        (void)snprintf(message, sizeof(message),
+                       "could not lower function '%s'", source->name);
+        return fail(env->context, "project.lower.function", "lower",
+                    message, source->span);
+    }
+    return oom(env->context);
 }
 
 static SlophStatus validate_imports(SlophContext *context,

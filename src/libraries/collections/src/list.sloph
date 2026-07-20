@@ -1,0 +1,137 @@
+module collections::list;
+
+public type List[Item] {
+  Nil();
+  Cons(head: Item, tail: List[Item]);
+}
+
+public fn empty[Item]() -> List[Item] { List::Nil[Item]() }
+
+public fn singleton[Item](item: Item) -> List[Item] {
+  List::Cons[Item](item, List::Nil[Item]())
+}
+
+public fn prepend[Item](item: Item, items: List[Item]) -> List[Item] {
+  List::Cons[Item](item, items)
+}
+
+public fn is_empty[Item](items: List[Item]) -> Bool {
+  case items -> Bool {
+    List::Nil() => { Bool::True() }
+    List::Cons(head, tail) => { Bool::False() }
+  }
+}
+
+public fn length[Item](items: List[Item]) -> Int {
+  case items -> Int {
+    List::Nil() => { 0 }
+    List::Cons(head, tail) => { 1 + length[Item](tail) }
+  }
+}
+
+public fn head[Item](items: List[Item]) -> Option[Item] {
+  case items -> Option[Item] {
+    List::Nil() => { Option::None[Item]() }
+    List::Cons(item, tail) => { Option::Some[Item](item) }
+  }
+}
+
+public fn tail[Item](items: List[Item]) -> Option[List[Item]] {
+  case items -> Option[List[Item]] {
+    List::Nil() => { Option::None[List[Item]]() }
+    List::Cons(item, remaining) => { Option::Some[List[Item]](remaining) }
+  }
+}
+
+public fn get[Item](items: List[Item], index: Int) -> Option[Item] {
+  if index < 0 {
+    Option::None[Item]()
+  } else {
+    case items -> Option[Item] {
+      List::Nil() => { Option::None[Item]() }
+      List::Cons(item, remaining) => {
+        if index == 0 { Option::Some[Item](item) } else { get[Item](remaining, index - 1) }
+      }
+    }
+  }
+}
+
+fn reverse_into[Item](items: List[Item], reversed: List[Item]) -> List[Item] {
+  case items -> List[Item] {
+    List::Nil() => { reversed }
+    List::Cons(item, remaining) => {
+      reverse_into[Item](remaining, List::Cons[Item](item, reversed))
+    }
+  }
+}
+
+public fn reverse[Item](items: List[Item]) -> List[Item] {
+  reverse_into[Item](items, List::Nil[Item]())
+}
+
+public fn concat[Item](left: List[Item], right: List[Item]) -> List[Item] {
+  case left -> List[Item] {
+    List::Nil() => { right }
+    List::Cons(item, remaining) => {
+      List::Cons[Item](item, concat[Item](remaining, right))
+    }
+  }
+}
+
+public fn map[Item, Mapped](items: List[Item], mapping: fn(Item) -> Mapped) -> List[Mapped] {
+  case items -> List[Mapped] {
+    List::Nil() => { List::Nil[Mapped]() }
+    List::Cons(item, remaining) => {
+      List::Cons[Mapped](mapping(item), map[Item, Mapped](remaining, mapping))
+    }
+  }
+}
+
+public fn filter[Item](items: List[Item], predicate: fn(Item) -> Bool) -> List[Item] {
+  case items -> List[Item] {
+    List::Nil() => { List::Nil[Item]() }
+    List::Cons(item, remaining) => {
+      if predicate(item) {
+        List::Cons[Item](item, filter[Item](remaining, predicate))
+      } else {
+        filter[Item](remaining, predicate)
+      }
+    }
+  }
+}
+
+public fn fold[Item, State](items: List[Item], state: State, step: fn(State, Item) -> State) -> State {
+  case items -> State {
+    List::Nil() => { state }
+    List::Cons(item, remaining) => {
+      fold[Item, State](remaining, step(state, item), step)
+    }
+  }
+}
+
+public fn any[Item](items: List[Item], predicate: fn(Item) -> Bool) -> Bool {
+  case items -> Bool {
+    List::Nil() => { Bool::False() }
+    List::Cons(item, remaining) => {
+      if predicate(item) { Bool::True() } else { any[Item](remaining, predicate) }
+    }
+  }
+}
+
+public fn all[Item](items: List[Item], predicate: fn(Item) -> Bool) -> Bool {
+  case items -> Bool {
+    List::Nil() => { Bool::True() }
+    List::Cons(item, remaining) => {
+      if predicate(item) { all[Item](remaining, predicate) } else { Bool::False() }
+    }
+  }
+}
+
+public fn contains[Item](items: List[Item], wanted: Item, equal: fn(Item, Item) -> Bool) -> Bool {
+  case items -> Bool {
+    List::Nil() => { Bool::False() }
+    List::Cons(item, remaining) => {
+      if equal(item, wanted) { Bool::True() } else { contains[Item](remaining, wanted, equal) }
+    }
+  }
+}

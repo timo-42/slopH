@@ -4,3 +4,8 @@ public type NativeWriteError {
   Interrupted();
   Native(native_code: Int);
 }
+
+public type NativeReadError {
+  Interrupted();
+  Native(native_code: Int);
+}

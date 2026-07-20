@@ -1,0 +1,1 @@
+{"format":1,"package":"logging_tests","source-root":"src","entry":"logging_tests::main::main","dependencies":["collections","json","logging","os","std"]}

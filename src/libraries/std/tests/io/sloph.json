@@ -1,0 +1,7 @@
+{
+  "format": 1,
+  "package": "std_io_tests",
+  "source-root": "src",
+  "entry": "std_io_tests::main::main",
+  "dependencies": ["os", "std"]
+}

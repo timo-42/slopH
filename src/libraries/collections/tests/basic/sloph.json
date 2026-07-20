@@ -1,0 +1,7 @@
+{
+  "format": 1,
+  "package": "collections_tests",
+  "source-root": "src",
+  "entry": "collections_tests::main::main",
+  "dependencies": ["collections", "os", "std"]
+}

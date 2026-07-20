@@ -15,13 +15,15 @@ application.
 2. `syscall::posix::linux::amd64` and
    `syscall::posix::darwin::arm64` each own their binding metadata,
    `syscall.h`, and a reviewed assembly source.
-3. The native adapter returns
-   `Result[Int, syscall::posix::native::NativeWriteError]`.
-4. `syscall::posix::write_once` maps that into the portable
-   `Result[Int, WriteError]` API.
-5. `std::io::try_write` retries interruption and short writes, returning
-   `NoProgress` or a native error. `std::io::write` remains the compatibility
-   wrapper that traps on `Err`.
+3. The native read and write adapters return typed `Result` values. Their
+   metadata distinguishes immutable borrowed `Bytes` from a call-scoped
+   mutable borrow of an owned `Block`.
+4. `syscall::posix::{read_once,write_once}` maps native interruption and error
+   values into portable errors.
+5. `std::io` retries interruption and short operations and exposes typed
+   standard input, standard output, and standard error values.
+6. `filesystem` uses reviewed POSIX C providers for path and descriptor
+   lifecycle operations, but descriptors never appear in its public API.
 
 The currently supported native providers are macOS ARM64 and Linux AMD64.
 Linux AMD64 enters the kernel with the `syscall` instruction and translates
@@ -65,10 +67,41 @@ These facts are metadata only in v1. They support inspection and later
 capability/rule analysis, but the compiler does not yet propagate them through
 the call graph or claim that it can prove the NASA/JPL rules.
 
-`read` exists at the C boundary and in metadata, but has no safe SlopH adapter
-yet. Exposing it requires a writable borrowed-buffer type with a lifetime that
-prevents retention. This is intentionally deferred instead of disguising an
-unsafe pointer as immutable `Bytes`.
+The compiler implements a writable borrowed-buffer adapter for `read`. It can
+only receive `borrow mut Block`, validates offset and count before entering C,
+and the binding contract forbids pointer retention. The ownership checker
+therefore keeps the mutable borrow call-scoped.
+
+## Why bindings are typed instead of `syscall_N`
+
+The kernel argument count alone is not a sufficient interface. Two calls with
+the same arity can interpret an argument as a signed integer, descriptor,
+pointer, byte count, mutable buffer, structure, or pointer retained after the
+call. They also differ in blocking, mutation, allocation, and error contracts.
+An untyped `syscall_1` through `syscall_6` surface would erase exactly the
+information needed for ownership and capability checking, and raw syscall
+numbers are not portable between Linux and Darwin.
+
+Binding adapters may still share code according to their lowered C argument
+shape. The `posix_checked_call` adapter currently handles reviewed integer,
+path, path-plus-integer, and two-path signatures. This gives new native calls
+little backend work without making arbitrary kernel entry part of ordinary
+Source code.
+
+## C types and pointer capabilities
+
+The bundled `ctypes` package supplies checked fixed-width integer wrappers for
+signed and unsigned 8-, 16-, 32-, and 64-bit C values. It also names
+integer-shaped 64-bit addresses and length-encoded byte arrays with phantom
+`Read`, `Write`, `ReadWrite`, or `Opaque` capabilities. Constructors carrying
+the `Unsafe` prefix mark the trust boundary explicitly.
+
+An address is not a normal SlopH `Int`: arithmetic does not grant permission to
+dereference it. A provider adapter must establish the capability, lifetime,
+mutation, and retention contract. Conversion of a C `(pointer,length)` pair to
+owned SlopH `Bytes` must copy the bytes before the foreign lifetime ends;
+conversion to a borrowed view is legal only for the dynamic extent of the
+foreign call. The current public language cannot store such a borrow.
 
 ## Trust boundary
 

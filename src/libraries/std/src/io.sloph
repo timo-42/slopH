@@ -2,26 +2,49 @@ module std::io;
 
 import core::bytes::{length};
 import core::runtime::{trap};
-import syscall::posix::{write_once, WriteError};
+import memory::{Block, allocate, drop, freeze};
+import syscall::posix::{ReadError, WriteError, read_once, write_once};
 
-fn write_from(bytes: Bytes, offset: Int) -> Result[Unit, WriteError] {
+public type Input {
+  StandardInput();
+}
+
+public type Output {
+  StandardOutput();
+  StandardError();
+}
+
+public type InputError {
+  Native(native_code: Int);
+  TooLarge();
+  AllocationFailed();
+}
+
+fn output_descriptor(output: Output) -> Int {
+  case output -> Int {
+    Output::StandardOutput() => { 1 }
+    Output::StandardError() => { 2 }
+  }
+}
+
+fn write_from(descriptor: Int, bytes: Bytes, offset: Int) -> Result[Unit, WriteError] {
   let byte_count = length(bytes);
   if offset == byte_count {
     Result::Ok[Unit, WriteError](Unit::Unit())
   } else {
-    let result = write_once(1, bytes, offset, byte_count - offset);
+    let result = write_once(descriptor, bytes, offset, byte_count - offset);
     case result -> Result[Unit, WriteError] {
       Result::Ok(count) => {
         if count < 1 {
           Result::Err[Unit, WriteError](WriteError::NoProgress())
         } else {
-          write_from(bytes, offset + count)
+          write_from(descriptor, bytes, offset + count)
         }
       }
       Result::Err(error) => {
         case error -> Result[Unit, WriteError] {
           WriteError::Interrupted() => {
-            write_from(bytes, offset)
+            write_from(descriptor, bytes, offset)
           }
           WriteError::Native(native_code) => {
             Result::Err[Unit, WriteError](WriteError::Native(native_code))
@@ -35,18 +58,92 @@ fn write_from(bytes: Bytes, offset: Int) -> Result[Unit, WriteError] {
   }
 }
 
-public fn try_write(bytes: Bytes) -> Result[Unit, WriteError] {
-  write_from(bytes, 0)
+public fn try_write_to(output: Output, bytes: Bytes) -> Result[Unit, WriteError] {
+  write_from(output_descriptor(output), bytes, 0)
 }
 
-public fn write(bytes: Bytes) -> Unit {
-  let result = try_write(bytes);
+public fn try_write(bytes: Bytes) -> Result[Unit, WriteError] {
+  try_write_to(Output::StandardOutput(), bytes)
+}
+
+public fn write_to(output: Output, bytes: Bytes) -> Unit {
+  let result = try_write_to(output, bytes);
   case result -> Unit {
     Result::Ok(_unit) => {
       Unit::Unit()
     }
     Result::Err(error) => {
       trap("POSIX write failed")
+    }
+  }
+}
+
+public fn write(bytes: Bytes) -> Unit {
+  write_to(Output::StandardOutput(), bytes)
+}
+
+fn read_from(block: borrow mut Block, offset: Int) -> Result[Int, InputError] {
+  if 16777216 < offset {
+    Result::Err[Int, InputError](InputError::TooLarge())
+  } else {
+    let result = read_once(0, block, offset, 16777217 - offset);
+    case result -> Result[Int, InputError] {
+      Result::Ok(count) => {
+        if count == 0 {
+          Result::Ok[Int, InputError](offset)
+        } else {
+          read_from(block, offset + count)
+        }
+      }
+      Result::Err(error) => {
+        case error -> Result[Int, InputError] {
+          ReadError::Interrupted() => { read_from(block, offset) }
+          ReadError::Native(native_code) => {
+            Result::Err[Int, InputError](InputError::Native(native_code))
+          }
+          ReadError::NoProgress() => {
+            Result::Err[Int, InputError](InputError::Native(0))
+          }
+        }
+      }
+    }
+  }
+}
+
+public fn try_read_all(input: Input) -> Result[Bytes, InputError] {
+  case input -> Result[Bytes, InputError] {
+    Input::StandardInput() => {
+      case allocate(16777217) -> Result[Bytes, InputError] {
+        Result::Err(allocation_error) => {
+          Result::Err[Bytes, InputError](InputError::AllocationFailed())
+        }
+        Result::Ok(block) => {
+          case read_from(block, 0) -> Result[Bytes, InputError] {
+            Result::Err(input_error) => {
+              let released = drop(block);
+              Result::Err[Bytes, InputError](input_error)
+            }
+            Result::Ok(byte_count) => {
+              case freeze(block, byte_count) -> Result[Bytes, InputError] {
+                Result::Ok(bytes) => { Result::Ok[Bytes, InputError](bytes) }
+                Result::Err(access_error) => {
+                  Result::Err[Bytes, InputError](InputError::TooLarge())
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+public fn read_all(input: Input) -> Bytes {
+  case try_read_all(input) -> Bytes {
+    Result::Ok(bytes) => { bytes }
+    Result::Err(error) => {
+      let trapped = trap("POSIX read failed");
+      ""
     }
   }
 }

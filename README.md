@@ -97,6 +97,7 @@ runtime rpath is installed.
    [testing guide](docs/toolchain/TESTING.md).
 5. Read the [infrastructure requirements](docs/toolchain/INFRASTRUCTURE.md) and
    future [minimal-trust bootstrap plan](docs/toolchain/BOOTSTRAP.md).
+6. Read the [bundled core-library profile](docs/libraries/CORE_LIBRARIES.md).
 
 ## Repository layout
 

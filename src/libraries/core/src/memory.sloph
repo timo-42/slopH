@@ -1,6 +1,6 @@
 module core::memory;
 
-import core::{Block, Int};
+import core::{Block, Bytes, Int};
 import sloph::{Result, Unit};
 
 public type AllocationError {
@@ -21,4 +21,5 @@ public intrinsic fn read(block: borrow Block, offset: Int) -> Result[Int, Access
 public intrinsic fn write(block: borrow mut Block, offset: Int, byte: Int) -> Result[Unit, AccessError] = memory.write;
 
 public intrinsic fn copy(source: borrow Block, source_offset: Int, target: borrow mut Block, target_offset: Int, count: Int) -> Result[Unit, AccessError] = memory.copy;
+public intrinsic fn freeze(block: Block, count: Int) -> Result[Bytes, AccessError] = memory.freeze;
 public intrinsic fn release(block: Block) -> Unit = memory.release;

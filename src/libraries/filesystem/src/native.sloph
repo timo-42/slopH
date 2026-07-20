@@ -1,0 +1,6 @@
+module filesystem::native;
+
+public type NativeError {
+  Interrupted();
+  Native(native_code: Int);
+}

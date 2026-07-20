@@ -1,15 +1,44 @@
 module syscall::posix;
 
-import syscall::posix::native::{NativeWriteError};
+import core::{Block};
+import syscall::posix::native::{NativeReadError, NativeWriteError};
 import case compiler::target::platform {
-  (os::linux, arch::amd64) => syscall::posix::linux::amd64::{native_write_once};
-  (os::darwin, arch::arm64) => syscall::posix::darwin::arm64::{native_write_once};
+  (os::linux, arch::amd64) => syscall::posix::linux::amd64::{native_read_once, native_write_once};
+  (os::darwin, arch::arm64) => syscall::posix::darwin::arm64::{native_read_once, native_write_once};
+}
+
+public type ReadError {
+  Interrupted();
+  Native(native_code: Int);
+  NoProgress();
 }
 
 public type WriteError {
   Interrupted();
   Native(native_code: Int);
   NoProgress();
+}
+
+public fn read_once(
+  descriptor: Int,
+  block: borrow mut Block,
+  offset: Int,
+  count: Int
+) -> Result[Int, ReadError] {
+  let result = native_read_once(descriptor, block, offset, count);
+  case result -> Result[Int, ReadError] {
+    Result::Ok(read) => { Result::Ok[Int, ReadError](read) }
+    Result::Err(error) => {
+      case error -> Result[Int, ReadError] {
+        NativeReadError::Interrupted() => {
+          Result::Err[Int, ReadError](ReadError::Interrupted())
+        }
+        NativeReadError::Native(native_code) => {
+          Result::Err[Int, ReadError](ReadError::Native(native_code))
+        }
+      }
+    }
+  }
 }
 
 public fn write_once(

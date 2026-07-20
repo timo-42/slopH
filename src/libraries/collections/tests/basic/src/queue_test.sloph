@@ -1,0 +1,28 @@
+module collections_tests::queue_test;
+
+import collections::list::{List};
+import collections::queue::{Dequeued, Queue, dequeue, enqueue};
+import core::int::{to_bytes};
+import std::io::{write};
+
+fn print_dequeued(item: Option[Dequeued[Int]]) -> Unit {
+  case item -> Unit {
+    Option::None() => { write("none\n") }
+    Option::Some(dequeued: Dequeued[Int]) => {
+      case dequeued -> Unit {
+        Dequeued::Dequeued(number, remaining) => {
+          let number_written = write(to_bytes(number));
+          write("\n")
+        }
+      }
+    }
+  }
+}
+
+public fn run_queue() -> Unit {
+  let empty = Queue::Queue[Int](List::Nil[Int]());
+  let one = enqueue[Int](empty, 7);
+  let two = enqueue[Int](one, 8);
+  let first = print_dequeued(dequeue[Int](two));
+  print_dequeued(dequeue[Int](Queue::Queue[Int](List::Nil[Int]())))
+}

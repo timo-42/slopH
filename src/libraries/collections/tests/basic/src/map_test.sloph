@@ -1,0 +1,29 @@
+module collections_tests::map_test;
+
+import collections::list::{List};
+import collections::map::{Entry, Map, get, insert, length, remove};
+import core::bytes::{equal};
+import core::int::{to_bytes};
+import std::io::{write};
+
+fn print_option(item: Option[Int]) -> Unit {
+  case item -> Unit {
+    Option::None() => { write("none\n") }
+    Option::Some(number) => {
+      let number_written = write(to_bytes(number));
+      write("\n")
+    }
+  }
+}
+
+public fn run_map() -> Unit {
+  let empty = Map::Map[Bytes, Int](List::Nil[Entry[Bytes, Int]]());
+  let first = insert[Bytes, Int](empty, "alpha", 1, equal);
+  let second = insert[Bytes, Int](first, "beta", 2, equal);
+  let replaced = insert[Bytes, Int](second, "alpha", 3, equal);
+  let found = print_option(get[Bytes, Int](replaced, "alpha", equal));
+  let missing = print_option(get[Bytes, Int](replaced, "missing", equal));
+  let removed = remove[Bytes, Int](replaced, "beta", equal);
+  let size_written = write(to_bytes(length[Bytes, Int](removed)));
+  write("\n")
+}

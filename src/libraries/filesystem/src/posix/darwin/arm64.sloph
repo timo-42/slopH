@@ -1,0 +1,31 @@
+module filesystem::posix::darwin::arm64;
+
+import filesystem::native::{NativeError};
+
+public foreign fn native_open_read(path: Bytes) -> Result[Int, NativeError] = foreign.filesystem.posix.darwin.arm64.open_read;
+public foreign fn native_open_write(path: Bytes, mode: Int) -> Result[Int, NativeError] = foreign.filesystem.posix.darwin.arm64.open_write;
+public foreign fn native_close(descriptor: Int) -> Result[Int, NativeError] = foreign.filesystem.posix.darwin.arm64.close;
+public foreign fn native_sync(descriptor: Int) -> Result[Int, NativeError] = foreign.filesystem.posix.darwin.arm64.sync;
+public foreign fn native_exists(path: Bytes) -> Result[Int, NativeError] = foreign.filesystem.posix.darwin.arm64.exists;
+public foreign fn native_metadata_size(path: Bytes) -> Result[Int, NativeError] = foreign.filesystem.posix.darwin.arm64.metadata_size;
+public foreign fn native_metadata_kind(path: Bytes) -> Result[Int, NativeError] = foreign.filesystem.posix.darwin.arm64.metadata_kind;
+public foreign fn native_create_directory(path: Bytes) -> Result[Int, NativeError] = foreign.filesystem.posix.darwin.arm64.create_directory;
+public foreign fn native_remove_file(path: Bytes) -> Result[Int, NativeError] = foreign.filesystem.posix.darwin.arm64.remove_file;
+public foreign fn native_remove_directory(path: Bytes) -> Result[Int, NativeError] = foreign.filesystem.posix.darwin.arm64.remove_directory;
+public foreign fn native_rename(source: Bytes, target: Bytes) -> Result[Int, NativeError] = foreign.filesystem.posix.darwin.arm64.rename;
+
+public fn classify_error(code: Int) -> Int {
+  if code == 2 { 1 } else {
+    if code == 13 { 2 } else {
+      if code == 17 { 3 } else {
+        if code == 20 { 4 } else {
+          if code == 21 { 5 } else {
+            if code == 66 { 6 } else {
+              if code == 22 { 7 } else { 0 }
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,6 +1,14 @@
 module syscall::posix::darwin::arm64;
 
-import syscall::posix::native::{NativeWriteError};
+import core::{Block};
+import syscall::posix::native::{NativeReadError, NativeWriteError};
+
+public foreign fn native_read_once(
+  descriptor: Int,
+  block: borrow mut Block,
+  offset: Int,
+  count: Int
+) -> Result[Int, NativeReadError] = foreign.syscall.posix.darwin.arm64.read;
 
 public foreign fn native_write_once(
   descriptor: Int,
