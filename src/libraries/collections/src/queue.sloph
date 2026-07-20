@@ -1,0 +1,55 @@
+module collections::queue;
+
+import collections::list::{List, concat, head, length, singleton, tail};
+
+public type Queue[Item] {
+  Queue(items: List[Item]);
+}
+
+public type Dequeued[Item] {
+  Dequeued(item: Item, queue: Queue[Item]);
+}
+
+public fn empty[Item]() -> Queue[Item] {
+  Queue::Queue[Item](List::Nil[Item]())
+}
+
+public fn length[Item](queue: Queue[Item]) -> Int {
+  case queue -> Int {
+    Queue::Queue(items) => { collections::list::length[Item](items) }
+  }
+}
+
+public fn enqueue[Item](queue: Queue[Item], item: Item) -> Queue[Item] {
+  case queue -> Queue[Item] {
+    Queue::Queue(items) => {
+      Queue::Queue[Item](concat[Item](items, singleton[Item](item)))
+    }
+  }
+}
+
+public fn peek[Item](queue: Queue[Item]) -> Option[Item] {
+  case queue -> Option[Item] {
+    Queue::Queue(items) => { head[Item](items) }
+  }
+}
+
+public fn dequeue[Item](queue: Queue[Item]) -> Option[Dequeued[Item]] {
+  case queue -> Option[Dequeued[Item]] {
+    Queue::Queue(items) => {
+      case head[Item](items) -> Option[Dequeued[Item]] {
+        Option::None() => { Option::None[Dequeued[Item]]() }
+        Option::Some(item) => {
+          case tail[Item](items) -> Option[Dequeued[Item]] {
+            Option::None() => { Option::None[Dequeued[Item]]() }
+            Option::Some(remaining) => {
+              Option::Some[Dequeued[Item]](
+                Dequeued::Dequeued[Item](item, Queue::Queue[Item](remaining))
+              )
+            }
+          }
+        }
+      }
+    }
+  }
+}

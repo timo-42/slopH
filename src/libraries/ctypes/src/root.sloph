@@ -1,0 +1,105 @@
+module ctypes;
+
+public type Width8 { Width8(); }
+public type Width16 { Width16(); }
+public type Width32 { Width32(); }
+public type Width64 { Width64(); }
+public type Signed { Signed(); }
+public type Unsigned { Unsigned(); }
+
+public type Read { Read(); }
+public type Write { Write(); }
+public type ReadWrite { ReadWrite(); }
+public type Opaque { Opaque(); }
+
+public type ConversionError {
+  OutOfRange();
+  NegativeLength();
+}
+
+public type CInteger[Width, Sign] {
+  UnsafeCInteger(encoded: Int);
+}
+
+public type Address[Capability] {
+  UnsafeAddress(encoded: CInteger[Width64, Unsigned]);
+}
+
+public type ByteArray[Capability] {
+  UnsafeByteArray(address: Address[Capability], length: CInteger[Width64, Unsigned]);
+}
+
+public fn integer[Width, Sign](item: CInteger[Width, Sign]) -> Int {
+  case item -> Int {
+    CInteger::UnsafeCInteger(encoded) => { encoded }
+  }
+}
+
+fn checked[Width, Sign](item: Int, minimum: Int, maximum: Int) -> Result[CInteger[Width, Sign], ConversionError] {
+  if item < minimum {
+    Result::Err[CInteger[Width, Sign], ConversionError](ConversionError::OutOfRange())
+  } else {
+    if maximum < item {
+      Result::Err[CInteger[Width, Sign], ConversionError](ConversionError::OutOfRange())
+    } else {
+      Result::Ok[CInteger[Width, Sign], ConversionError](CInteger::UnsafeCInteger[Width, Sign](item))
+    }
+  }
+}
+
+public fn int8(item: Int) -> Result[CInteger[Width8, Signed], ConversionError] {
+  checked[Width8, Signed](item, -128, 127)
+}
+
+public fn uint8(item: Int) -> Result[CInteger[Width8, Unsigned], ConversionError] {
+  checked[Width8, Unsigned](item, 0, 255)
+}
+
+public fn int16(item: Int) -> Result[CInteger[Width16, Signed], ConversionError] {
+  checked[Width16, Signed](item, -32768, 32767)
+}
+
+public fn uint16(item: Int) -> Result[CInteger[Width16, Unsigned], ConversionError] {
+  checked[Width16, Unsigned](item, 0, 65535)
+}
+
+public fn int32(item: Int) -> Result[CInteger[Width32, Signed], ConversionError] {
+  checked[Width32, Signed](item, -2147483648, 2147483647)
+}
+
+public fn uint32(item: Int) -> Result[CInteger[Width32, Unsigned], ConversionError] {
+  checked[Width32, Unsigned](item, 0, 4294967295)
+}
+
+public fn int64(item: Int) -> Result[CInteger[Width64, Signed], ConversionError] {
+  checked[Width64, Signed](item, -9223372036854775808, 9223372036854775807)
+}
+
+public fn uint64(item: Int) -> Result[CInteger[Width64, Unsigned], ConversionError] {
+  checked[Width64, Unsigned](item, 0, 18446744073709551615)
+}
+
+public fn unsafe_address[Capability](encoded: CInteger[Width64, Unsigned]) -> Address[Capability] {
+  Address::UnsafeAddress[Capability](encoded)
+}
+
+public fn address_integer[Capability](address: Address[Capability]) -> Int {
+  case address -> Int {
+    Address::UnsafeAddress(encoded) => { integer[Width64, Unsigned](encoded) }
+  }
+}
+
+public fn unsafe_byte_array[Capability](
+  address: Address[Capability],
+  length: CInteger[Width64, Unsigned]
+) -> ByteArray[Capability] {
+  ByteArray::UnsafeByteArray[Capability](address, length)
+}
+
+public fn byte_array_length[Capability](array: ByteArray[Capability]) -> Int {
+  case array -> Int {
+    ByteArray::UnsafeByteArray(_address, encoded_length) => {
+      integer[Width64, Unsigned](encoded_length)
+    }
+  }
+}

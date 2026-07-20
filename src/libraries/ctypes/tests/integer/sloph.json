@@ -1,0 +1,1 @@
+{"format":1,"package":"ctypes_tests","source-root":"src","entry":"ctypes_tests::main::main","dependencies":["ctypes","os"]}

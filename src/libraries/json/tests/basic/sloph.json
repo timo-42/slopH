@@ -1,0 +1,1 @@
+{"format":1,"package":"json_tests","source-root":"src","entry":"json_tests::main::main","dependencies":["json","os","std"]}

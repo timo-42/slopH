@@ -1,0 +1,22 @@
+module json_tests::main;
+
+import json::{encode, parse};
+import os::process::{Exit};
+import std::io::{write};
+
+public fn main() -> Exit {
+  case parse("{\"message\":\"hi \\u263a\",\"items\":[1,-2,true,null]}") -> Exit {
+    Result::Err(_parse_error) => { Exit::Failure(1) }
+    Result::Ok(json_value) => {
+      let rendered = write(encode(json_value));
+      let newline = write("\n");
+      case parse("{\"same\":1,\"same\":2}") -> Exit {
+        Result::Ok(_duplicate_value) => { Exit::Failure(2) }
+        Result::Err(_duplicate_error) => {
+          let message = write("duplicate rejected\n");
+          Exit::Success()
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,9 @@
+true
+false
+98
+none
+bc
+range
+abcd
+true
+false

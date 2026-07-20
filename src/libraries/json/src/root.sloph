@@ -1,0 +1,693 @@
+module json;
+
+import collections::list::{List, reverse};
+import core::bytes::{at, concat, equal, is_utf8, length, slice};
+import core::int::{to_bytes};
+import core::runtime::{trap};
+import memory::{allocate, drop, freeze, write};
+
+public type Value {
+  Null();
+  Boolean(item: Bool);
+  Integer(item: Int);
+  String(item: Bytes);
+  Array(items: List[Value]);
+  Object(members: List[Member]);
+}
+
+public type Member {
+  Member(name: Bytes, item: Value);
+}
+
+public type ParseError {
+  UnexpectedEnd(offset: Int);
+  UnexpectedByte(offset: Int);
+  InvalidNumber(offset: Int);
+  InvalidString(offset: Int);
+  DuplicateKey(offset: Int);
+  TrailingData(offset: Int);
+}
+
+public type EncodeError {
+  InvalidUtf8();
+  DuplicateKey();
+}
+
+type ParsedValue { ParsedValue(item: Value, next: Int); }
+type ParsedString { ParsedString(item: Bytes, next: Int); }
+type ParsedNumber { ParsedNumber(item: Int, next: Int); }
+type ParsedArray { ParsedArray(item: List[Value], next: Int); }
+type ParsedObject { ParsedObject(item: List[Member], next: Int); }
+type Division { Division(quotient: Int, remainder: Int); }
+
+fn byte_at(input: Bytes, offset: Int) -> Int {
+  case at(input, offset) -> Int {
+    Option::None() => { -1 }
+    Option::Some(byte_value) => { byte_value }
+  }
+}
+
+fn skip_space(input: Bytes, offset: Int) -> Int {
+  let current = byte_at(input, offset);
+  if current == 32 { skip_space(input, offset + 1) } else {
+    if current == 9 { skip_space(input, offset + 1) } else {
+      if current == 10 { skip_space(input, offset + 1) } else {
+        if current == 13 { skip_space(input, offset + 1) } else { offset }
+      }
+    }
+  }
+}
+
+fn one_byte(item: Int) -> Bytes {
+  case allocate(1) -> Bytes {
+    Result::Err(_allocation_error) => { "" }
+    Result::Ok(single_block) => {
+      case write(single_block, 0, item) -> Bytes {
+        Result::Err(_write_error) => {
+          let released_after_write = drop(single_block);
+          ""
+        }
+        Result::Ok(_written) => {
+          case freeze(single_block, 1) -> Bytes {
+            Result::Err(_freeze_error) => { "" }
+            Result::Ok(single_bytes) => { single_bytes }
+          }
+        }
+      }
+    }
+  }
+}
+
+fn divide_scale(item: Int, divisor: Int, unit: Int) -> Division {
+  if item < divisor {
+    Division::Division(0, item)
+  } else {
+    case divide_scale(item, divisor * 2, unit * 2) -> Division {
+      Division::Division(scale_quotient, scale_remainder) => {
+        if scale_remainder < divisor {
+          Division::Division(scale_quotient, scale_remainder)
+        } else {
+          Division::Division(scale_quotient + unit, scale_remainder - divisor)
+        }
+      }
+    }
+  }
+}
+
+fn quotient(item: Int, divisor: Int) -> Int {
+  case divide_scale(item, divisor, 1) -> Int {
+    Division::Division(result_quotient, _result_remainder) => { result_quotient }
+  }
+}
+
+fn utf8(codepoint: Int) -> Bytes {
+  if codepoint < 128 {
+    one_byte(codepoint)
+  } else {
+    if codepoint < 2048 {
+      concat(one_byte(192 + quotient(codepoint, 64)), one_byte(128 + codepoint - quotient(codepoint, 64) * 64))
+    } else {
+      if codepoint < 65536 {
+        concat(
+          one_byte(224 + quotient(codepoint, 4096)),
+          concat(one_byte(128 + quotient(codepoint, 64) - quotient(codepoint, 4096) * 64), one_byte(128 + codepoint - quotient(codepoint, 64) * 64))
+        )
+      } else {
+        concat(
+          one_byte(240 + quotient(codepoint, 262144)),
+          concat(
+            one_byte(128 + quotient(codepoint, 4096) - quotient(codepoint, 262144) * 64),
+            concat(one_byte(128 + quotient(codepoint, 64) - quotient(codepoint, 4096) * 64), one_byte(128 + codepoint - quotient(codepoint, 64) * 64))
+          )
+        )
+      }
+    }
+  }
+}
+
+fn hex_value(byte_value: Int) -> Int {
+  if 47 < byte_value {
+    if byte_value < 58 { byte_value - 48 } else {
+      if 64 < byte_value {
+        if byte_value < 71 { byte_value - 55 } else {
+          if 96 < byte_value {
+            if byte_value < 103 { byte_value - 87 } else { -1 }
+          } else { -1 }
+        }
+      } else { -1 }
+    }
+  } else { -1 }
+}
+
+fn hex4(input: Bytes, offset: Int) -> Int {
+  let first_hex = hex_value(byte_at(input, offset));
+  let second_hex = hex_value(byte_at(input, offset + 1));
+  let third_hex = hex_value(byte_at(input, offset + 2));
+  let fourth_hex = hex_value(byte_at(input, offset + 3));
+  if first_hex < 0 { -1 } else {
+    if second_hex < 0 { -1 } else {
+      if third_hex < 0 { -1 } else {
+        if fourth_hex < 0 { -1 } else {
+          first_hex * 4096 + second_hex * 256 + third_hex * 16 + fourth_hex
+        }
+      }
+    }
+  }
+}
+
+fn parse_unicode_escape(input: Bytes, offset: Int, accumulated: Bytes) -> Result[ParsedString, ParseError] {
+  let first_code = hex4(input, offset);
+  if first_code < 0 {
+    Result::Err[ParsedString, ParseError](ParseError::InvalidString(offset))
+  } else {
+    if 55295 < first_code {
+      if first_code < 56320 {
+        if byte_at(input, offset + 4) == 92 {
+          if byte_at(input, offset + 5) == 117 {
+            let second_code = hex4(input, offset + 6);
+            if 56319 < second_code {
+              if second_code < 57344 {
+                let combined_code = 65536 + (first_code - 55296) * 1024 + second_code - 56320;
+                parse_string_from(input, offset + 10, concat(accumulated, utf8(combined_code)))
+              } else {
+                Result::Err[ParsedString, ParseError](ParseError::InvalidString(offset + 6))
+              }
+            } else {
+              Result::Err[ParsedString, ParseError](ParseError::InvalidString(offset + 6))
+            }
+          } else {
+            Result::Err[ParsedString, ParseError](ParseError::InvalidString(offset + 5))
+          }
+        } else {
+          Result::Err[ParsedString, ParseError](ParseError::InvalidString(offset + 4))
+        }
+      } else {
+        if first_code < 57344 {
+          Result::Err[ParsedString, ParseError](ParseError::InvalidString(offset))
+        } else {
+          parse_string_from(input, offset + 4, concat(accumulated, utf8(first_code)))
+        }
+      }
+    } else {
+      parse_string_from(input, offset + 4, concat(accumulated, utf8(first_code)))
+    }
+  }
+}
+
+fn parse_escape(input: Bytes, offset: Int, accumulated: Bytes) -> Result[ParsedString, ParseError] {
+  let escaped = byte_at(input, offset);
+  if escaped == 34 { parse_string_from(input, offset + 1, concat(accumulated, "\"")) } else {
+    if escaped == 92 { parse_string_from(input, offset + 1, concat(accumulated, "\\")) } else {
+      if escaped == 47 { parse_string_from(input, offset + 1, concat(accumulated, "/")) } else {
+        if escaped == 98 { parse_string_from(input, offset + 1, concat(accumulated, one_byte(8))) } else {
+          if escaped == 102 { parse_string_from(input, offset + 1, concat(accumulated, one_byte(12))) } else {
+            if escaped == 110 { parse_string_from(input, offset + 1, concat(accumulated, "\n")) } else {
+              if escaped == 114 { parse_string_from(input, offset + 1, concat(accumulated, "\r")) } else {
+                if escaped == 116 { parse_string_from(input, offset + 1, concat(accumulated, "\t")) } else {
+                  if escaped == 117 {
+                    parse_unicode_escape(input, offset + 1, accumulated)
+                  } else {
+                    Result::Err[ParsedString, ParseError](ParseError::InvalidString(offset))
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+fn parse_string_from(input: Bytes, offset: Int, accumulated: Bytes) -> Result[ParsedString, ParseError] {
+  let current_byte = byte_at(input, offset);
+  if current_byte < 0 {
+    Result::Err[ParsedString, ParseError](ParseError::UnexpectedEnd(offset))
+  } else {
+    if current_byte == 34 {
+      if is_utf8(accumulated) {
+        Result::Ok[ParsedString, ParseError](ParsedString::ParsedString(accumulated, offset + 1))
+      } else {
+        Result::Err[ParsedString, ParseError](ParseError::InvalidString(offset))
+      }
+    } else {
+      if current_byte == 92 {
+        parse_escape(input, offset + 1, accumulated)
+      } else {
+        if current_byte < 32 {
+          Result::Err[ParsedString, ParseError](ParseError::InvalidString(offset))
+        } else {
+          case slice(input, offset, 1) -> Result[ParsedString, ParseError] {
+            Result::Err(_range_error) => {
+              Result::Err[ParsedString, ParseError](ParseError::UnexpectedEnd(offset))
+            }
+            Result::Ok(next_byte) => {
+              parse_string_from(input, offset + 1, concat(accumulated, next_byte))
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+fn parse_string(input: Bytes, offset: Int) -> Result[ParsedString, ParseError] {
+  if byte_at(input, offset) == 34 {
+    parse_string_from(input, offset + 1, "")
+  } else {
+    Result::Err[ParsedString, ParseError](ParseError::UnexpectedByte(offset))
+  }
+}
+
+fn digit(byte_value: Int) -> Bool {
+  if 47 < byte_value {
+    if byte_value < 58 { Bool::True() } else { Bool::False() }
+  } else { Bool::False() }
+}
+
+fn digits(input: Bytes, offset: Int, accumulated: Int) -> ParsedNumber {
+  let digit_byte = byte_at(input, offset);
+  if digit(digit_byte) {
+    digits(input, offset + 1, accumulated * 10 + digit_byte - 48)
+  } else {
+    ParsedNumber::ParsedNumber(accumulated, offset)
+  }
+}
+
+fn signed_number(input: Bytes, offset: Int, negative: Bool) -> Result[ParsedNumber, ParseError] {
+  let first_digit = byte_at(input, offset);
+  if digit(first_digit) {
+    if first_digit == 48 {
+      if digit(byte_at(input, offset + 1)) {
+        Result::Err[ParsedNumber, ParseError](ParseError::InvalidNumber(offset + 1))
+      } else {
+        Result::Ok[ParsedNumber, ParseError](ParsedNumber::ParsedNumber(0, offset + 1))
+      }
+    } else {
+      case digits(input, offset, 0) -> Result[ParsedNumber, ParseError] {
+        ParsedNumber::ParsedNumber(unsigned_value, number_end) => {
+          case negative -> Result[ParsedNumber, ParseError] {
+            Bool::True() => { Result::Ok[ParsedNumber, ParseError](ParsedNumber::ParsedNumber(0 - unsigned_value, number_end)) }
+            Bool::False() => { Result::Ok[ParsedNumber, ParseError](ParsedNumber::ParsedNumber(unsigned_value, number_end)) }
+          }
+        }
+      }
+    }
+  } else {
+    Result::Err[ParsedNumber, ParseError](ParseError::InvalidNumber(offset))
+  }
+}
+
+fn parse_number(input: Bytes, offset: Int) -> Result[ParsedNumber, ParseError] {
+  if byte_at(input, offset) == 45 {
+    signed_number(input, offset + 1, Bool::True())
+  } else {
+    signed_number(input, offset, Bool::False())
+  }
+}
+
+fn has_name(members: List[Member], name: Bytes) -> Bool {
+  case members -> Bool {
+    List::Nil() => { Bool::False() }
+    List::Cons(member, remaining_members) => {
+      case member -> Bool {
+        Member::Member(existing_name, _existing_value) => {
+          if equal(existing_name, name) { Bool::True() } else { has_name(remaining_members, name) }
+        }
+      }
+    }
+  }
+}
+
+fn parse_array_items(input: Bytes, offset: Int, items: List[Value]) -> Result[ParsedArray, ParseError] {
+  let value_start = skip_space(input, offset);
+  case parse_value(input, value_start) -> Result[ParsedArray, ParseError] {
+    Result::Err(array_value_error) => { Result::Err[ParsedArray, ParseError](array_value_error) }
+    Result::Ok(parsed_array_value) => {
+      case parsed_array_value -> Result[ParsedArray, ParseError] {
+        ParsedValue::ParsedValue(array_value, value_end) => {
+          let separator = skip_space(input, value_end);
+          let accumulated_items = List::Cons[Value](array_value, items);
+          if byte_at(input, separator) == 44 {
+            parse_array_items(input, separator + 1, accumulated_items)
+          } else {
+            if byte_at(input, separator) == 93 {
+              Result::Ok[ParsedArray, ParseError](ParsedArray::ParsedArray(reverse[Value](accumulated_items), separator + 1))
+            } else {
+              Result::Err[ParsedArray, ParseError](ParseError::UnexpectedByte(separator))
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+fn parse_array(input: Bytes, offset: Int) -> Result[ParsedArray, ParseError] {
+  let array_start = skip_space(input, offset + 1);
+  if byte_at(input, array_start) == 93 {
+    Result::Ok[ParsedArray, ParseError](ParsedArray::ParsedArray(List::Nil[Value](), array_start + 1))
+  } else {
+    parse_array_items(input, array_start, List::Nil[Value]())
+  }
+}
+
+fn parse_object_members(input: Bytes, offset: Int, members: List[Member]) -> Result[ParsedObject, ParseError] {
+  let name_start = skip_space(input, offset);
+  case parse_string(input, name_start) -> Result[ParsedObject, ParseError] {
+    Result::Err(object_name_error) => { Result::Err[ParsedObject, ParseError](object_name_error) }
+    Result::Ok(parsed_name) => {
+      case parsed_name -> Result[ParsedObject, ParseError] {
+        ParsedString::ParsedString(name, name_end) => {
+          if has_name(members, name) {
+            Result::Err[ParsedObject, ParseError](ParseError::DuplicateKey(name_start))
+          } else {
+            let colon_offset = skip_space(input, name_end);
+            if byte_at(input, colon_offset) == 58 {
+              let object_value_start = skip_space(input, colon_offset + 1);
+              case parse_value(input, object_value_start) -> Result[ParsedObject, ParseError] {
+                Result::Err(object_value_error) => { Result::Err[ParsedObject, ParseError](object_value_error) }
+                Result::Ok(parsed_object_value) => {
+                  case parsed_object_value -> Result[ParsedObject, ParseError] {
+                    ParsedValue::ParsedValue(object_value, object_value_end) => {
+                      let object_separator = skip_space(input, object_value_end);
+                      let accumulated_members = List::Cons[Member](Member::Member(name, object_value), members);
+                      if byte_at(input, object_separator) == 44 {
+                        parse_object_members(input, object_separator + 1, accumulated_members)
+                      } else {
+                        if byte_at(input, object_separator) == 125 {
+                          Result::Ok[ParsedObject, ParseError](ParsedObject::ParsedObject(reverse[Member](accumulated_members), object_separator + 1))
+                        } else {
+                          Result::Err[ParsedObject, ParseError](ParseError::UnexpectedByte(object_separator))
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            } else {
+              Result::Err[ParsedObject, ParseError](ParseError::UnexpectedByte(colon_offset))
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+fn parse_object(input: Bytes, offset: Int) -> Result[ParsedObject, ParseError] {
+  let object_start = skip_space(input, offset + 1);
+  if byte_at(input, object_start) == 125 {
+    Result::Ok[ParsedObject, ParseError](ParsedObject::ParsedObject(List::Nil[Member](), object_start + 1))
+  } else {
+    parse_object_members(input, object_start, List::Nil[Member]())
+  }
+}
+
+fn matches(input: Bytes, offset: Int, wanted: Bytes) -> Bool {
+  case slice(input, offset, length(wanted)) -> Bool {
+    Result::Err(_match_range) => { Bool::False() }
+    Result::Ok(candidate) => { equal(candidate, wanted) }
+  }
+}
+
+fn parse_value(input: Bytes, offset: Int) -> Result[ParsedValue, ParseError] {
+  let value_offset = skip_space(input, offset);
+  let leading = byte_at(input, value_offset);
+  if leading == 110 {
+    if matches(input, value_offset, "null") {
+      Result::Ok[ParsedValue, ParseError](ParsedValue::ParsedValue(Value::Null(), value_offset + 4))
+    } else { Result::Err[ParsedValue, ParseError](ParseError::UnexpectedByte(value_offset)) }
+  } else {
+    if leading == 116 {
+      if matches(input, value_offset, "true") {
+        Result::Ok[ParsedValue, ParseError](ParsedValue::ParsedValue(Value::Boolean(Bool::True()), value_offset + 4))
+      } else { Result::Err[ParsedValue, ParseError](ParseError::UnexpectedByte(value_offset)) }
+    } else {
+      if leading == 102 {
+        if matches(input, value_offset, "false") {
+          Result::Ok[ParsedValue, ParseError](ParsedValue::ParsedValue(Value::Boolean(Bool::False()), value_offset + 5))
+        } else { Result::Err[ParsedValue, ParseError](ParseError::UnexpectedByte(value_offset)) }
+      } else {
+        if leading == 34 {
+          case parse_string(input, value_offset) -> Result[ParsedValue, ParseError] {
+            Result::Err(string_error) => { Result::Err[ParsedValue, ParseError](string_error) }
+            Result::Ok(parsed_string_value) => {
+              case parsed_string_value -> Result[ParsedValue, ParseError] {
+                ParsedString::ParsedString(string_value, string_end) => {
+                  Result::Ok[ParsedValue, ParseError](ParsedValue::ParsedValue(Value::String(string_value), string_end))
+                }
+              }
+            }
+          }
+        } else {
+          if leading == 91 {
+            case parse_array(input, value_offset) -> Result[ParsedValue, ParseError] {
+              Result::Err(array_error) => { Result::Err[ParsedValue, ParseError](array_error) }
+              Result::Ok(parsed_array) => {
+                case parsed_array -> Result[ParsedValue, ParseError] {
+                  ParsedArray::ParsedArray(array_items, array_end) => {
+                    Result::Ok[ParsedValue, ParseError](ParsedValue::ParsedValue(Value::Array(array_items), array_end))
+                  }
+                }
+              }
+            }
+          } else {
+            if leading == 123 {
+              case parse_object(input, value_offset) -> Result[ParsedValue, ParseError] {
+                Result::Err(object_error) => { Result::Err[ParsedValue, ParseError](object_error) }
+                Result::Ok(parsed_object) => {
+                  case parsed_object -> Result[ParsedValue, ParseError] {
+                    ParsedObject::ParsedObject(object_members, object_end) => {
+                      Result::Ok[ParsedValue, ParseError](ParsedValue::ParsedValue(Value::Object(object_members), object_end))
+                    }
+                  }
+                }
+              }
+            } else {
+              if leading == 45 {
+                case parse_number(input, value_offset) -> Result[ParsedValue, ParseError] {
+                  Result::Err(negative_number_error) => { Result::Err[ParsedValue, ParseError](negative_number_error) }
+                  Result::Ok(parsed_negative_number) => {
+                    case parsed_negative_number -> Result[ParsedValue, ParseError] {
+                      ParsedNumber::ParsedNumber(negative_value, negative_end) => {
+                        Result::Ok[ParsedValue, ParseError](ParsedValue::ParsedValue(Value::Integer(negative_value), negative_end))
+                      }
+                    }
+                  }
+                }
+              } else {
+                if digit(leading) {
+                  case parse_number(input, value_offset) -> Result[ParsedValue, ParseError] {
+                    Result::Err(number_error) => { Result::Err[ParsedValue, ParseError](number_error) }
+                    Result::Ok(parsed_number) => {
+                      case parsed_number -> Result[ParsedValue, ParseError] {
+                        ParsedNumber::ParsedNumber(number_value, number_end) => {
+                          Result::Ok[ParsedValue, ParseError](ParsedValue::ParsedValue(Value::Integer(number_value), number_end))
+                        }
+                      }
+                    }
+                  }
+                } else {
+                  if leading < 0 {
+                    Result::Err[ParsedValue, ParseError](ParseError::UnexpectedEnd(value_offset))
+                  } else {
+                    Result::Err[ParsedValue, ParseError](ParseError::UnexpectedByte(value_offset))
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+public fn parse(input: Bytes) -> Result[Value, ParseError] {
+  case parse_value(input, 0) -> Result[Value, ParseError] {
+    Result::Err(parse_error) => { Result::Err[Value, ParseError](parse_error) }
+    Result::Ok(parsed_root) => {
+      case parsed_root -> Result[Value, ParseError] {
+        ParsedValue::ParsedValue(root_value, root_end) => {
+          let trailing = skip_space(input, root_end);
+          if trailing == length(input) {
+            Result::Ok[Value, ParseError](root_value)
+          } else {
+            Result::Err[Value, ParseError](ParseError::TrailingData(trailing))
+          }
+        }
+      }
+    }
+  }
+}
+
+fn hex_digit(item: Int) -> Bytes {
+  case slice("0123456789abcdef", item, 1) -> Bytes {
+    Result::Err(_hex_range) => { "0" }
+    Result::Ok(hex_bytes) => { hex_bytes }
+  }
+}
+
+fn escaped_control(item: Int) -> Bytes {
+  let high_nibble = quotient(item, 16);
+  concat("\\u00", concat(hex_digit(high_nibble), hex_digit(item - high_nibble * 16)))
+}
+
+fn escape_string_from(item: Bytes, offset: Int) -> Bytes {
+  if offset == length(item) { "" } else {
+    let string_byte = byte_at(item, offset);
+    let escaped_byte = if string_byte == 34 { "\\\"" } else {
+      if string_byte == 92 { "\\\\" } else {
+        if string_byte == 8 { "\\b" } else {
+          if string_byte == 12 { "\\f" } else {
+            if string_byte == 10 { "\\n" } else {
+              if string_byte == 13 { "\\r" } else {
+                if string_byte == 9 { "\\t" } else {
+                  if string_byte < 32 { escaped_control(string_byte) } else {
+                    case slice(item, offset, 1) -> Bytes {
+                      Result::Err(_escape_range) => { "" }
+                      Result::Ok(raw_byte) => { raw_byte }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    };
+    concat(escaped_byte, escape_string_from(item, offset + 1))
+  }
+}
+
+fn encode_string(item: Bytes) -> Bytes {
+  concat("\"", concat(escape_string_from(item, 0), "\""))
+}
+
+fn names_contain(names: List[Bytes], wanted_name: Bytes) -> Bool {
+  case names -> Bool {
+    List::Nil() => { Bool::False() }
+    List::Cons(existing_name, remaining_names) => {
+      if equal(existing_name, wanted_name) { Bool::True() } else { names_contain(remaining_names, wanted_name) }
+    }
+  }
+}
+
+fn validate_array(items: List[Value]) -> Result[Unit, EncodeError] {
+  case items -> Result[Unit, EncodeError] {
+    List::Nil() => { Result::Ok[Unit, EncodeError](Unit::Unit()) }
+    List::Cons(array_item, remaining_array_items) => {
+      case validate_value(array_item) -> Result[Unit, EncodeError] {
+        Result::Err(array_validation_error) => { Result::Err[Unit, EncodeError](array_validation_error) }
+        Result::Ok(_array_valid) => { validate_array(remaining_array_items) }
+      }
+    }
+  }
+}
+
+fn validate_members(members: List[Member], names: List[Bytes]) -> Result[Unit, EncodeError] {
+  case members -> Result[Unit, EncodeError] {
+    List::Nil() => { Result::Ok[Unit, EncodeError](Unit::Unit()) }
+    List::Cons(object_member, remaining_object_members) => {
+      case object_member -> Result[Unit, EncodeError] {
+        Member::Member(member_name, member_item) => {
+          if is_utf8(member_name) {
+            if names_contain(names, member_name) {
+              Result::Err[Unit, EncodeError](EncodeError::DuplicateKey())
+            } else {
+              case validate_value(member_item) -> Result[Unit, EncodeError] {
+                Result::Err(member_validation_error) => { Result::Err[Unit, EncodeError](member_validation_error) }
+                Result::Ok(_member_valid) => {
+                  validate_members(remaining_object_members, List::Cons[Bytes](member_name, names))
+                }
+              }
+            }
+          } else {
+            Result::Err[Unit, EncodeError](EncodeError::InvalidUtf8())
+          }
+        }
+      }
+    }
+  }
+}
+
+fn validate_value(item: Value) -> Result[Unit, EncodeError] {
+  case item -> Result[Unit, EncodeError] {
+    Value::Null() => { Result::Ok[Unit, EncodeError](Unit::Unit()) }
+    Value::Boolean(_boolean_item) => { Result::Ok[Unit, EncodeError](Unit::Unit()) }
+    Value::Integer(_integer_item) => { Result::Ok[Unit, EncodeError](Unit::Unit()) }
+    Value::String(string_item) => {
+      if is_utf8(string_item) {
+        Result::Ok[Unit, EncodeError](Unit::Unit())
+      } else {
+        Result::Err[Unit, EncodeError](EncodeError::InvalidUtf8())
+      }
+    }
+    Value::Array(array_items) => { validate_array(array_items) }
+    Value::Object(object_members) => { validate_members(object_members, List::Nil[Bytes]()) }
+  }
+}
+
+fn encode_array_items(items: List[Value], first: Bool) -> Bytes {
+  case items -> Bytes {
+    List::Nil() => { "" }
+    List::Cons(array_item, remaining_array_items) => {
+      let prefix = case first -> Bytes {
+        Bool::True() => { "" }
+        Bool::False() => { "," }
+      };
+      concat(prefix, concat(encode_unchecked(array_item), encode_array_items(remaining_array_items, Bool::False())))
+    }
+  }
+}
+
+fn encode_object_members(members: List[Member], first: Bool) -> Bytes {
+  case members -> Bytes {
+    List::Nil() => { "" }
+    List::Cons(object_member, remaining_object_members) => {
+      case object_member -> Bytes {
+        Member::Member(member_name, member_value) => {
+          let member_prefix = case first -> Bytes {
+            Bool::True() => { "" }
+            Bool::False() => { "," }
+          };
+          concat(member_prefix, concat(encode_string(member_name), concat(":", concat(encode_unchecked(member_value), encode_object_members(remaining_object_members, Bool::False())))))
+        }
+      }
+    }
+  }
+}
+
+fn encode_unchecked(item: Value) -> Bytes {
+  case item -> Bytes {
+    Value::Null() => { "null" }
+    Value::Boolean(boolean_value) => {
+      case boolean_value -> Bytes {
+        Bool::True() => { "true" }
+        Bool::False() => { "false" }
+      }
+    }
+    Value::Integer(integer_value) => { to_bytes(integer_value) }
+    Value::String(string_value) => { encode_string(string_value) }
+    Value::Array(array_values) => { concat("[", concat(encode_array_items(array_values, Bool::True()), "]")) }
+    Value::Object(object_values) => { concat("{", concat(encode_object_members(object_values, Bool::True()), "}")) }
+  }
+}
+
+public fn try_encode(item: Value) -> Result[Bytes, EncodeError] {
+  case validate_value(item) -> Result[Bytes, EncodeError] {
+    Result::Err(encoding_error) => { Result::Err[Bytes, EncodeError](encoding_error) }
+    Result::Ok(_valid) => { Result::Ok[Bytes, EncodeError](encode_unchecked(item)) }
+  }
+}
+
+public fn encode(item: Value) -> Bytes {
+  case try_encode(item) -> Bytes {
+    Result::Ok(encoded) => { encoded }
+    Result::Err(_encoding_error) => {
+      let trapped = trap("JSON encoding failed");
+      ""
+    }
+  }
+}

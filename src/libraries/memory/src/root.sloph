@@ -1,7 +1,7 @@
 module memory;
 
 public import core::{Block};
-public import core::memory::{AccessError, AllocationError, allocate, capacity, copy, read, release, write};
+public import core::memory::{AccessError, AllocationError, allocate, capacity, copy, freeze, read, release, write};
 import sloph::{Unit};
 
 public fn drop(block: Block) -> Unit {

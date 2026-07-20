@@ -1,0 +1,16 @@
+module ctypes_tests::main;
+
+import ctypes::{uint8};
+import os::process::{Exit};
+
+public fn main() -> Exit {
+  case uint8(255) -> Exit {
+    Result::Err(_valid_error) => { Exit::Failure(1) }
+    Result::Ok(_valid_integer) => {
+      case uint8(256) -> Exit {
+        Result::Ok(_invalid_integer) => { Exit::Failure(2) }
+        Result::Err(_invalid_error) => { Exit::Success() }
+      }
+    }
+  }
+}

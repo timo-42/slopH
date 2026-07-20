@@ -1,6 +1,10 @@
 (core 3
   (types
     (enum core::Block (ownership owned) (params))
+    (enum core::bytes::RangeError
+      (ownership copy)
+      (params)
+      (ctor core::bytes::RangeError::OutOfBounds))
     (enum core::memory::AccessError
       (ownership copy)
       (params)
@@ -29,9 +33,33 @@
       (ctor sloph::Result::Err (field failure (var Failure))))
     (enum sloph::Unit (ownership copy) (params) (ctor sloph::Unit::Unit)))
   (defs
+    (def core::bytes::at
+      (fn Bytes (fn Int (apply sloph::Option Int)))
+      (lam (bind v0 Bytes) (lam (bind v1 Int) (prim bytes.at (local v0) (local v1)))))
+    (def core::bytes::concat
+      (fn Bytes (fn Bytes Bytes))
+      (lam
+        (bind v0 Bytes)
+        (lam (bind v1 Bytes) (prim bytes.concat (local v0) (local v1)))))
+    (def core::bytes::equal
+      (fn Bytes (fn Bytes (named sloph::Bool)))
+      (lam
+        (bind v0 Bytes)
+        (lam (bind v1 Bytes) (prim bytes.equal (local v0) (local v1)))))
+    (def core::bytes::is_utf8
+      (fn Bytes (named sloph::Bool))
+      (lam (bind v0 Bytes) (prim bytes.is_utf8 (local v0))))
     (def core::bytes::length
       (fn Bytes Int)
       (lam (bind v0 Bytes) (prim bytes.length (local v0))))
+    (def core::bytes::slice
+      (fn Bytes
+        (fn Int (fn Int (apply sloph::Result Bytes (named core::bytes::RangeError)))))
+      (lam
+        (bind v0 Bytes)
+        (lam
+          (bind v1 Int)
+          (lam (bind v2 Int) (prim bytes.slice (local v0) (local v1) (local v2))))))
     (def core::int::add
       (fn Int (fn Int Int))
       (lam (bind v0 Int) (lam (bind v1 Int) (prim int.add (local v0) (local v1)))))
@@ -84,6 +112,13 @@
                   (local v2)
                   (local v3)
                   (local v4))))))))
+    (def core::memory::freeze
+      (fn
+        (named core::Block)
+        (fn Int (apply sloph::Result Bytes (named core::memory::AccessError))))
+      (lam
+        (bind v0 (named core::Block))
+        (lam (bind v1 Int) (prim memory.freeze (local v0) (local v1)))))
     (def core::memory::read
       (fn borrow
         (named core::Block)

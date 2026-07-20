@@ -1,0 +1,117 @@
+module collections::map;
+
+import collections::list::{List, concat};
+
+public type Entry[Key, Item] {
+  Entry(key: Key, item: Item);
+}
+
+public type Map[Key, Item] {
+  Map(entries: List[Entry[Key, Item]]);
+}
+
+public fn empty[Key, Item]() -> Map[Key, Item] {
+  Map::Map[Key, Item](List::Nil[Entry[Key, Item]]())
+}
+
+fn entries_length[Key, Item](items: List[Entry[Key, Item]]) -> Int {
+  case items -> Int {
+    List::Nil() => { 0 }
+    List::Cons(entry, remaining) => { 1 + entries_length[Key, Item](remaining) }
+  }
+}
+
+public fn length[Key, Item](map_item: Map[Key, Item]) -> Int {
+  case map_item -> Int {
+    Map::Map(items) => { entries_length[Key, Item](items) }
+  }
+}
+
+fn find[Key, Item](items: List[Entry[Key, Item]], key: Key, equal: fn(Key, Key) -> Bool) -> Option[Item] {
+  case items -> Option[Item] {
+    List::Nil() => { Option::None[Item]() }
+    List::Cons(entry: Entry[Key, Item], remaining: List[Entry[Key, Item]]) => {
+      case entry -> Option[Item] {
+        Entry::Entry(existing_key, item) => {
+          if equal(existing_key, key) { Option::Some[Item](item) } else { find[Key, Item](remaining, key, equal) }
+        }
+      }
+    }
+  }
+}
+
+public fn get[Key, Item](map_item: Map[Key, Item], key: Key, equal: fn(Key, Key) -> Bool) -> Option[Item] {
+  case map_item -> Option[Item] {
+    Map::Map(items) => { find[Key, Item](items, key, equal) }
+  }
+}
+
+public fn contains[Key, Item](map_item: Map[Key, Item], key: Key, equal: fn(Key, Key) -> Bool) -> Bool {
+  case get[Key, Item](map_item, key, equal) -> Bool {
+    Option::None() => { Bool::False() }
+    Option::Some(item) => { Bool::True() }
+  }
+}
+
+fn insert_entries[Key, Item](items: List[Entry[Key, Item]], key: Key, item: Item, equal: fn(Key, Key) -> Bool) -> List[Entry[Key, Item]] {
+  case items -> List[Entry[Key, Item]] {
+    List::Nil() => {
+      List::Cons[Entry[Key, Item]](
+        Entry::Entry[Key, Item](key, item),
+        List::Nil[Entry[Key, Item]]()
+      )
+    }
+    List::Cons(entry: Entry[Key, Item], remaining: List[Entry[Key, Item]]) => {
+      case entry -> List[Entry[Key, Item]] {
+        Entry::Entry(existing_key, existing_item) => {
+          if equal(existing_key, key) {
+            List::Cons[Entry[Key, Item]](Entry::Entry[Key, Item](key, item), remaining)
+          } else {
+            List::Cons[Entry[Key, Item]](
+              Entry::Entry[Key, Item](existing_key, existing_item),
+              insert_entries[Key, Item](remaining, key, item, equal)
+            )
+          }
+        }
+      }
+    }
+  }
+}
+
+public fn insert[Key, Item](map_item: Map[Key, Item], key: Key, item: Item, equal: fn(Key, Key) -> Bool) -> Map[Key, Item] {
+  case map_item -> Map[Key, Item] {
+    Map::Map(items) => { Map::Map[Key, Item](insert_entries[Key, Item](items, key, item, equal)) }
+  }
+}
+
+fn remove_entries[Key, Item](items: List[Entry[Key, Item]], key: Key, equal: fn(Key, Key) -> Bool) -> List[Entry[Key, Item]] {
+  case items -> List[Entry[Key, Item]] {
+    List::Nil() => { List::Nil[Entry[Key, Item]]() }
+    List::Cons(entry: Entry[Key, Item], remaining: List[Entry[Key, Item]]) => {
+      case entry -> List[Entry[Key, Item]] {
+        Entry::Entry(existing_key, item) => {
+          if equal(existing_key, key) {
+            concat[Entry[Key, Item]](List::Nil[Entry[Key, Item]](), remaining)
+          } else {
+            List::Cons[Entry[Key, Item]](
+              Entry::Entry[Key, Item](existing_key, item),
+              remove_entries[Key, Item](remaining, key, equal)
+            )
+          }
+        }
+      }
+    }
+  }
+}
+
+public fn remove[Key, Item](map_item: Map[Key, Item], key: Key, equal: fn(Key, Key) -> Bool) -> Map[Key, Item] {
+  case map_item -> Map[Key, Item] {
+    Map::Map(items) => { Map::Map[Key, Item](remove_entries[Key, Item](items, key, equal)) }
+  }
+}
+
+public fn entries[Key, Item](map_item: Map[Key, Item]) -> List[Entry[Key, Item]] {
+  case map_item -> List[Entry[Key, Item]] {
+    Map::Map(items) => { items }
+  }
+}

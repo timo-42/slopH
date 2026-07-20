@@ -1,5 +1,15 @@
 module core::bytes;
 
 import core::{Bytes};
+import sloph::{Bool, Option, Result};
+
+public type RangeError {
+  OutOfBounds();
+}
 
 public intrinsic fn length(bytes: Bytes) -> Int = bytes.length;
+public intrinsic fn equal(left: Bytes, right: Bytes) -> Bool = bytes.equal;
+public intrinsic fn at(bytes: Bytes, index: Int) -> Option[Int] = bytes.at;
+public intrinsic fn slice(bytes: Bytes, offset: Int, count: Int) -> Result[Bytes, RangeError] = bytes.slice;
+public intrinsic fn concat(left: Bytes, right: Bytes) -> Bytes = bytes.concat;
+public intrinsic fn is_utf8(bytes: Bytes) -> Bool = bytes.is_utf8;

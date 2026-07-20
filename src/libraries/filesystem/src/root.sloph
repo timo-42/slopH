@@ -1,0 +1,294 @@
+module filesystem;
+
+import core::bytes::{length};
+import core::runtime::{trap};
+import filesystem::native::{NativeError};
+import memory::{Block, allocate, drop, freeze};
+import syscall::posix::{ReadError, WriteError, read_once, write_once};
+import case compiler::target::platform {
+  (os::linux, arch::amd64) => filesystem::posix::linux::amd64::{
+    classify_error, native_close, native_create_directory, native_exists,
+    native_metadata_kind, native_metadata_size, native_open_read,
+    native_open_write, native_remove_directory, native_remove_file,
+    native_rename, native_sync
+  };
+  (os::darwin, arch::arm64) => filesystem::posix::darwin::arm64::{
+    classify_error, native_close, native_create_directory, native_exists,
+    native_metadata_kind, native_metadata_size, native_open_read,
+    native_open_write, native_remove_directory, native_remove_file,
+    native_rename, native_sync
+  };
+}
+
+public type WriteMode {
+  CreateOrTruncate();
+  CreateOrAppend();
+  TruncateExisting();
+  AppendExisting();
+  CreateNew();
+}
+
+public type FileKind {
+  Regular();
+  Directory();
+  SymbolicLink();
+  Other();
+}
+
+public type Metadata {
+  Metadata(kind: FileKind, size: Int);
+}
+
+public type FileError {
+  Interrupted();
+  NotFound();
+  PermissionDenied();
+  AlreadyExists();
+  NotDirectory();
+  IsDirectory();
+  DirectoryNotEmpty();
+  InvalidPath();
+  TooLarge();
+  AllocationFailed();
+  NoProgress();
+  Native(native_code: Int);
+}
+
+fn native_error(error: NativeError) -> FileError {
+  case error -> FileError {
+    NativeError::Interrupted() => { FileError::Interrupted() }
+    NativeError::Native(code) => {
+      let classification = classify_error(code);
+      if classification == 1 { FileError::NotFound() } else {
+        if classification == 2 { FileError::PermissionDenied() } else {
+          if classification == 3 { FileError::AlreadyExists() } else {
+            if classification == 4 { FileError::NotDirectory() } else {
+              if classification == 5 { FileError::IsDirectory() } else {
+                if classification == 6 { FileError::DirectoryNotEmpty() } else {
+                  if classification == 7 { FileError::InvalidPath() } else {
+                    FileError::Native(code)
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+fn mode_number(mode: WriteMode) -> Int {
+  case mode -> Int {
+    WriteMode::CreateOrTruncate() => { 0 }
+    WriteMode::CreateOrAppend() => { 1 }
+    WriteMode::TruncateExisting() => { 2 }
+    WriteMode::AppendExisting() => { 3 }
+    WriteMode::CreateNew() => { 4 }
+  }
+}
+
+fn kind_from_number(number: Int) -> FileKind {
+  if number == 0 { FileKind::Regular() } else {
+    if number == 1 { FileKind::Directory() } else {
+      if number == 2 { FileKind::SymbolicLink() } else { FileKind::Other() }
+    }
+  }
+}
+
+fn unit_result(result: Result[Int, NativeError]) -> Result[Unit, FileError] {
+  case result -> Result[Unit, FileError] {
+    Result::Ok(_ignored) => { Result::Ok[Unit, FileError](Unit::Unit()) }
+    Result::Err(error) => { Result::Err[Unit, FileError](native_error(error)) }
+  }
+}
+
+public fn exists(path: Bytes) -> Result[Bool, FileError] {
+  case native_exists(path) -> Result[Bool, FileError] {
+    Result::Ok(number) => {
+      if number == 0 {
+        Result::Ok[Bool, FileError](Bool::False())
+      } else {
+        Result::Ok[Bool, FileError](Bool::True())
+      }
+    }
+    Result::Err(error) => { Result::Err[Bool, FileError](native_error(error)) }
+  }
+}
+
+public fn metadata(path: Bytes) -> Result[Metadata, FileError] {
+  case native_metadata_kind(path) -> Result[Metadata, FileError] {
+    Result::Err(kind_error) => { Result::Err[Metadata, FileError](native_error(kind_error)) }
+    Result::Ok(kind_number) => {
+      case native_metadata_size(path) -> Result[Metadata, FileError] {
+        Result::Err(size_error) => { Result::Err[Metadata, FileError](native_error(size_error)) }
+        Result::Ok(size) => {
+          Result::Ok[Metadata, FileError](Metadata::Metadata(kind_from_number(kind_number), size))
+        }
+      }
+    }
+  }
+}
+
+public fn create_directory(path: Bytes) -> Result[Unit, FileError] {
+  unit_result(native_create_directory(path))
+}
+
+public fn remove_file(path: Bytes) -> Result[Unit, FileError] {
+  unit_result(native_remove_file(path))
+}
+
+public fn remove_directory(path: Bytes) -> Result[Unit, FileError] {
+  unit_result(native_remove_directory(path))
+}
+
+public fn rename(source: Bytes, target: Bytes) -> Result[Unit, FileError] {
+  unit_result(native_rename(source, target))
+}
+
+fn read_into(descriptor: Int, block: borrow mut Block, offset: Int) -> Result[Int, FileError] {
+  if 16777216 < offset {
+    Result::Err[Int, FileError](FileError::TooLarge())
+  } else {
+    case read_once(descriptor, block, offset, 16777217 - offset) -> Result[Int, FileError] {
+      Result::Ok(count) => {
+        if count == 0 {
+          Result::Ok[Int, FileError](offset)
+        } else {
+          read_into(descriptor, block, offset + count)
+        }
+      }
+      Result::Err(error) => {
+        case error -> Result[Int, FileError] {
+          ReadError::Interrupted() => { read_into(descriptor, block, offset) }
+          ReadError::Native(code) => {
+            Result::Err[Int, FileError](native_error(NativeError::Native(code)))
+          }
+          ReadError::NoProgress() => {
+            Result::Err[Int, FileError](FileError::NoProgress())
+          }
+        }
+      }
+    }
+  }
+}
+
+fn finish_read(descriptor: Int, block: Block) -> Result[Bytes, FileError] {
+  case read_into(descriptor, block, 0) -> Result[Bytes, FileError] {
+    Result::Err(read_error) => {
+      let read_released = drop(block);
+      let closed = native_close(descriptor);
+      Result::Err[Bytes, FileError](read_error)
+    }
+    Result::Ok(count) => {
+      case native_close(descriptor) -> Result[Bytes, FileError] {
+        Result::Err(close_error) => {
+          let close_released = drop(block);
+          Result::Err[Bytes, FileError](native_error(close_error))
+        }
+        Result::Ok(_closed) => {
+          case freeze(block, count) -> Result[Bytes, FileError] {
+            Result::Ok(bytes) => { Result::Ok[Bytes, FileError](bytes) }
+            Result::Err(_access) => { Result::Err[Bytes, FileError](FileError::TooLarge()) }
+          }
+        }
+      }
+    }
+  }
+}
+
+public fn read_file(path: Bytes) -> Result[Bytes, FileError] {
+  case native_open_read(path) -> Result[Bytes, FileError] {
+    Result::Err(error) => { Result::Err[Bytes, FileError](native_error(error)) }
+    Result::Ok(descriptor) => {
+      case allocate(16777217) -> Result[Bytes, FileError] {
+        Result::Err(_allocation) => {
+          let closed = native_close(descriptor);
+          Result::Err[Bytes, FileError](FileError::AllocationFailed())
+        }
+        Result::Ok(block) => { finish_read(descriptor, block) }
+      }
+    }
+  }
+}
+
+fn write_from(descriptor: Int, bytes: Bytes, offset: Int) -> Result[Unit, FileError] {
+  if offset == length(bytes) {
+    Result::Ok[Unit, FileError](Unit::Unit())
+  } else {
+    case write_once(descriptor, bytes, offset, length(bytes) - offset) -> Result[Unit, FileError] {
+      Result::Ok(count) => {
+        if count < 1 {
+          Result::Err[Unit, FileError](FileError::NoProgress())
+        } else {
+          write_from(descriptor, bytes, offset + count)
+        }
+      }
+      Result::Err(error) => {
+        case error -> Result[Unit, FileError] {
+          WriteError::Interrupted() => { write_from(descriptor, bytes, offset) }
+          WriteError::Native(code) => {
+            Result::Err[Unit, FileError](native_error(NativeError::Native(code)))
+          }
+          WriteError::NoProgress() => {
+            Result::Err[Unit, FileError](FileError::NoProgress())
+          }
+        }
+      }
+    }
+  }
+}
+
+public fn write_file(path: Bytes, bytes: Bytes, mode: WriteMode) -> Result[Unit, FileError] {
+  case native_open_write(path, mode_number(mode)) -> Result[Unit, FileError] {
+    Result::Err(open_error) => { Result::Err[Unit, FileError](native_error(open_error)) }
+    Result::Ok(descriptor) => {
+      case write_from(descriptor, bytes, 0) -> Result[Unit, FileError] {
+        Result::Err(write_error) => {
+          let closed = native_close(descriptor);
+          Result::Err[Unit, FileError](write_error)
+        }
+        Result::Ok(_written) => { unit_result(native_close(descriptor)) }
+      }
+    }
+  }
+}
+
+public fn sync(path: Bytes) -> Result[Unit, FileError] {
+  case native_open_read(path) -> Result[Unit, FileError] {
+    Result::Err(open_error) => { Result::Err[Unit, FileError](native_error(open_error)) }
+    Result::Ok(descriptor) => {
+      case native_sync(descriptor) -> Result[Unit, FileError] {
+        Result::Err(sync_error) => {
+          let closed = native_close(descriptor);
+          Result::Err[Unit, FileError](native_error(sync_error))
+        }
+        Result::Ok(_synced) => { unit_result(native_close(descriptor)) }
+      }
+    }
+  }
+}
+
+public fn copy(source: Bytes, target: Bytes, mode: WriteMode) -> Result[Unit, FileError] {
+  case read_file(source) -> Result[Unit, FileError] {
+    Result::Err(error) => { Result::Err[Unit, FileError](error) }
+    Result::Ok(bytes) => { write_file(target, bytes, mode) }
+  }
+}
+
+public fn read_file_or_trap(path: Bytes) -> Bytes {
+  case read_file(path) -> Bytes {
+    Result::Ok(bytes) => { bytes }
+    Result::Err(_error) => {
+      let trapped = trap("filesystem read failed");
+      ""
+    }
+  }
+}
+
+public fn write_file_or_trap(path: Bytes, bytes: Bytes, mode: WriteMode) -> Unit {
+  case write_file(path, bytes, mode) -> Unit {
+    Result::Ok(unit) => { unit }
+    Result::Err(_error) => { trap("filesystem write failed") }
+  }
+}

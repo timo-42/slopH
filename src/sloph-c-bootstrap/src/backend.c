@@ -210,6 +210,22 @@ static SlophStatus validate_foreign_bindings(Emitter *emitter) {
                 type_is(binding->parameters[2], SLOPH_TYPE_INT, NULL) &&
                 type_is(binding->parameters[3], SLOPH_TYPE_INT, NULL) &&
                 result_shape(binding->result, NULL);
+        } else if (strcmp(binding->adapter, "borrowed_block_read") == 0) {
+            shape = binding->parameter_count == 4u &&
+                type_is(binding->parameters[0], SLOPH_TYPE_INT, NULL) &&
+                type_is(binding->parameters[1], SLOPH_TYPE_NAMED, "core::Block") &&
+                type_is(binding->parameters[2], SLOPH_TYPE_INT, NULL) &&
+                type_is(binding->parameters[3], SLOPH_TYPE_INT, NULL) &&
+                result_shape(binding->result, NULL);
+        } else if (strcmp(binding->adapter, "posix_checked_call") == 0) {
+            bool one = binding->parameter_count == 1u &&
+                (type_is(binding->parameters[0], SLOPH_TYPE_INT, NULL) ||
+                 type_is(binding->parameters[0], SLOPH_TYPE_BYTES, NULL));
+            bool two = binding->parameter_count == 2u &&
+                type_is(binding->parameters[0], SLOPH_TYPE_BYTES, NULL) &&
+                (type_is(binding->parameters[1], SLOPH_TYPE_INT, NULL) ||
+                 type_is(binding->parameters[1], SLOPH_TYPE_BYTES, NULL));
+            shape = (one || two) && result_shape(binding->result, NULL);
         }
         if (!shape)
             return backend_failure(emitter, "backend.c11.foreign_adapter",
@@ -554,6 +570,34 @@ static bool emit_primitive(Emitter *emitter, SlophCoreExpr *expression,
             "%sif(t%zu->kind!=2u)sl_die(\"bytes.length received non-Bytes value\");\n"
             "%sSlValue *t%zu=sl_int_u64((uint64_t)t%zu->as.bytes.len);\n",
             indent, values[0], indent, result, values[0])) goto failed;
+    } else if (strcmp(name, "bytes.equal") == 0) {
+        size_t false_tag=constructor_id(emitter,"sloph::Bool::False"),true_tag=constructor_id(emitter,"sloph::Bool::True");
+        if (!text_printf(&emitter->output,
+            "%sif(t%zu->kind!=2u||t%zu->kind!=2u)sl_die(\"bytes.equal received non-Bytes value\");\n"
+            "%sSlValue *t%zu=sl_con((t%zu->as.bytes.len==t%zu->as.bytes.len&&(!t%zu->as.bytes.len||memcmp(t%zu->as.bytes.data,t%zu->as.bytes.data,t%zu->as.bytes.len)==0))?%zuu:%zuu,0u,NULL);\n",
+            indent,values[0],values[1],indent,result,values[0],values[1],values[0],values[0],values[1],values[0],true_tag,false_tag)) goto failed;
+    } else if (strcmp(name, "bytes.at") == 0) {
+        size_t none=constructor_id(emitter,"sloph::Option::None"),some=constructor_id(emitter,"sloph::Option::Some");
+        emitter->temporary += 2u;
+        if (!text_printf(&emitter->output,
+            "%sif(t%zu->kind!=2u)sl_die(\"bytes.at received non-Bytes value\");size_t t%zu=0u;SlValue *t%zu=NULL;\n"
+            "%sif(!sl_int_size(t%zu,&t%zu)||t%zu>=t%zu->as.bytes.len)t%zu=sl_con(%zuu,0u,NULL);else{SlValue *t%zu[]={sl_int_u64((uint64_t)t%zu->as.bytes.data[t%zu])};t%zu=sl_con(%zuu,1u,t%zu);}\n",
+            indent,values[0],result+1u,result,indent,values[1],result+1u,result+1u,values[0],result,none,result+2u,values[0],result+1u,result,some,result+2u)) goto failed;
+    } else if (strcmp(name, "bytes.slice") == 0) {
+        size_t ok=constructor_id(emitter,"sloph::Result::Ok"),err=constructor_id(emitter,"sloph::Result::Err"),bounds=constructor_id(emitter,"core::bytes::RangeError::OutOfBounds");
+        emitter->temporary += 5u;
+        if (!text_printf(&emitter->output,
+            "%sif(t%zu->kind!=2u)sl_die(\"bytes.slice received non-Bytes value\");size_t t%zu=0u,t%zu=0u;SlValue *t%zu=NULL;\n"
+            "%sif(!sl_int_size(t%zu,&t%zu)||!sl_int_size(t%zu,&t%zu)||t%zu>t%zu->as.bytes.len||t%zu>t%zu->as.bytes.len-t%zu){SlValue *t%zu=sl_con(%zuu,0u,NULL);SlValue *t%zu[]={t%zu};t%zu=sl_con(%zuu,1u,t%zu);}\n"
+            "%selse{SlValue *t%zu=sl_bytes(t%zu?t%zu->as.bytes.data+t%zu:NULL,t%zu);SlValue *t%zu[]={t%zu};t%zu=sl_con(%zuu,1u,t%zu);}\n",
+            indent,values[0],result+1u,result+2u,result,
+            indent,values[1],result+1u,values[2],result+2u,result+1u,values[0],result+2u,values[0],result+1u,result+3u,bounds,result+4u,result+3u,result,err,result+4u,
+            indent,result+3u,result+2u,values[0],result+1u,result+2u,result+4u,result+3u,result,ok,result+4u)) goto failed;
+    } else if (strcmp(name, "bytes.concat") == 0) {
+        if (!text_printf(&emitter->output,"%sSlValue *t%zu=sl_bytes_concat(t%zu,t%zu);\n",indent,result,values[0],values[1])) goto failed;
+    } else if (strcmp(name, "bytes.is_utf8") == 0) {
+        size_t false_tag=constructor_id(emitter,"sloph::Bool::False"),true_tag=constructor_id(emitter,"sloph::Bool::True");
+        if (!text_printf(&emitter->output,"%sSlValue *t%zu=sl_con(sl_bytes_utf8(t%zu)?%zuu:%zuu,0u,NULL);\n",indent,result,values[0],true_tag,false_tag)) goto failed;
     } else if (strcmp(name, "int.to_bytes") == 0) {
         if (!text_printf(&emitter->output, "%sSlValue *t%zu=sl_int_to_bytes(t%zu);\n",
                          indent, result, values[0])) goto failed;
@@ -621,6 +665,17 @@ static bool emit_primitive(Emitter *emitter, SlophCoreExpr *expression,
             indent,result+1u,result+2u,
             indent,values[1],result+3u,values[3],result+4u,values[4],result+5u,result+3u,result+1u,result+5u,result+1u,result+3u,result+4u,result+2u,result+5u,result+2u,result+4u,result+6u,bounds,result+7u,result+6u,result,err,result+7u,
             indent,result+5u,result+2u,result+4u,result+1u,result+3u,result+5u,result+6u,unit,result+7u,result+6u,result,ok,result+7u)) goto failed;
+    } else if (strcmp(name, "memory.freeze") == 0) {
+        size_t ok=constructor_id(emitter,"sloph::Result::Ok"),err=constructor_id(emitter,"sloph::Result::Err");
+        size_t bounds=constructor_id(emitter,"core::memory::AccessError::OutOfBounds");
+        emitter->temporary += 5u;
+        if (!text_printf(&emitter->output,
+            "%sSlBlock *t%zu=sl_block_get(t%zu);size_t t%zu=0u;SlValue *t%zu=NULL;\n"
+            "%sif(!sl_int_size(t%zu,&t%zu)||t%zu>t%zu->capacity){sl_block_release(t%zu);SlValue *t%zu=sl_con(%zuu,0u,NULL);SlValue *t%zu[]={t%zu};t%zu=sl_con(%zuu,1u,t%zu);}\n"
+            "%selse{SlValue *t%zu=sl_bytes(t%zu?t%zu->data:NULL,t%zu);sl_block_release(t%zu);SlValue *t%zu[]={t%zu};t%zu=sl_con(%zuu,1u,t%zu);}\n",
+            indent,result+1u,values[0],result+2u,result,
+            indent,values[1],result+2u,result+2u,result+1u,values[0],result+3u,bounds,result+4u,result+3u,result,err,result+4u,
+            indent,result+3u,result+2u,result+1u,result+2u,values[0],result+4u,result+3u,result,ok,result+4u)) goto failed;
     } else if (strcmp(name, "memory.release") == 0) {
         size_t unit=constructor_id(emitter,"sloph::Unit::Unit");
         if (!text_printf(&emitter->output,
@@ -668,6 +723,96 @@ static bool emit_primitive(Emitter *emitter, SlophCoreExpr *expression,
                 indent,result,result+4u,result+6u,result+4u,result,ok,result+6u,
                 result+5u,result+7u,constructor_id(emitter,interrupted),result+8u,result+7u,result,err,result+8u,
                 result+6u,result+5u,result+7u,constructor_id(emitter,native_error),result+6u,result+8u,result+7u,result,err,result+8u)) {
+                free(interrupted); free(native_error); goto failed;
+            }
+            free(interrupted); free(native_error);
+        } else if (strcmp(binding->adapter, "borrowed_block_read") == 0) {
+            const char *error_type = binding->result->as.applied.items[1]->as.name;
+            char *interrupted = qualified_constructor(error_type, "Interrupted");
+            char *native_error = qualified_constructor(error_type, "Native");
+            if (interrupted == NULL || native_error == NULL) {
+                free(interrupted); free(native_error); goto failed;
+            }
+            if (!text_printf(&emitter->output,
+                "%suint64_t t%zu=sl_int_u64_value(t%zu,\"file descriptor is outside C int range\");\n"
+                "%sif(t%zu>(uint64_t)INT_MAX)sl_die(\"file descriptor is outside C int range\");\n"
+                "%sSlBlock *t%zu=sl_block_get(t%zu);\n"
+                "%suint64_t t%zu=sl_int_u64_value(t%zu,\"read offset is outside native range\");\n"
+                "%suint64_t t%zu=sl_int_u64_value(t%zu,\"read count is outside native range\");\n"
+                "%sif(t%zu>(uint64_t)t%zu->capacity||t%zu>(uint64_t)t%zu->capacity-t%zu||t%zu>(uint64_t)(SIZE_MAX>>1u))sl_die(\"foreign read range is invalid\");\n",
+                indent,result+1u,values[0],indent,result+1u,indent,result+2u,values[1],
+                indent,result+3u,values[2],indent,result+4u,values[3],
+                indent,result+3u,result+2u,result+4u,result+2u,result+3u,result+4u)) goto failed;
+            emitter->temporary += 9u;
+            if (!text_printf(&emitter->output,
+                "%serrno=0;ssize_t t%zu=%s((int)t%zu,t%zu?t%zu->data+(size_t)t%zu:NULL,(size_t)t%zu);int t%zu=errno;\n"
+                "%sSlValue *t%zu=NULL;if(t%zu>=0){SlValue *t%zu[]={sl_int_u64((uint64_t)t%zu)};t%zu=sl_con(%zuu,1u,t%zu);}"
+                "else if(t%zu==EINTR){SlValue *t%zu=sl_con(%zuu,0u,NULL);SlValue *t%zu[]={t%zu};t%zu=sl_con(%zuu,1u,t%zu);}"
+                "else{SlValue *t%zu[]={sl_int_u64((uint64_t)(unsigned)t%zu)};SlValue *t%zu=sl_con(%zuu,1u,t%zu);SlValue *t%zu[]={t%zu};t%zu=sl_con(%zuu,1u,t%zu);}\n",
+                indent,result+5u,binding->symbol,result+1u,result+2u,result+2u,result+3u,result+4u,result+6u,
+                indent,result,result+5u,result+7u,result+5u,result,ok,result+7u,
+                result+6u,result+8u,constructor_id(emitter,interrupted),result+9u,result+8u,result,err,result+9u,
+                result+7u,result+6u,result+8u,constructor_id(emitter,native_error),result+7u,result+9u,result+8u,result,err,result+9u)) {
+                free(interrupted); free(native_error); goto failed;
+            }
+            free(interrupted); free(native_error);
+        } else if (strcmp(binding->adapter, "posix_checked_call") == 0) {
+            const char *error_type = binding->result->as.applied.items[1]->as.name;
+            char *interrupted = qualified_constructor(error_type, "Interrupted");
+            char *native_error = qualified_constructor(error_type, "Native");
+            size_t call_slot, errno_slot, field_slot, native_slot, error_field_slot;
+            bool first_int = type_is(binding->parameters[0], SLOPH_TYPE_INT, NULL);
+            bool second_int = binding->parameter_count == 2u &&
+                type_is(binding->parameters[1], SLOPH_TYPE_INT, NULL);
+            if (interrupted == NULL || native_error == NULL) {
+                free(interrupted); free(native_error); goto failed;
+            }
+            if (first_int || second_int) {
+                size_t integer_value = first_int ? values[0] : values[1];
+                if (!text_printf(&emitter->output,
+                    "%suint64_t t%zu=sl_int_u64_value(t%zu,\"native argument is outside the supported range\");\n"
+                    "%sif(t%zu>(uint64_t)INT64_MAX)sl_die(\"native argument is outside the supported range\");\n",
+                    indent,result+1u,integer_value,indent,result+1u)) goto failed;
+                call_slot=result+2u;errno_slot=result+3u;field_slot=result+4u;
+                native_slot=result+5u;error_field_slot=result+6u;
+            } else {
+                call_slot=result+1u;errno_slot=result+2u;field_slot=result+3u;
+                native_slot=result+4u;error_field_slot=result+5u;
+            }
+            if (type_is(binding->parameters[0], SLOPH_TYPE_BYTES, NULL) &&
+                (binding->parameter_count == 1u ||
+                 type_is(binding->parameters[1], SLOPH_TYPE_BYTES, NULL))) {
+                if (!text_printf(&emitter->output,
+                    "%sif(t%zu->kind!=2u)sl_die(\"native path call received non-Bytes value\");\n",
+                    indent,values[0])) goto failed;
+                if (binding->parameter_count == 1u) {
+                    if (!text_printf(&emitter->output,
+                        "%serrno=0;int64_t t%zu=%s(t%zu->as.bytes.data,t%zu->as.bytes.len);int t%zu=errno;\n",
+                        indent,call_slot,binding->symbol,values[0],values[0],errno_slot)) goto failed;
+                } else {
+                    if (!text_printf(&emitter->output,
+                        "%sif(t%zu->kind!=2u)sl_die(\"native path call received non-Bytes value\");\n"
+                        "%serrno=0;int64_t t%zu=%s(t%zu->as.bytes.data,t%zu->as.bytes.len,t%zu->as.bytes.data,t%zu->as.bytes.len);int t%zu=errno;\n",
+                        indent,values[1],indent,call_slot,binding->symbol,values[0],values[0],values[1],values[1],errno_slot)) goto failed;
+                }
+            } else if (first_int) {
+                if (!text_printf(&emitter->output,
+                    "%serrno=0;int64_t t%zu=%s((int64_t)t%zu);int t%zu=errno;\n",
+                    indent,call_slot,binding->symbol,result+1u,errno_slot)) goto failed;
+            } else if (second_int) {
+                if (!text_printf(&emitter->output,
+                    "%sif(t%zu->kind!=2u)sl_die(\"native path call received non-Bytes value\");\n"
+                    "%serrno=0;int64_t t%zu=%s(t%zu->as.bytes.data,t%zu->as.bytes.len,(int64_t)t%zu);int t%zu=errno;\n",
+                    indent,values[0],indent,call_slot,binding->symbol,values[0],values[0],result+1u,errno_slot)) goto failed;
+            } else goto failed;
+            emitter->temporary += error_field_slot-result;
+            if (!text_printf(&emitter->output,
+                "%sSlValue *t%zu=NULL;if(t%zu>=0){SlValue *t%zu[]={sl_int_u64((uint64_t)t%zu)};t%zu=sl_con(%zuu,1u,t%zu);}"
+                "else if(t%zu==EINTR){SlValue *t%zu=sl_con(%zuu,0u,NULL);SlValue *t%zu[]={t%zu};t%zu=sl_con(%zuu,1u,t%zu);}"
+                "else{SlValue *t%zu[]={sl_int_u64((uint64_t)(unsigned)t%zu)};SlValue *t%zu=sl_con(%zuu,1u,t%zu);SlValue *t%zu[]={t%zu};t%zu=sl_con(%zuu,1u,t%zu);}\n",
+                indent,result,call_slot,field_slot,call_slot,result,ok,field_slot,
+                errno_slot,native_slot,constructor_id(emitter,interrupted),error_field_slot,native_slot,result,err,error_field_slot,
+                field_slot,errno_slot,native_slot,constructor_id(emitter,native_error),field_slot,error_field_slot,native_slot,result,err,error_field_slot)) {
                 free(interrupted); free(native_error); goto failed;
             }
             free(interrupted); free(native_error);
@@ -1035,6 +1180,7 @@ static bool emit_main(Emitter *emitter, const char *symbol) {
     const char *keep =
         "(void)&sl_int_literal;(void)&sl_int_add;(void)&sl_int_sub;(void)&sl_int_mul;"
         "(void)&sl_int_compare;(void)&sl_int_to_bytes;(void)&sl_con;(void)&sl_bytes;"
+        "(void)&sl_bytes_concat;(void)&sl_bytes_utf8;"
         "(void)&sl_closure;(void)&sl_apply;(void)&sl_int_u64;(void)&sl_int_u64_value;"
         "(void)&sl_trap_bytes;(void)&sl_exit_code;(void)&sl_print_value;"
         "(void)&sl_int_size;(void)&sl_block_get;(void)&sl_block_new;(void)&sl_block_release;";
@@ -1087,14 +1233,17 @@ static SlophStatus validate_runtime_contracts(Emitter *emitter,
         char *native_error = NULL, *interrupted = NULL;
         bool valid = true;
         if (strcmp(binding->adapter, "unavailable") == 0) continue;
-        if (strcmp(binding->adapter, "borrowed_bytes_write") == 0) {
+        if (strcmp(binding->adapter, "borrowed_bytes_write") == 0 ||
+            strcmp(binding->adapter, "borrowed_block_read") == 0 ||
+            strcmp(binding->adapter, "posix_checked_call") == 0) {
             valid = result_shape(binding->result, &error_type) &&
                 constructor_id(emitter, "sloph::Result::Ok") != SIZE_MAX &&
                 constructor_id(emitter, "sloph::Result::Err") != SIZE_MAX;
             native_error = qualified_constructor(error_type, "Native");
             valid = valid && native_error != NULL &&
                 constructor_id(emitter, native_error) != SIZE_MAX;
-            if (strcmp(binding->adapter, "borrowed_bytes_write") == 0) {
+            if (strcmp(binding->adapter, "borrowed_bytes_write") == 0 ||
+                strcmp(binding->adapter, "borrowed_block_read") == 0) {
                 interrupted = qualified_constructor(error_type, "Interrupted");
                 valid = valid && interrupted != NULL &&
                     constructor_id(emitter, interrupted) != SIZE_MAX;

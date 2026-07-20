@@ -1,0 +1,15 @@
+module collections_tests::main;
+
+import collections_tests::list_test::{run_list};
+import collections_tests::map_test::{run_map};
+import collections_tests::queue_test::{run_queue};
+import collections_tests::set_test::{run_set};
+import os::process::{Exit};
+
+public fn main() -> Exit {
+  let list_done = run_list();
+  let queue_done = run_queue();
+  let map_done = run_map();
+  let set_done = run_set();
+  Exit::Success()
+}

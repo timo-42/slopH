@@ -1,0 +1,7 @@
+module memory_freeze_test::buffer;
+
+import memory::{AccessError, Block, write};
+
+public fn put(block: borrow mut Block, offset: Int, byte: Int) -> Result[Unit, AccessError] {
+  write(block, offset, byte)
+}

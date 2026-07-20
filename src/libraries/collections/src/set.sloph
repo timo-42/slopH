@@ -1,0 +1,77 @@
+module collections::set;
+
+import collections::list::{List, concat};
+
+public type Set[Item] {
+  Set(items: List[Item]);
+}
+
+public fn empty[Item]() -> Set[Item] {
+  Set::Set[Item](List::Nil[Item]())
+}
+
+fn list_length[Item](items: List[Item]) -> Int {
+  case items -> Int {
+    List::Nil() => { 0 }
+    List::Cons(item, remaining) => { 1 + list_length[Item](remaining) }
+  }
+}
+
+public fn length[Item](set_item: Set[Item]) -> Int {
+  case set_item -> Int {
+    Set::Set(items) => { list_length[Item](items) }
+  }
+}
+
+fn list_contains[Item](items: List[Item], wanted: Item, equal: fn(Item, Item) -> Bool) -> Bool {
+  case items -> Bool {
+    List::Nil() => { Bool::False() }
+    List::Cons(item, remaining) => {
+      if equal(item, wanted) { Bool::True() } else { list_contains[Item](remaining, wanted, equal) }
+    }
+  }
+}
+
+public fn contains[Item](set_item: Set[Item], wanted: Item, equal: fn(Item, Item) -> Bool) -> Bool {
+  case set_item -> Bool {
+    Set::Set(items) => { list_contains[Item](items, wanted, equal) }
+  }
+}
+
+fn append_unique[Item](items: List[Item], wanted: Item, equal: fn(Item, Item) -> Bool) -> List[Item] {
+  case items -> List[Item] {
+    List::Nil() => { List::Cons[Item](wanted, List::Nil[Item]()) }
+    List::Cons(item, remaining) => {
+      if equal(item, wanted) {
+        List::Cons[Item](item, remaining)
+      } else {
+        List::Cons[Item](item, append_unique[Item](remaining, wanted, equal))
+      }
+    }
+  }
+}
+
+public fn insert[Item](set_item: Set[Item], item: Item, equal: fn(Item, Item) -> Bool) -> Set[Item] {
+  case set_item -> Set[Item] {
+    Set::Set(items) => { Set::Set[Item](append_unique[Item](items, item, equal)) }
+  }
+}
+
+fn remove_item[Item](items: List[Item], wanted: Item, equal: fn(Item, Item) -> Bool) -> List[Item] {
+  case items -> List[Item] {
+    List::Nil() => { List::Nil[Item]() }
+    List::Cons(item, remaining) => {
+      if equal(item, wanted) {
+        concat[Item](List::Nil[Item](), remaining)
+      } else {
+        List::Cons[Item](item, remove_item[Item](remaining, wanted, equal))
+      }
+    }
+  }
+}
+
+public fn remove[Item](set_item: Set[Item], item: Item, equal: fn(Item, Item) -> Bool) -> Set[Item] {
+  case set_item -> Set[Item] {
+    Set::Set(items) => { Set::Set[Item](remove_item[Item](items, item, equal)) }
+  }
+}

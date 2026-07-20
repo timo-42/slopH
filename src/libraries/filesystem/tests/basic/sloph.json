@@ -1,0 +1,7 @@
+{
+  "format": 1,
+  "package": "filesystem_tests",
+  "source-root": "src",
+  "entry": "filesystem_tests::main::main",
+  "dependencies": ["filesystem", "os", "std"]
+}
