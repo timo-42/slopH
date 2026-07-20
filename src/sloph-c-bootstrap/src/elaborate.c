@@ -28,6 +28,20 @@ static SlophStatus fail(SlophContext *context, const char *code,
 static char *resolve_name(LowerEnv *env, const char *name, int wanted_kind,
                           SlophSpan span, const void **out_decl);
 
+static int bootstrap_float_type(const char *name) {
+    static const char *const names[] = {
+        "IEEE_F16", "BF16", "IEEE_F32", "IEEE_F64",
+        "SaturatingF16", "SaturatingBF16", "SaturatingF32", "SaturatingF64",
+        "TrappingF16", "TrappingBF16", "TrappingF32", "TrappingF64",
+        "CheckedF16", "CheckedBF16", "CheckedF32", "CheckedF64"
+    };
+    const char *local = strncmp(name, "core::", 6u) == 0 ? name + 6u : name;
+    size_t index;
+    for (index = 0u; index < sizeof(names) / sizeof(names[0]); ++index)
+        if (strcmp(local, names[index]) == 0) return 1;
+    return 0;
+}
+
 static const SlophProjectModule *find_module(const SlophProject *project,
                                               const char *name) {
     size_t i;
@@ -467,7 +481,16 @@ static SlophCoreType *infer_expr_type(LowerEnv *env,
     const SlophSyntaxType *source_type;
     const SlophProjectModule *type_module = env->module;
     if (expression->kind == SLOPH_SYNTAX_EXPR_INT) return new_type(SLOPH_TYPE_INT);
-    if (expression->kind == SLOPH_SYNTAX_EXPR_BYTES) return new_type(SLOPH_TYPE_BYTES);
+    if (expression->kind == SLOPH_SYNTAX_EXPR_BYTES) {
+        SlophCoreType *type;
+        if (expression->as.bytes.kind == SLOPH_SYNTAX_BYTES_RAW)
+            return new_type(SLOPH_TYPE_BYTES);
+        type = new_type(SLOPH_TYPE_NAMED);
+        if (type != NULL) type->as.name = copy_text(
+            expression->as.bytes.kind == SLOPH_SYNTAX_BYTES_ASCII ?
+            "core::Ascii" : "core::Utf8");
+        return type;
+    }
     if (expression->kind == SLOPH_SYNTAX_EXPR_LOCAL) {
         const SlophSyntaxType *type = local_type(env, expression->as.name);
         const SlophSyntaxExpr *value = local_value(env, expression->as.name);
@@ -632,6 +655,8 @@ static SlophCoreType *lower_type(LowerEnv *env,
         if (strcmp(source->as.name, "Bytes") == 0 ||
             strcmp(source->as.name, "core::Bytes") == 0)
             return new_type(SLOPH_TYPE_BYTES);
+        if (bootstrap_float_type(source->as.name))
+            return new_type(SLOPH_TYPE_INT);
         type = new_type(SLOPH_TYPE_NAMED);
         if (type == NULL) return NULL;
         if (strcmp(source->as.name, "Bool") == 0)
@@ -696,15 +721,27 @@ static SlophCoreExpr *lower_expr(LowerEnv *env,
         return result;
     }
     if (source->kind == SLOPH_SYNTAX_EXPR_BYTES) {
-        result = new_expr(SLOPH_EXPR_BYTES, source->span);
-        if (result == NULL) return NULL;
-        result->as.bytes.length = source->as.bytes.length;
-        if (result->as.bytes.length != 0u) {
-            result->as.bytes.data = malloc(result->as.bytes.length);
-            if (result->as.bytes.data == NULL) { free(result); return NULL; }
-            memcpy(result->as.bytes.data, source->as.bytes.data,
-                   result->as.bytes.length);
+        SlophCoreExpr *bytes = new_expr(SLOPH_EXPR_BYTES, source->span);
+        if (bytes == NULL) return NULL;
+        bytes->as.bytes.length = source->as.bytes.length;
+        if (bytes->as.bytes.length != 0u) {
+            bytes->as.bytes.data = malloc(bytes->as.bytes.length);
+            if (bytes->as.bytes.data == NULL) { free(bytes); return NULL; }
+            memcpy(bytes->as.bytes.data, source->as.bytes.data,
+                   bytes->as.bytes.length);
         }
+        if (source->as.bytes.kind == SLOPH_SYNTAX_BYTES_RAW) return bytes;
+        result = new_expr(SLOPH_EXPR_CON, source->span);
+        if (result == NULL) { sloph_core_expr_destroy(bytes); return NULL; }
+        result->as.con.constructor = copy_text(
+            source->as.bytes.kind == SLOPH_SYNTAX_BYTES_ASCII ?
+            "core::Ascii::Ascii" : "core::Utf8::Utf8");
+        result->as.con.field_count = 1u;
+        result->as.con.fields = calloc(1u, sizeof(*result->as.con.fields));
+        if (result->as.con.constructor == NULL || result->as.con.fields == NULL) {
+            sloph_core_expr_destroy(bytes); sloph_core_expr_destroy(result); return NULL;
+        }
+        result->as.con.fields[0] = bytes;
         return result;
     }
     if (source->kind == SLOPH_SYNTAX_EXPR_LOCAL ||
@@ -1469,6 +1506,7 @@ static SlophStatus validate_imports(SlophContext *context,
             if (type->kind == SLOPH_SYNTAX_TYPE_DECL_INTRINSIC &&
                 (!module->bundled || strcmp(module->name, "core") != 0 ||
                  (strcmp(type->name, "Int") != 0 && strcmp(type->name, "Bytes") != 0 &&
+                  !bootstrap_float_type(type->name) &&
                   strcmp(type->name, "Block") != 0))) {
                 char details[512], message[512];
                 (void)snprintf(details, sizeof(details),

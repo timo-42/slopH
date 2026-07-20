@@ -1,0 +1,11 @@
+module string::ascii;
+
+import core::{Ascii, Int};
+import core::bytes::{length};
+import sloph::{Bool};
+
+public fn ascii_length(text: borrow Ascii) -> Int {
+  case text -> Int { Ascii::Ascii(bytes) => { length(bytes) } }
+}
+
+public fn ascii_is_empty(text: borrow Ascii) -> Bool { ascii_length(text) == 0 }

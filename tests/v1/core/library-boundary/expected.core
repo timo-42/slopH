@@ -1,6 +1,14 @@
 (core 3
   (types
+    (enum core::Ascii
+      (ownership copy)
+      (params)
+      (ctor core::Ascii::Ascii (field bytes Bytes)))
     (enum core::Block (ownership owned) (params))
+    (enum core::Utf8
+      (ownership copy)
+      (params)
+      (ctor core::Utf8::Utf8 (field bytes Bytes)))
     (enum core::bytes::RangeError
       (ownership copy)
       (params)
@@ -60,6 +68,34 @@
         (lam
           (bind v1 Int)
           (lam (bind v2 Int) (prim bytes.slice (local v0) (local v1) (local v2))))))
+    (def core::float::f64_abs
+      (fn Int Int)
+      (lam (bind v0 Int) (prim float.f64.abs (local v0))))
+    (def core::float::f64_add
+      (fn Int (fn Int Int))
+      (lam (bind v0 Int) (lam (bind v1 Int) (prim float.f64.add (local v0) (local v1)))))
+    (def core::float::f64_clamp
+      (fn Int (fn Int (fn Int Int)))
+      (lam
+        (bind v0 Int)
+        (lam
+          (bind v1 Int)
+          (lam (bind v2 Int) (prim float.f64.clamp (local v0) (local v1) (local v2))))))
+    (def core::float::f64_div
+      (fn Int (fn Int Int))
+      (lam (bind v0 Int) (lam (bind v1 Int) (prim float.f64.div (local v0) (local v1)))))
+    (def core::float::f64_from_int
+      (fn Int Int)
+      (lam (bind v0 Int) (prim float.f64.from_int (local v0))))
+    (def core::float::f64_mul
+      (fn Int (fn Int Int))
+      (lam (bind v0 Int) (lam (bind v1 Int) (prim float.f64.mul (local v0) (local v1)))))
+    (def core::float::f64_sub
+      (fn Int (fn Int Int))
+      (lam (bind v0 Int) (lam (bind v1 Int) (prim float.f64.sub (local v0) (local v1)))))
+    (def core::float::f64_to_bytes
+      (fn Int Bytes)
+      (lam (bind v0 Int) (prim float.f64.to_bytes (local v0))))
     (def core::int::add
       (fn Int (fn Int Int))
       (lam (bind v0 Int) (lam (bind v1 Int) (prim int.add (local v0) (local v1)))))

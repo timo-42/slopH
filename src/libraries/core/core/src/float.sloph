@@ -1,0 +1,14 @@
+module core::float;
+
+import core::{Bytes, IEEE_F64, Int};
+
+// The bootstrap initially executes the binary64 IEEE family. The remaining
+// catalog types are present for stable naming but are not yet executable.
+public intrinsic fn f64_from_int(number: Int) -> IEEE_F64 = float.f64.from_int;
+public intrinsic fn f64_to_bytes(number: IEEE_F64) -> Bytes = float.f64.to_bytes;
+public intrinsic fn f64_add(left: IEEE_F64, right: IEEE_F64) -> IEEE_F64 = float.f64.add;
+public intrinsic fn f64_sub(left: IEEE_F64, right: IEEE_F64) -> IEEE_F64 = float.f64.sub;
+public intrinsic fn f64_mul(left: IEEE_F64, right: IEEE_F64) -> IEEE_F64 = float.f64.mul;
+public intrinsic fn f64_div(left: IEEE_F64, right: IEEE_F64) -> IEEE_F64 = float.f64.div;
+public intrinsic fn f64_abs(number: IEEE_F64) -> IEEE_F64 = float.f64.abs;
+public intrinsic fn f64_clamp(number: IEEE_F64, minimum: IEEE_F64, maximum: IEEE_F64) -> IEEE_F64 = float.f64.clamp;

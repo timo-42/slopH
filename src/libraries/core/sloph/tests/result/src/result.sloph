@@ -1,0 +1,72 @@
+module sloph_tests::result;
+
+import os::process::{Exit};
+import core::int::{to_bytes};
+import core::bytes::{length};
+import std::io::{write};
+import sloph::result::{is_ok, is_err, ok, unwrap_or, map, map_err, and_then};
+
+fn report_bool(label: Bytes, item: Bool) -> Unit {
+  let label_written = write(label);
+  if item { write(bytes"true\n") } else { write(bytes"false\n") }
+}
+
+fn report_int(label: Bytes, item: Int) -> Unit {
+  let label_written = write(label);
+  let item_written = write(to_bytes(item));
+  write(bytes"\n")
+}
+
+fn option_or_nine(option: Option[Int]) -> Int {
+  case option -> Int {
+    Option::None() => { 9 }
+    Option::Some(item) => { item }
+  }
+}
+
+fn decrement(item: Int) -> Result[Int, Bytes]
+| 0 => Result::Err[Int, Bytes](bytes"zero")
+| n => Result::Ok[Int, Bytes](n - 1)
+
+public fn main() -> Exit {
+  let success = Result::Ok[Int, Bytes](5);
+  let failure = Result::Err[Int, Bytes](bytes"bad");
+  let is_ok_success = report_bool(bytes"is_ok success = ", is_ok[Int, Bytes](success));
+  let is_ok_failure = report_bool(bytes"is_ok failure = ", is_ok[Int, Bytes](failure));
+  let is_err_success = report_bool(bytes"is_err success = ", is_err[Int, Bytes](success));
+  let is_err_failure = report_bool(bytes"is_err failure = ", is_err[Int, Bytes](failure));
+  let unwrap_success = report_int(bytes"unwrap_or success = ", unwrap_or[Int, Bytes](success, 9));
+  let unwrap_failure = report_int(bytes"unwrap_or failure = ", unwrap_or[Int, Bytes](failure, 9));
+  let ok_success = report_int(bytes"ok success = ", option_or_nine(ok[Int, Bytes](success)));
+  let ok_failure = report_int(bytes"ok failure = ", option_or_nine(ok[Int, Bytes](failure)));
+  let doubled = map[Int, Bytes, Int](success, fn(item: Int) -> Int { item * 2 });
+  let map_success = report_int(bytes"map success = ", unwrap_or[Int, Bytes](doubled, 9));
+  let doubled_failure = map[Int, Bytes, Int](failure, fn(absent: Int) -> Int { absent * 2 });
+  let map_failure = report_int(bytes"map failure = ", unwrap_or[Int, Bytes](doubled_failure, 9));
+  let measured = map_err[Int, Bytes, Int](failure, fn(message: Bytes) -> Int { length(message) });
+  let map_err_failure = report_int(
+    bytes"map_err failure = ",
+    case measured -> Int {
+      Result::Ok(kept) => { 0 }
+      Result::Err(size) => { size }
+    }
+  );
+  let preserved = map_err[Int, Bytes, Int](
+    success,
+    fn(preserved_message: Bytes) -> Int { length(preserved_message) }
+  );
+  let map_err_success = report_int(
+    bytes"map_err success = ",
+    unwrap_or[Int, Int](preserved, 9)
+  );
+  let chained = and_then[Int, Bytes, Int](success, decrement);
+  let and_then_success = report_int(bytes"and_then success = ", unwrap_or[Int, Bytes](chained, 9));
+  let chained_zero = and_then[Int, Bytes, Int](Result::Ok[Int, Bytes](0), decrement);
+  let and_then_zero = report_int(bytes"and_then zero = ", unwrap_or[Int, Bytes](chained_zero, 9));
+  let chained_failure = and_then[Int, Bytes, Int](failure, decrement);
+  let and_then_failure = report_int(
+    bytes"and_then failure = ",
+    unwrap_or[Int, Bytes](chained_failure, 9)
+  );
+  Exit::Success()
+}

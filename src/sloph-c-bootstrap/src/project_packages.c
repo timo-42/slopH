@@ -139,6 +139,49 @@ typedef struct PackageState {
     size_t active_capacity;
 } PackageState;
 
+typedef enum PackageLayer {
+    PACKAGE_LAYER_CORE = 0,
+    PACKAGE_LAYER_BASE = 1,
+    PACKAGE_LAYER_USER = 2
+} PackageLayer;
+
+static const char *package_layer_name(PackageLayer layer) {
+    static const char *const names[] = {"core", "base", "user"};
+    return names[(size_t)layer];
+}
+
+static SlophStatus locate_package(PackageState *state, const char *package,
+                                  char **out_root, PackageLayer *out_layer) {
+    size_t index, found = 0u;
+    char *selected = NULL;
+    PackageLayer selected_layer = PACKAGE_LAYER_CORE;
+    for (index = 0u; index < 3u; ++index) {
+        char *layer_root, *candidate, *manifest;
+        SlophStatus status = sloph_project_join_path(state->project, state->root,
+            package_layer_name((PackageLayer)index), &layer_root);
+        if (status == SLOPH_STATUS_OK)
+            status = sloph_project_join_path(state->project, layer_root, package,
+                                             &candidate);
+        if (status == SLOPH_STATUS_OK)
+            status = sloph_project_join_path(state->project, candidate,
+                                             "library.json", &manifest);
+        if (status != SLOPH_STATUS_OK) return status;
+        if (sloph_project_regular_file(manifest)) {
+            selected = candidate; selected_layer = (PackageLayer)index; ++found;
+        }
+    }
+    if (found == 0u)
+        return sloph_project_diag(state->project->context,
+            SLOPH_STATUS_INVALID_ARGUMENT, "project.dependency.missing", "project",
+            "bundled dependency does not exist in a library layer", "{}");
+    if (found != 1u)
+        return sloph_project_diag(state->project->context,
+            SLOPH_STATUS_INVALID_ARGUMENT, "project.dependency.duplicate", "project",
+            "bundled package name exists in more than one library layer", "{}");
+    *out_root = selected; *out_layer = selected_layer;
+    return SLOPH_STATUS_OK;
+}
+
 static int string_in(char **items, size_t count, const char *name) {
     size_t index;
     for (index = 0u; index < count; ++index)
@@ -171,8 +214,9 @@ static SlophStatus grow_package_names(PackageState *state, char ***items,
     return SLOPH_STATUS_OK;
 }
 
-static SlophStatus package_visit(PackageState *state, const char *package) {
-    char *package_root;
+static SlophStatus package_visit(PackageState *state, const char *package,
+                                 PackageLayer requester_layer) {
+    char *package_root = NULL;
     char *manifest_path;
     char *source_root;
     SlophOwnedBytes bytes;
@@ -184,12 +228,17 @@ static SlophStatus package_visit(PackageState *state, const char *package) {
     SlophStatus status;
     PathList paths;
     size_t index;
+    PackageLayer layer = PACKAGE_LAYER_CORE;
     if (string_in(state->complete, state->complete_count, package)) return SLOPH_STATUS_OK;
     if (string_in(state->active, state->active_count, package))
         return sloph_project_diag(state->project->context, SLOPH_STATUS_INVALID_ARGUMENT,
             "project.dependency.cycle", "project",
             "bundled dependency graph contains a cycle", "{}");
-    status = sloph_project_join_path(state->project, state->root, package, &package_root);
+    status = locate_package(state, package, &package_root, &layer);
+    if (status == SLOPH_STATUS_OK && layer > requester_layer)
+        status = sloph_project_diag(state->project->context,
+            SLOPH_STATUS_INVALID_ARGUMENT, "project.dependency.layer", "project",
+            "library dependency points to a higher layer", "{}");
     if (status == SLOPH_STATUS_OK)
         status = sloph_project_join_path(state->project, package_root,
                                          "library.json", &manifest_path);
@@ -207,11 +256,14 @@ static SlophStatus package_visit(PackageState *state, const char *package) {
     if (document == NULL) goto invalid;
     root = yyjson_doc_get_root(document);
     dependencies = yyjson_is_obj(root) ? yyjson_obj_get(root, "dependencies") : NULL;
-    if (!yyjson_is_obj(root) || yyjson_obj_size(root) != 3u ||
+    if (!yyjson_is_obj(root) || yyjson_obj_size(root) != 4u ||
         !yyjson_is_int(yyjson_obj_get(root, "format")) ||
-        yyjson_get_sint(yyjson_obj_get(root, "format")) != 0 ||
+        yyjson_get_sint(yyjson_obj_get(root, "format")) != 1 ||
         !yyjson_is_str(yyjson_obj_get(root, "package")) ||
         strcmp(yyjson_get_str(yyjson_obj_get(root, "package")), package) != 0 ||
+        !yyjson_is_str(yyjson_obj_get(root, "layer")) ||
+        strcmp(yyjson_get_str(yyjson_obj_get(root, "layer")),
+               package_layer_name(layer)) != 0 ||
         !yyjson_is_arr(dependencies)) goto invalid_document;
     for (index = 0u; index < yyjson_arr_size(dependencies); ++index) {
         yyjson_val *candidate = yyjson_arr_get(dependencies, index);
@@ -235,7 +287,7 @@ static SlophStatus package_visit(PackageState *state, const char *package) {
         if (!yyjson_is_str(item) ||
             !sloph_project_lower_segment(dependency = yyjson_get_str(item)))
             goto invalid_document;
-        status = package_visit(state, dependency);
+        status = package_visit(state, dependency, layer);
         if (status != SLOPH_STATUS_OK) { yyjson_doc_free(document); return status; }
     }
     --state->active_count;
@@ -306,10 +358,11 @@ SlophStatus sloph_project_load_packages(SlophProject *project,
     if (options->libraries_root == NULL) return SLOPH_STATUS_OK;
     memset(&state, 0, sizeof(state)); state.project = project;
     state.options = options; state.root = options->libraries_root;
-    status = package_visit(&state, "prelude");
+    status = package_visit(&state, "prelude", PACKAGE_LAYER_USER);
     for (index = 0u; status == SLOPH_STATUS_OK &&
          index < project->manifest.dependency_count; ++index)
-        status = package_visit(&state, project->manifest.dependencies[index]);
+        status = package_visit(&state, project->manifest.dependencies[index],
+                               PACKAGE_LAYER_USER);
     allocator = sloph_context_allocator(project->context);
     if (state.complete != NULL)
         allocator->deallocate(allocator->user_data, state.complete,

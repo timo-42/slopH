@@ -35,5 +35,5 @@ Applications that need unbounded or incremental processing should use a future
 streaming file API rather than relying on a single allocation.
 
 All bundled packages have independently compiled native tests under
-`src/libraries/*/tests`. Run them through `make cases` or the entire repository
+`src/libraries/*/*/tests`. Run them through `make cases` or the entire repository
 gate through `make check`.

@@ -145,25 +145,37 @@ static void test_portable_manifest_diagnostics(void) {
     }
 }
 
-static void create_library(const char *libraries, const char *name,
-                           const char *dependencies) {
-    char root[512], src[512], manifest[512], text[1024];
-    join(root, sizeof(root), libraries, name); assert(mkdir(root, 0700) == 0);
+static void create_layer_library(const char *libraries, const char *layer_name,
+                                 const char *name, const char *dependencies) {
+    char layer[512], root[512], src[512], manifest[512], text[1024];
+    join(layer, sizeof(layer), libraries, layer_name);
+    join(root, sizeof(root), layer, name); assert(mkdir(root, 0700) == 0);
     join(src, sizeof(src), root, "src"); assert(mkdir(src, 0700) == 0);
     join(manifest, sizeof(manifest), root, "library.json");
     assert(snprintf(text, sizeof(text),
-        "{\"dependencies\":%s,\"format\":0,\"package\":\"%s\"}",
-        dependencies, name) > 0);
+        "{\"dependencies\":%s,\"format\":1,\"layer\":\"%s\",\"package\":\"%s\"}",
+        dependencies, layer_name, name) > 0);
     write_text(manifest, text);
 }
 
-static void remove_library(const char *libraries, const char *name) {
-    char root[512], src[512], manifest[512];
-    join(root, sizeof(root), libraries, name);
+static void create_library(const char *libraries, const char *name,
+                           const char *dependencies) {
+    create_layer_library(libraries, "core", name, dependencies);
+}
+
+static void remove_layer_library(const char *libraries, const char *layer_name,
+                                 const char *name) {
+    char layer[512], root[512], src[512], manifest[512];
+    join(layer, sizeof(layer), libraries, layer_name);
+    join(root, sizeof(root), layer, name);
     join(src, sizeof(src), root, "src");
     join(manifest, sizeof(manifest), root, "library.json");
     assert(unlink(manifest) == 0); assert(rmdir(src) == 0);
     assert(rmdir(root) == 0);
+}
+
+static void remove_library(const char *libraries, const char *name) {
+    remove_layer_library(libraries, "core", name);
 }
 
 static void create_minimal_project(const char *root, char *src, char *source,
@@ -220,6 +232,10 @@ static void test_library_dependency_validation_and_growth(void) {
     size_t index;
     join(libraries, sizeof(libraries), root, "libraries");
     assert(mkdir(libraries, 0700) == 0);
+    { char layer[512]; join(layer, sizeof(layer), libraries, "core");
+      assert(mkdir(layer, 0700) == 0); }
+    { char layer[512]; join(layer, sizeof(layer), libraries, "base");
+      assert(mkdir(layer, 0700) == 0); }
     join(project_root, sizeof(project_root), root, "project");
     assert(mkdir(project_root, 0700) == 0);
     create_minimal_project(project_root, src, source, manifest);
@@ -249,10 +265,23 @@ static void test_library_dependency_validation_and_growth(void) {
     assert(strcmp(last_code(context), "project.dependency.manifest") == 0);
     sloph_context_destroy(context);
     remove_library(libraries, "prelude");
+    create_library(libraries, "prelude", "[\"basepkg\"]");
+    create_layer_library(libraries, "base", "basepkg", "[]");
+    assert(sloph_context_create(NULL, &context) == SLOPH_STATUS_OK);
+    assert(sloph_project_load(context, project_root, &options, &project) ==
+           SLOPH_STATUS_INVALID_ARGUMENT);
+    assert(strcmp(last_code(context), "project.dependency.layer") == 0);
+    sloph_context_destroy(context);
+    remove_library(libraries, "prelude");
+    remove_layer_library(libraries, "base", "basepkg");
     for (index = 20u; index-- != 0u;) {
         char name[32]; assert(snprintf(name, sizeof(name), "p%zu", index) > 0);
         remove_library(libraries, name);
     }
+    { char layer[512]; join(layer, sizeof(layer), libraries, "core");
+      assert(rmdir(layer) == 0); }
+    { char layer[512]; join(layer, sizeof(layer), libraries, "base");
+      assert(rmdir(layer) == 0); }
     assert(unlink(source) == 0); assert(unlink(manifest) == 0);
     assert(rmdir(src) == 0); assert(rmdir(project_root) == 0);
     assert(rmdir(libraries) == 0); assert(rmdir(root) == 0);
@@ -264,7 +293,7 @@ static void test_integration_projects_load(void) {
         "../../tests/v1/run/clause-guards/project",
         "../../tests/v1/run/function-main-output/project",
         "../../tests/v1/run/result-propagation/project",
-        "../libraries/math/tests/int"
+        "../libraries/base/math/tests/int"
     };
     size_t index;
     for (index = 0u; index < sizeof(projects) / sizeof(projects[0]); ++index) {

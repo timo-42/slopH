@@ -1,0 +1,21 @@
+module filesystem_tests::main;
+
+import core::bytes::{equal};
+import filesystem::{WriteMode, read_file_or_trap, remove_file, rename, write_file_or_trap};
+import os::process::{Exit};
+import std::io::{write};
+
+public fn main() -> Exit {
+  let first = bytes"sloph-filesystem-test.tmp";
+  let second = bytes"sloph-filesystem-test-renamed.tmp";
+  let written = write_file_or_trap(first, bytes"hello filesystem", WriteMode::CreateOrTruncate());
+  let bytes = read_file_or_trap(first);
+  let renamed = rename(first, second);
+  let removed = remove_file(second);
+  if equal(bytes, bytes"hello filesystem") {
+    let output = write(bytes"filesystem ok\n");
+    Exit::Success()
+  } else {
+    Exit::Failure(1)
+  }
+}

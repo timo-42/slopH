@@ -12,17 +12,18 @@ test_output=$(mktemp -d "${TMPDIR:-/tmp}/sloph-library-tests.XXXXXX")
 trap 'rm -rf -- "$test_output"' EXIT HUP INT TERM
 
 found=false
-for project in "$libraries_root"/*/tests/*; do
+for project in "$libraries_root"/*/*/tests/*; do
   if [ ! -d "$project" ] || [ ! -f "$project/sloph.json" ]; then
     continue
   fi
   found=true
+  layer=$(basename -- "$(dirname -- "$(dirname -- "$(dirname -- "$project")")")")
   library=$(basename -- "$(dirname -- "$(dirname -- "$project")")")
   name=$(basename -- "$project")
-  identity="$library/$name"
-  executable="$test_output/$library-$name"
-  actual="$test_output/$library-$name.stdout"
-  errors="$test_output/$library-$name.stderr"
+  identity="$layer/$library/$name"
+  executable="$test_output/$layer-$library-$name"
+  actual="$test_output/$layer-$library-$name.stdout"
+  errors="$test_output/$layer-$library-$name.stderr"
 
   "$@" compile "$project" -o "$executable"
   if ! "$executable" >"$actual" 2>"$errors"; then

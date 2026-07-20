@@ -1,0 +1,44 @@
+module core_bytes_tests::main;
+
+import core::bytes::{RangeError, at, concat, equal, is_utf8, slice};
+import core::int::{to_bytes};
+import os::process::{Exit};
+import std::io::{write};
+
+fn print_bool(item: Bool) -> Unit {
+  if item { write(bytes"true\n") } else { write(bytes"false\n") }
+}
+
+fn print_at(item: Option[Int]) -> Unit {
+  case item -> Unit {
+    Option::None() => { write(bytes"none\n") }
+    Option::Some(byte) => {
+      let byte_written = write(to_bytes(byte));
+      write(bytes"\n")
+    }
+  }
+}
+
+fn print_slice(item: Result[Bytes, RangeError]) -> Unit {
+  case item -> Unit {
+    Result::Ok(bytes) => {
+      let bytes_written = write(bytes);
+      write(bytes"\n")
+    }
+    Result::Err(error) => { write(bytes"range\n") }
+  }
+}
+
+public fn main() -> Exit {
+  let equal_true = print_bool(equal(bytes"abc", bytes"abc"));
+  let equal_false = print_bool(equal(bytes"abc", bytes"abd"));
+  let byte_present = print_at(at(bytes"abc", 1));
+  let byte_absent = print_at(at(bytes"abc", 3));
+  let sliced = print_slice(slice(bytes"abcd", 1, 2));
+  let invalid_slice = print_slice(slice(bytes"abcd", 3, 2));
+  let joined = write(concat(bytes"ab", bytes"cd"));
+  let joined_newline = write(bytes"\n");
+  let valid_utf8 = print_bool(is_utf8(bytes"hello \xe2\x82\xac"));
+  let invalid_utf8 = print_bool(is_utf8(bytes"\xff"));
+  Exit::Success()
+}

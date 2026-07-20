@@ -1,5 +1,0 @@
-module core;
-
-public intrinsic type Int;
-public intrinsic type Bytes;
-public owned intrinsic type Block;

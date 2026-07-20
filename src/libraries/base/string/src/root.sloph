@@ -1,0 +1,4 @@
+module string;
+
+public import string::ascii::{ascii_length, ascii_is_empty};
+public import string::utf8::{utf8_length, utf8_is_empty};

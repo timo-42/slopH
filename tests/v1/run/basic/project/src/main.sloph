@@ -4,16 +4,16 @@ import os::process::{Exit};
 import std::io::{write};
 
 fn describe(count: Int) -> Bytes
-| 0 => "none"
-| 1 => "one"
-| n => "many"
+| 0 => bytes"none"
+| 1 => bytes"one"
+| n => bytes"many"
 
 public fn main() -> Exit {
   let zero = write(describe(0));
-  let separator_one = write(" ");
+  let separator_one = write(bytes" ");
   let one = write(describe(1));
-  let separator_many = write(" ");
+  let separator_many = write(bytes" ");
   let many = write(describe(7));
-  let newline = write("\n");
+  let newline = write(bytes"\n");
   Exit::Success()
 }

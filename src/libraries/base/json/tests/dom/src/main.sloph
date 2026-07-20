@@ -1,0 +1,5 @@
+module json_test::main;
+
+import json::dom::{Value};
+
+public const main: Value { Value::Null() }

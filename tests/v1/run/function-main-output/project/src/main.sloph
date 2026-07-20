@@ -4,6 +4,6 @@ import os::process::{Exit};
 import std::io::{write};
 
 public fn main() -> Exit {
-  let written = write("hello\n");
+  let written = write(bytes"hello\n");
   Exit::Success()
 }

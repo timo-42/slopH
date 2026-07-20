@@ -137,8 +137,10 @@ static int exact_provider_object(yyjson_val *root) {
 static SlophStatus resolve_provider(SlophContext *context, const char *identity,
                                     ResolvedProvider *out) {
     const char *libraries = native_libraries_root();
+    static const char *const layers[] = {"core", "base", "user"};
     const char *cursor = identity, *separator;
-    size_t root_length, position = 0u, identity_length = strlen(identity);
+    const char *layer = NULL;
+    size_t root_length, position = 0u, identity_length = strlen(identity), layer_index;
     char *manifest = NULL;
     FILE *stream = NULL;
     long file_size;
@@ -158,12 +160,30 @@ static SlophStatus resolve_provider(SlophContext *context, const char *identity,
         return diagnostic(context, SLOPH_STATUS_INVALID_ARGUMENT,
                           "compiler.provider.identity",
                           "invalid native provider identity", "{}");
-    root_length = strlen(libraries) + 1u + (size_t)(separator - cursor) +
+    for (layer_index = 0u; layer_index < 3u; ++layer_index) {
+        size_t size = strlen(libraries) + strlen(layers[layer_index]) +
+            (size_t)(separator - cursor) + sizeof("///library.json");
+        char *candidate = malloc(size);
+        if (candidate == NULL) return SLOPH_STATUS_OUT_OF_MEMORY;
+        (void)snprintf(candidate, size, "%s/%s/%.*s/library.json", libraries,
+                       layers[layer_index], (int)(separator - cursor), cursor);
+        if (regular_not_symlink(candidate)) {
+            if (layer != NULL) { free(candidate); return diagnostic(context,
+                SLOPH_STATUS_INVALID_ARGUMENT, "compiler.provider.package",
+                "provider package exists in more than one library layer", "{}"); }
+            layer = layers[layer_index];
+        }
+        free(candidate);
+    }
+    if (layer == NULL) return diagnostic(context, SLOPH_STATUS_INVALID_ARGUMENT,
+        "compiler.provider.package", "provider package is not installed", "{}");
+    root_length = strlen(libraries) + strlen(layer) + 2u +
+                  (size_t)(separator - cursor) +
                   sizeof("/src/") - 1u + identity_length + 1u;
     out->root = malloc(root_length);
     if (out->root == NULL) return SLOPH_STATUS_OUT_OF_MEMORY;
-    position += (size_t)snprintf(out->root, root_length, "%s/%.*s/src/", libraries,
-                                (int)(separator - cursor), cursor);
+    position += (size_t)snprintf(out->root, root_length, "%s/%s/%.*s/src/",
+                                libraries, layer, (int)(separator - cursor), cursor);
     cursor = separator + 2u;
     for (;;) {
         separator = strstr(cursor, "::");
