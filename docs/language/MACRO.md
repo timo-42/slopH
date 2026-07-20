@@ -271,6 +271,12 @@ Built-in and standard-profile symbols follow the same fixity model. A symbol
 has one fixity wherever it is visible. Importing two incompatible declarations
 for the same symbol is an error.
 
+An operator symbol resolves to exactly one visible declaration before operand
+type checking. That declaration names exactly one protocol method. Resolution
+does not rank overload candidates, perform argument-dependent lookup, or search
+chains of implicit conversions; an absent or conflicting declaration is a
+compile-time error.
+
 ## Operator Typeclasses
 
 Operators dispatch through typeclass protocols rather than compiler-owned
@@ -307,10 +313,10 @@ Instance coherence must ensure that a program has at most one applicable
 instance for a type and typeclass. The exact instance ownership rule will be
 settled with the module and typeclass design.
 
-Whether generic typeclass calls use dictionary passing or monomorphization is
-a compiler and ABI decision. It does not change the source semantics described
-here and remains undecided until generics and separate compilation are
-designed.
+Generic typeclass calls use dictionary or witness passing with the uniform
+representation by default. A release build may selectively monomorphize a
+bounded set of calls after validated typed Core, but this is an optional cached
+optimization and does not change the source semantics described here.
 
 ## Explicit Literal Macros
 
@@ -505,7 +511,8 @@ designed:
 
 - module naming, file mapping, visibility, exports, re-exports, packages, and
   namespace separation;
-- dictionary passing versus monomorphization for generic typeclass calls;
+- the exact dictionary layout, uniform representation ABI, and release
+  specialization budget for generic typeclass calls;
 - the exact typeclass instance ownership and coherence rule;
 - the concrete macro, quote, splice, and import syntax;
 - compile-time resource-limit values;

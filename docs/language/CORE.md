@@ -384,7 +384,8 @@ over a fixed Core rather than a second semantic language.
 
 Homogeneous operator protocols can elaborate into explicit ordinary calls.
 
-If dictionary passing is selected, an operator such as:
+Dictionary or witness passing is the default representation. An operator such
+as:
 
 ```text
 x + y
@@ -397,12 +398,16 @@ Add.add(add_dictionary_for_T, x, y)
 ```
 
 The dictionary itself is an ordinary Core value containing functions. No
-special Core form is required.
+special Core form is required. Surface resolution selects one operator
+declaration, protocol method, and coherent instance without overload ranking or
+implicit-conversion search before emitting this call.
 
-If monomorphization is selected instead, specialization happens during or
-after elaboration and still produces ordinary applications and functions.
-Dictionary passing versus monomorphization remains a compiler and ABI decision,
-not a new Core syntax decision.
+Generic definitions are validated and compiled independently against their
+declared constraints using a uniform erased representation. Selective
+monomorphization is a bounded release-profile optimization, never a semantic
+requirement. When selected, specialization happens after validated typed Core,
+produces ordinary applications and functions, is cached independently, and
+falls back to the uniform implementation without changing behavior.
 
 ## Parameterized Core Floating Point
 
@@ -480,7 +485,8 @@ features or AST constructors alone.
 - Whether types share the term grammar or use a separate grammar.
 - The ownership-preserving versus explicit-drop lowering point.
 - The complete primitive catalog.
-- Dictionary passing versus monomorphization.
+- The exact dictionary layout, uniform representation ABI, and release
+  specialization budget.
 - The versioning and compatibility policy for public Core text.
 - The initial optimization pipeline and budgets.
 - The backend IR and native code-generation path.

@@ -42,9 +42,13 @@ and peak-memory budgets for this workload. Measurements must include:
 - test discovery, compilation, linking, and startup;
 - several clean builds in independent worktrees running concurrently.
 
-Compiler phase timings, critical dependency paths, cache hits, cache misses,
-and peak memory must be inspectable. A performance claim without the workload,
-machine, cache state, and compiler version is incomplete.
+Compiler phase timings for parsing, expansion, resolution, type checking,
+lowering, optimization, code generation, and linking must be inspectable beside
+critical dependency paths, cache hits, cache misses, allocation, and peak
+memory. A performance claim without the workload, machine, cache state, and
+compiler version is incomplete. Optimizing one phase is not a success when it
+increases complete edit-to-result latency or merely moves equivalent work into
+another phase.
 
 ## Build Graph
 
@@ -64,6 +68,12 @@ The graph distinguishes at least:
 A cheap initial scan may read module headers, imports, declared syntax imports,
 and build-task declarations. It must not require full type checking merely to
 discover the build graph.
+
+After those declarations are known, a module must be parseable from its own
+source, the selected language profile, and the compact interfaces of its
+explicit syntax imports. The parser must not load or parse ordinary dependency
+bodies, execute macros merely to discover grammar, or search the project for
+implicit syntax providers.
 
 Independent graph nodes should compile in parallel in one compiler invocation
 using a bounded worker pool. Scheduling must account for memory as well as CPU;
@@ -104,6 +114,11 @@ dependent modules to be type-checked again. Changing an interface invalidates
 only its transitive consumers and the artifacts whose results can actually
 change.
 
+Name resolution and type checking consume the current module plus the compact
+interfaces of its explicit imports. They must not scan unrelated project files,
+load private dependency bodies, or use undeclared transitive imports to
+determine a name's meaning, type, or scope.
+
 The language design must preserve module-local checking wherever practical.
 Public declarations may require explicit signatures when doing so prevents
 global inference or unstable interfaces. Features requiring whole-program name
@@ -141,23 +156,70 @@ Parsing must be linear in input size and avoid unnecessary allocation. Parsed
 trees and intermediate representations should be released after their last
 consumer instead of retaining the entire project in memory.
 
+The compiler should lower module-local data into compact representations as
+soon as the consumers of richer syntax are finished. Streaming, direct lowering,
+and phase fusion are permitted when they reduce measured end-to-end work while
+preserving the canonical Syntax and Core inspection boundaries, independent
+validation, deterministic diagnostics, and reproducibility. Literal one-pass
+source-to-machine-code compilation is not required.
+
 Macro expansion, type checking, Core validation, and optimization must have
 bounded and observable work. The compiler must diagnose exceeded limits rather
 than hang or silently consume unbounded resources.
 
+The type system must preserve module-local checking and predictable complexity.
+Unbounded global inference, open-ended instance or implicit search, repeated
+whole-program constraint solving, and mandatory transitive specialization are
+inadmissible. Where a useful feature would otherwise require them, explicit
+annotations or a separately selected slower mode are preferred.
+
 Generic code must support separate compilation. Dictionary or witness passing
-is the default conceptual fallback; mandatory transitive monomorphization is
-not assumed. Selective specialization is permitted when bounded, profitable,
-and cacheable.
+with a uniform erased representation is the default implementation strategy.
+Each generic definition is checked and compiled once against its declared
+constraints. Mandatory transitive monomorphization is excluded. Selective
+specialization is permitted only in the release profile when bounded,
+profitable, independently cacheable, and unnecessary for correctness.
+
+Operator syntax must resolve to exactly one imported declaration and one
+protocol method before Core is emitted. Instance selection must be coherent,
+bounded, and decidable from the operand types and explicit imports. Candidate
+ranking, argument-dependent lookup, and search through chains of implicit
+conversions are excluded.
 
 The default build pipeline uses a small number of deterministic Core passes.
 Cross-module inlining, whole-program specialization, and link-time optimization
 must be optional optimization modes, not prerequisites for normal builds or
 acceptable runtime behavior.
 
+Each default optimization pass must have a documented complexity bound and a
+benchmark demonstrating enough generated-code or downstream compile-time value
+to justify its own latency and allocation. Repeated heuristic pass scheduling
+to a fixed point is excluded from the default pipeline.
+
 The initial native backend and linker path must favor predictable low latency.
 A slower optimizing backend may be offered separately. Both paths consume the
 same validated typed Core and must preserve language semantics.
+
+## Development and Release Profiles
+
+`dev` is the default debug and iteration profile. It performs complete semantic
+checking, emits useful source-level debug information, uses the uniform generic
+representation, and runs only the small mandatory optimization set. It favors
+fast code generation and linking, low peak memory, incremental reuse, and quick
+startup of the produced program over peak runtime performance.
+
+`release` starts from the same validated typed Core and may add bounded
+specialization, inlining, more expensive local optimization, and an optimizing
+backend. It must reuse profile-independent parsing, expansion, interfaces, type
+checking, and initial Core artifacts rather than repeating them. Whole-program
+and link-time optimization remain explicit release options rather than implicit
+requirements.
+
+The profiles have identical language semantics, type checking, diagnostics,
+resource-safety guarantees, and reproducibility rules. A program rejected by
+`dev` cannot become valid in `release`, and optimization may not remove required
+checks or observable behavior. Profile-dependent artifacts include the profile
+and exact optimization policy in their content identity.
 
 ## WebAssembly Execution Targets
 
@@ -213,8 +275,18 @@ application density, sandboxing, or host integration.
 ## Registry Package Contents
 
 Canonical compressed source and a complete manifest are the portable source of
-truth for a registry package. A conforming compiler must be able to build a
-package when every optional binary artifact is absent or incompatible.
+truth for a registry package. Every published package must also contain the
+profile-defined, versioned binary Syntax encoding of each source module. The
+encoding is a validated accelerator derived from canonical source, not a second
+authority over program meaning. A conforming registry rejects an upload when
+source or binary Syntax is missing, corrupt, incompatible with the declared
+profile, or does not decode to the canonical source supplied in the package.
+
+A conforming compiler must still be able to build a package from canonical
+source when its binary Syntax or every optional binary artifact is absent or
+incompatible. This fallback preserves recovery from damaged caches and old
+artifact versions; it does not permit a conforming registry to accept an
+incomplete upload.
 
 Published archives also carry inert publisher audit claims. The claims are
 untrusted statements covered by the package hash, not evidence that an audit
@@ -233,7 +305,8 @@ initial byte-hosting layer; their URLs are locators, not artifact identities.
 The exploratory design is recorded in
 [Library Registry Metadata and GitHub-Backed CDN](../../idea/LIBRARY_CDN.md).
 
-A registry may additionally distribute the following accelerators:
+A registry may additionally distribute the following accelerators beyond the
+required binary Syntax:
 
 1. **Compiled module interfaces.** Small, quick-to-load public contracts used
    for dependency checking and build-graph construction.
@@ -245,11 +318,32 @@ A registry may additionally distribute the following accelerators:
 4. **Native objects.** Optional target-, ABI-, feature-, and optimization-
    specific artifacts for the fastest compatible link path.
 
-A binary source AST may be used as a disposable local cache, but it is not the
-preferred registry contract. Parsing is only one compiler phase, an AST is
-tightly coupled to parser and syntax versions, and an AST still requires macro
-expansion and type checking. Interfaces and typed Core avoid more verified work
-and therefore justify a stable format more readily.
+The same validated intermediate artifacts may be exchanged through CI artifact
+storage or a remote cache. Distribution is worthwhile only when fetching,
+validating, and loading an artifact is cheaper than recomputing it for the
+measured workload.
+
+Every supported binary semantic intermediate, including the required Syntax,
+interfaces, compile-time code, and typed or optimized Core, must
+have a deterministic canonical text representation. The shipped toolchain must
+include a bounded, non-executing decoder that validates the binary document and
+emits that text. Canonical text encoded as binary and decoded again must produce
+the same canonical text, so cached and distributed intermediates remain
+inspectable, recoverable, and testable without a separate utility. This
+requirement does not apply to backend products such as native objects or
+executables; those retain their platform-standard inspection tools.
+
+Encoding is reproducible in the other direction as well: identical canonical
+text, schema version, profile, and declared encoder options must produce
+byte-for-byte identical binary documents, independent of host, path, locale,
+time, cache state, and worker scheduling. Registry upload validation regenerates
+the required binary Syntax from canonical source and compares its content
+identity before accepting the package.
+
+The required binary Syntax is also suitable for disposable local and CI caches.
+It removes source parsing but still requires macro expansion and type checking;
+interfaces and typed Core avoid more verified work and should be preferred as
+additional accelerators when their fetch and validation cost is justified.
 
 Registry artifacts must not silently replace language semantics. The package's
 source, manifest, lock data, declared build inputs, and compiler rules determine
@@ -314,15 +408,16 @@ untrusted package text without network, publication, signing, or audit
 authority.
 
 Given the same canonical inputs and declared toolchain, compilation must be
-reproducible. Timestamps, absolute workspace paths, directory enumeration
-order, worker scheduling, and undeclared environment state must not change
-semantic interfaces or generated artifacts. Debug information that embeds
-local paths must use an explicit reproducible mapping.
+byte-for-byte reproducible. Timestamps, absolute workspace paths, directory
+enumeration order, worker scheduling, locale, cache state, network availability,
+and undeclared environment state must not change semantic interfaces or
+generated artifacts. Debug information that embeds local paths must use an
+explicit reproducible mapping.
 
-Where practical, the ecosystem should support independently rebuilding
-registry accelerators from source and comparing their identities. A publisher-
-supplied artifact may be rejected by policy without making its source package
-unusable.
+The ecosystem must support independently rebuilding registry accelerators from
+canonical source and all declared inputs and comparing their byte identities. A
+publisher-supplied artifact may be rejected by policy without making its source
+package unusable.
 
 ## Local Cache
 
@@ -393,14 +488,26 @@ The toolchain repository must continuously test at least:
 
 - a representative 200,000-line, 150-library reference project;
 - cold source-only builds with all optional artifacts disabled;
+- source parsing with ordinary dependency bodies unavailable and only declared
+  syntax interfaces present;
+- builds loading the required binary Syntax, including its validation cost;
 - builds using interfaces and typed-Core registry artifacts;
 - warm no-change and local-change builds;
+- private dependency implementation changes that leave public interfaces stable
+  and therefore do not reparse or recheck consumers;
+- dev and release builds of generic-heavy projects, including proof that release
+  reuses profile-independent checked Core and bounds specialization growth;
+- semantic-equivalence tests comparing dev and release program behavior;
 - deep public-interface invalidation;
 - macro-heavy but valid code at declared limits;
 - concurrent independent worktree builds;
 - cache corruption, cache deletion, and remote-cache failure;
 - incompatible compiler, schema, standard-library, target, and feature data;
 - deterministic rebuilds with different paths and worker counts;
+- deterministic rebuilds with empty, warm, corrupt, and remote caches and with
+  network access disabled after declared inputs are present;
+- registry binary Syntax regeneration and byte comparison against the uploaded
+  artifact;
 - malicious or malformed package artifacts under decoder resource limits.
 
 Once a managed target exists, continuous tests must additionally measure its

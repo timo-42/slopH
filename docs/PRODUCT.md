@@ -52,8 +52,8 @@ repository's Make targets. Public `ast` and `core` inspection commands expose
 the current representations. The explicit stage commands are
 `canopy-to-crown`, `crown-to-heartwood`, and `heartwood-to-timber`. Artifacts
 are Crown AST JSON, canonical Heartwood Core, Timber C11, and native
-executables; deterministic representations must be byte-identical for
-identical inputs.
+executables; deterministic representations must be byte-for-byte reproducible
+from identical canonical and declared inputs.
 
 ## Compatibility Promises
 
@@ -74,6 +74,8 @@ identical inputs.
   [BASELINE.md](../.plan/00-product-definition/BASELINE.md).
 - A clean checkout must build and test locally without a network or
   pre-populated cache.
+- Clean, cached, and CI-restored builds with identical declared inputs must
+  produce byte-for-byte identical outputs.
 - Every user-controlled source of unbounded work (input size, recursion,
   expansion, evaluation, output) has an explicit limit with a deterministic
   diagnostic.
